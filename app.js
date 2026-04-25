@@ -40,7 +40,8 @@ const state = {
   smoothedHeadingDeg: 0,
   cameraLock: false,
 
-  fuelStations: [],
+  fuelPriceOverrides: [],
+  osmFuelStations: [],
   currentFuelStation: null,
 
   settings: {
@@ -59,11 +60,15 @@ const state = {
   speedLookupQueue: new Set()
 };
 
-const HISTORY_KEY = "greenwave_dk_history_v2";
-const OBS_KEY = "greenwave_dk_observations_v2";
-const SETTINGS_KEY = "greenwave_dk_settings_v2";
+const HISTORY_KEY = "greenwave_dk_history_v3";
+const OBS_KEY = "greenwave_dk_observations_v3";
+const SETTINGS_KEY = "greenwave_dk_settings_v3";
 const FUEL_DATA_URL = "./fuel-prices.json";
+
 const MAX_FUEL_DISTANCE_FROM_ROUTE_METERS = 1000;
+const OSM_FUEL_ROUTE_SAMPLE_EVERY = 35;
+const OSM_FUEL_AROUND_METERS = 2500;
+const OSM_FUEL_MAX_QUERY_POINTS = 25;
 
 const els = {
   destinationInput: document.getElementById("destinationInput"),
@@ -173,7 +178,7 @@ async function init() {
   renderRecommendedSpeedState();
   refreshObservationUI();
 
-  await loadFuelData();
+  await loadFuelPriceOverrides();
   updateFuelBox();
 }
 
@@ -319,21 +324,21 @@ function applyFuelVisibility() {
   els.fuelPanel.classList.toggle("hidden", !state.settings.showFuelBox);
 }
 
-async function loadFuelData() {
+async function loadFuelPriceOverrides() {
   try {
     const response = await fetch(FUEL_DATA_URL, { cache: "no-store" });
     if (!response.ok) throw new Error("fuel-prices.json kunne ikke hentes.");
 
     const data = await response.json();
-    state.fuelStations = normalizeFuelData(Array.isArray(data) ? data : []);
+    state.fuelPriceOverrides = normalizeFuelData(Array.isArray(data) ? data : []);
 
     els.fuelDisclaimer.textContent =
-      "Brændstofdata hentes fra fuel-prices.json. Hvis prisen mangler, vises det ærligt.";
+      "Tankstationer hentes fra OSM. Priser hentes kun fra fuel-prices.json, hvis de findes.";
   } catch (error) {
     console.warn(error);
-    state.fuelStations = [];
+    state.fuelPriceOverrides = [];
     els.fuelDisclaimer.textContent =
-      "Brændstofdata kunne ikke hentes. Tjek fuel-prices.json på GitHub.";
+      "Tankstationer hentes fra OSM. fuel-prices.json kunne ikke hentes, så priser vises som manglende.";
   }
 }
 
@@ -570,7 +575,11 @@ async function calculateAndRenderRoute(current, destination) {
   fitRouteBounds();
 
   updateRouteSummary();
+
+  setFuelLoadingMessage();
+  await loadOsmFuelStationsForRoute(routeData.geometry);
   updateFuelBox();
+
   updateProgressUI(current);
   await updateSpeedForCurrentSegment();
   updateGreenWaveUI();
@@ -618,6 +627,283 @@ function normalizeRoute(route) {
     geometry: route.geometry.coordinates,
     steps
   };
+}
+
+function setFuelLoadingMessage() {
+  if (!state.settings.showFuelBox) return;
+
+  els.fuelContent.innerHTML = `
+    <div class="fuel-meta">
+      Henter tankstationer fra OSM langs ruten …
+    </div>
+  `;
+}
+
+async function loadOsmFuelStationsForRoute(geometry) {
+  try {
+    const samplePoints = sampleRoutePointsForFuelSearch(geometry);
+
+    if (!samplePoints.length) {
+      state.osmFuelStations = [];
+      return;
+    }
+
+    const queryParts = samplePoints.map((point) => {
+      return `
+        node(around:${OSM_FUEL_AROUND_METERS},${point.lat},${point.lng})["amenity"="fuel"];
+        way(around:${OSM_FUEL_AROUND_METERS},${point.lat},${point.lng})["amenity"="fuel"];
+      `;
+    });
+
+    const query = `
+      [out:json][timeout:25];
+      (
+        ${queryParts.join("\n")}
+      );
+      out center tags;
+    `;
+
+    const response = await fetch("https://overpass-api.de/api/interpreter", {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=UTF-8" },
+      body: query
+    });
+
+    if (!response.ok) throw new Error("OSM tankstationsopslag fejlede.");
+
+    const data = await response.json();
+    const elements = Array.isArray(data.elements) ? data.elements : [];
+
+    state.osmFuelStations = dedupeFuelStations(
+      elements
+        .map(normalizeOsmFuelElement)
+        .filter(Boolean)
+        .map(applyPriceOverrideToOsmStation)
+    );
+  } catch (error) {
+    console.warn(error);
+    state.osmFuelStations = [];
+    els.fuelContent.innerHTML = `
+      <div class="fuel-meta">
+        Kunne ikke hente tankstationer fra OSM lige nu. Prøv igen senere.
+      </div>
+    `;
+  }
+}
+
+function sampleRoutePointsForFuelSearch(geometry) {
+  if (!Array.isArray(geometry) || geometry.length === 0) return [];
+
+  const points = [];
+
+  for (let i = 0; i < geometry.length; i += OSM_FUEL_ROUTE_SAMPLE_EVERY) {
+    const coord = geometry[i];
+    points.push({ lng: coord[0], lat: coord[1] });
+  }
+
+  const last = geometry[geometry.length - 1];
+  points.push({ lng: last[0], lat: last[1] });
+
+  const deduped = [];
+  const seen = new Set();
+
+  points.forEach((point) => {
+    const key = `${point.lat.toFixed(3)},${point.lng.toFixed(3)}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      deduped.push(point);
+    }
+  });
+
+  if (deduped.length <= OSM_FUEL_MAX_QUERY_POINTS) return deduped;
+
+  const step = Math.ceil(deduped.length / OSM_FUEL_MAX_QUERY_POINTS);
+  return deduped.filter((_, index) => index % step === 0).slice(0, OSM_FUEL_MAX_QUERY_POINTS);
+}
+
+function normalizeOsmFuelElement(element) {
+  if (!element || !element.tags) return null;
+
+  const lat = typeof element.lat === "number" ? element.lat : element.center?.lat;
+  const lng = typeof element.lon === "number" ? element.lon : element.center?.lon;
+
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+
+  const tags = element.tags;
+  const brand = tags.brand || tags.operator || "";
+  const name = tags.name || brand || "Tankstation";
+  const address = buildOsmAddress(tags);
+
+  return {
+    id: `osm-${element.type}-${element.id}`,
+    osmId: `${element.type}/${element.id}`,
+    name,
+    brand,
+    address,
+    lat,
+    lng,
+    fuelType: state.settings.fuelType,
+    price: null,
+    currency: "DKK",
+    unit: state.settings.fuelType === "electric" ? "kWh" : "liter",
+    updatedAt: null,
+    source: "OSM station + ingen prisdata",
+    rawTags: tags
+  };
+}
+
+function buildOsmAddress(tags) {
+  const street = [tags["addr:street"], tags["addr:housenumber"]].filter(Boolean).join(" ");
+  const city = [tags["addr:postcode"], tags["addr:city"]].filter(Boolean).join(" ");
+
+  if (street && city) return `${street}, ${city}`;
+  if (street) return street;
+  if (city) return city;
+
+  return "Adresse mangler i OSM";
+}
+
+function applyPriceOverrideToOsmStation(osmStation) {
+  const match = findFuelPriceOverride(osmStation);
+
+  if (!match) return osmStation;
+
+  return {
+    ...osmStation,
+    price: match.price,
+    currency: match.currency,
+    unit: match.unit,
+    updatedAt: match.updatedAt,
+    source: match.source || "fuel-prices.json",
+    priceMatched: true
+  };
+}
+
+function findFuelPriceOverride(osmStation) {
+  const sameFuel = state.fuelPriceOverrides.filter((item) => item.fuelType === state.settings.fuelType);
+
+  if (!sameFuel.length) return null;
+
+  const byDistance = sameFuel
+    .map((item) => ({
+      ...item,
+      matchDistance: haversineMeters(osmStation.lat, osmStation.lng, item.lat, item.lng)
+    }))
+    .filter((item) => item.matchDistance <= 80)
+    .sort((a, b) => a.matchDistance - b.matchDistance);
+
+  return byDistance[0] || null;
+}
+
+function dedupeFuelStations(stations) {
+  const sorted = stations.slice().sort((a, b) => {
+    const nameA = a.name || "";
+    const nameB = b.name || "";
+    return nameA.localeCompare(nameB);
+  });
+
+  const result = [];
+
+  sorted.forEach((station) => {
+    const duplicate = result.find((existing) => {
+      return haversineMeters(station.lat, station.lng, existing.lat, existing.lng) < 35;
+    });
+
+    if (!duplicate) {
+      result.push(station);
+    }
+  });
+
+  return result;
+}
+
+function updateFuelBox() {
+  if (!state.settings.showFuelBox) return;
+
+  if (!state.routeData) {
+    els.fuelContent.textContent = "Beregn en rute for at se brændstofstatus langs ruten.";
+    state.currentFuelStation = null;
+    return;
+  }
+
+  if (!state.osmFuelStations.length) {
+    els.fuelContent.innerHTML = `
+      <div class="fuel-meta">
+        Ingen OSM-tankstationer fundet langs ruten. Det kan skyldes Overpass/OSM-data eller for lille søgeområde.
+      </div>
+    `;
+    state.currentFuelStation = null;
+    return;
+  }
+
+  const best = findBestFuelStationNearRoute(state.routeData.geometry);
+  state.currentFuelStation = best;
+
+  if (!best) {
+    els.fuelContent.innerHTML = `
+      <div class="fuel-meta">
+        Der blev fundet ${state.osmFuelStations.length} OSM-tankstationer i området, men ingen inden for ${formatDistance(state.settings.maxDetourMeters)} ekstra omvej.
+      </div>
+    `;
+    return;
+  }
+
+  const mapsLink = `https://www.google.com/maps/dir/?api=1&destination=${best.lat},${best.lng}`;
+  const priceText =
+    typeof best.price === "number"
+      ? `${best.price.toFixed(2).replace(".", ",")} ${best.currency}/${best.unit === "liter" ? "L" : best.unit}`
+      : "Pris mangler";
+
+  const priceNote =
+    typeof best.price === "number"
+      ? `Pris matchet fra ${best.source}`
+      : "Ingen livepris tilsluttet endnu";
+
+  const updatedText = best.updatedAt ? `Opdateret: ${best.updatedAt}` : "Opdateringstid mangler";
+
+  els.fuelContent.innerHTML = `
+    <div class="fuel-name">${escapeHtml(best.name)}</div>
+    <div class="fuel-address">${escapeHtml(best.address)}</div>
+    <div class="fuel-price">${escapeHtml(priceText)}</div>
+    <div class="fuel-meta">${escapeHtml(priceNote)}</div>
+    <div class="fuel-meta">${escapeHtml(updatedText)}</div>
+    <div class="fuel-meta">Stationer fundet langs ruten: ${state.osmFuelStations.length}</div>
+    <div class="fuel-meta">Ekstra omvej: ca. ${formatDistance(best.extraDetourMeters)}</div>
+    <div class="fuel-meta">Afstand fra rute: ca. ${formatDistance(best.distanceToRouteMeters)}</div>
+    <a class="fuel-link" href="${mapsLink}" target="_blank" rel="noopener noreferrer">Åbn i Google Maps</a>
+  `;
+}
+
+function findBestFuelStationNearRoute(geometry) {
+  const candidates = state.osmFuelStations
+    .map((station) => {
+      const distanceToRouteMeters = distanceToRouteMetersFromGeometry(
+        { lat: station.lat, lng: station.lng },
+        geometry
+      );
+
+      const extraDetourMeters = distanceToRouteMeters * 2;
+
+      return {
+        ...station,
+        distanceToRouteMeters,
+        extraDetourMeters
+      };
+    })
+    .filter((station) => station.distanceToRouteMeters <= MAX_FUEL_DISTANCE_FROM_ROUTE_METERS)
+    .filter((station) => station.extraDetourMeters <= state.settings.maxDetourMeters)
+    .sort((a, b) => {
+      const aHasPrice = typeof a.price === "number";
+      const bHasPrice = typeof b.price === "number";
+
+      if (aHasPrice && bHasPrice && a.price !== b.price) return a.price - b.price;
+      if (aHasPrice && !bHasPrice) return -1;
+      if (!aHasPrice && bHasPrice) return 1;
+
+      return a.extraDetourMeters - b.extraDetourMeters;
+    });
+
+  return candidates[0] || null;
 }
 
 async function startLiveNavigation() {
@@ -1292,90 +1578,6 @@ function updateGreenWaveUI() {
   els.driveGreenWaveStatus.textContent = status;
 }
 
-function updateFuelBox() {
-  if (!state.settings.showFuelBox) return;
-
-  if (!state.routeData) {
-    els.fuelContent.textContent = "Beregn en rute for at se brændstofstatus langs ruten.";
-    state.currentFuelStation = null;
-    return;
-  }
-
-  if (!state.fuelStations.length) {
-    els.fuelContent.innerHTML = `
-      <div class="fuel-meta">
-        Ingen brændstofdata fundet. Tjek fuel-prices.json.
-      </div>
-    `;
-    state.currentFuelStation = null;
-    return;
-  }
-
-  const best = findBestFuelStationNearRoute(state.routeData.geometry);
-  state.currentFuelStation = best;
-
-  if (!best) {
-    els.fuelContent.innerHTML = `
-      <div class="fuel-meta">
-        Ingen station fundet inden for ${formatDistance(state.settings.maxDetourMeters)} ekstra omvej.
-      </div>
-    `;
-    return;
-  }
-
-  const mapsLink = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(best.address)}`;
-  const priceText =
-    typeof best.price === "number"
-      ? `${best.price.toFixed(2).replace(".", ",")} ${best.currency}/${best.unit === "liter" ? "L" : best.unit}`
-      : "Pris mangler";
-
-  const updatedText = best.updatedAt ? `Opdateret: ${best.updatedAt}` : "Opdateringstid mangler";
-
-  els.fuelContent.innerHTML = `
-    <div class="fuel-name">${escapeHtml(best.name)}</div>
-    <div class="fuel-address">${escapeHtml(best.address)}</div>
-    <div class="fuel-price">${escapeHtml(priceText)}</div>
-    <div class="fuel-meta">Datakilde: ${escapeHtml(best.source || "fuel-prices.json")}</div>
-    <div class="fuel-meta">${escapeHtml(updatedText)}</div>
-    <div class="fuel-meta">Ekstra omvej: ca. ${formatDistance(best.extraDetourMeters)}</div>
-    <div class="fuel-meta">Afstand fra rute: ca. ${formatDistance(best.distanceToRouteMeters)}</div>
-    <a class="fuel-link" href="${mapsLink}" target="_blank" rel="noopener noreferrer">Åbn i Google Maps</a>
-  `;
-}
-
-function findBestFuelStationNearRoute(geometry) {
-  const candidates = state.fuelStations
-    .filter((station) => station.fuelType === state.settings.fuelType)
-    .map((station) => {
-      const distanceToRouteMeters = distanceToRouteMetersFromGeometry(
-        { lat: station.lat, lng: station.lng },
-        geometry
-      );
-
-      const extraDetourMeters = distanceToRouteMeters * 2;
-
-      return {
-        ...station,
-        distanceToRouteMeters,
-        extraDetourMeters
-      };
-    })
-    .filter((station) => station.distanceToRouteMeters <= MAX_FUEL_DISTANCE_FROM_ROUTE_METERS)
-    .filter((station) => station.extraDetourMeters <= state.settings.maxDetourMeters)
-    .sort((a, b) => {
-      const aHasPrice = typeof a.price === "number";
-      const bHasPrice = typeof b.price === "number";
-
-      if (aHasPrice && bHasPrice && a.price !== b.price) return a.price - b.price;
-      if (aHasPrice && !bHasPrice) return -1;
-      if (!aHasPrice && bHasPrice) return 1;
-
-      return a.extraDetourMeters - b.extraDetourMeters;
-    });
-
-  return candidates[0] || null;
-}
-
 function handleAddFuelStop() {
   if (!state.currentFuelStation) {
     setWarningMessage("Ingen brændstofstation klar endnu.");
@@ -1390,7 +1592,11 @@ function handleAddFuelStop() {
     displayName: state.currentFuelStation.address
   };
 
-  els.destinationInput.value = state.currentFuelStation.address;
+  els.destinationInput.value =
+    state.currentFuelStation.address !== "Adresse mangler i OSM"
+      ? state.currentFuelStation.address
+      : `${state.currentFuelStation.lat},${state.currentFuelStation.lng}`;
+
   setInfoMessage("Brændstofstation er sat som destination. Beregn ruten igen.");
 }
 
