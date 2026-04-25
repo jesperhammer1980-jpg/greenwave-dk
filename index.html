@@ -14,12 +14,11 @@
 
 <div class="app-shell">
 
-  <!-- HEADER -->
   <header class="hero">
     <div class="hero-copy">
       <span class="eyebrow">GreenWave</span>
       <h1 id="titleText">Billigste brændstof</h1>
-      <p>Find billigste tankstation langs din rute</p>
+      <p id="subtitleText">Find billigste tankstation langs din rute</p>
     </div>
 
     <div class="hero-status">
@@ -31,15 +30,14 @@
 
   <main class="app-grid">
 
-    <!-- LEFT -->
     <div class="left-column">
 
       <section class="panel">
 
-        <label>Destination</label>
+        <label id="destinationLabel">Destination</label>
 
         <div class="search-wrap">
-          <input id="destinationInput" placeholder="Indtast adresse..." />
+          <input id="destinationInput" placeholder="Indtast adresse..." autocomplete="off" />
 
           <div id="autocompleteBox" class="autocomplete-box hidden">
             <div id="autocompleteList"></div>
@@ -62,33 +60,35 @@
         </div>
 
         <div id="historyBox" class="history-box hidden">
-          <div class="history-title">Seneste destinationer</div>
+          <div class="history-title" id="historyTitle">Seneste destinationer</div>
           <div id="historyList" class="history-list"></div>
         </div>
 
       </section>
 
-      <!-- FUEL -->
       <section id="fuelPanel" class="panel">
         <div class="panel-head">
-          <h2>Billigste tank</h2>
+          <h2 id="fuelPanelTitle">Billigste tank</h2>
         </div>
 
         <div id="fuelDisclaimer" class="fuel-disclaimer"></div>
         <div id="fuelContent"></div>
 
         <div class="button-row single">
-          <button id="openFuelListBtn" class="btn-primary">Se billigste på ruten</button>
+          <button id="openFuelListBtn" class="btn-primary" disabled>
+            Se billigste på ruten
+          </button>
         </div>
 
         <div class="button-row single">
-          <button id="openFuelHistoryBtn" class="btn-muted">Se prishistorik</button>
+          <button id="openFuelHistoryBtn" class="btn-muted">
+            Se prishistorik
+          </button>
         </div>
       </section>
 
     </div>
 
-    <!-- MAP -->
     <div class="center-column">
       <section class="map-panel">
 
@@ -98,12 +98,13 @@
           </div>
         </div>
 
-        <!-- NAV OVERLAY -->
         <div id="navOverlay" class="nav-overlay hidden">
 
           <div class="nav-top">
             <div class="nav-top-actions">
-              <button id="exitNavOverlayBtn" class="overlay-btn overlay-btn-danger">Stop</button>
+              <button id="exitNavOverlayBtn" class="overlay-btn overlay-btn-danger">
+                Stop
+              </button>
             </div>
 
             <div id="navBannerMain">—</div>
@@ -113,15 +114,17 @@
           <div class="nav-bottom">
             <div class="nav-bottom-main">
               <div class="nav-meta">
-                <span>Afstand</span>
+                <span id="navDistanceLabel">Afstand</span>
                 <strong id="driveRemainingDistance">—</strong>
               </div>
+
               <div class="nav-meta">
-                <span>Tid</span>
+                <span id="navTimeLabel">Tid</span>
                 <strong id="driveRemainingTime">—</strong>
               </div>
+
               <div class="nav-meta">
-                <span>Speed</span>
+                <span id="navSpeedLabel">Speed</span>
                 <strong id="driveCurrentValue">—</strong>
               </div>
             </div>
@@ -135,20 +138,19 @@
   </main>
 </div>
 
-<!-- SETTINGS -->
 <div id="settingsBackdrop" class="settings-backdrop hidden"></div>
 
 <div id="settingsPanel" class="settings-panel hidden">
 
   <div class="settings-header">
-    <h2>Indstillinger</h2>
+    <h2 id="settingsTitle">Indstillinger</h2>
     <button id="closeSettingsBtn" class="btn-muted small">Luk</button>
   </div>
 
   <div class="settings-body">
 
     <div class="settings-section">
-      <h3>Sprog</h3>
+      <h3 id="languageTitle">Sprog</h3>
 
       <label class="settings-option">
         <input type="radio" id="languageDa" name="language" checked />
@@ -162,7 +164,7 @@
     </div>
 
     <div class="settings-section">
-      <h3>Marked</h3>
+      <h3 id="regionTitle">Marked</h3>
 
       <label class="settings-option">
         <input type="radio" id="regionDK" name="region" checked />
@@ -173,20 +175,56 @@
         <input type="radio" id="regionUS" name="region" />
         <span>USA</span>
       </label>
+
+      <div class="settings-note" id="regionNote">
+        USA kræver amerikanske prisdata. Danske priser kan ikke bruges korrekt i USA.
+      </div>
     </div>
 
     <div class="settings-section">
-      <h3>Rute</h3>
+      <h3 id="routeTitle">Rute</h3>
 
       <label class="settings-option">
         <input type="radio" id="settingsRouteFast" name="routeMode" checked />
-        <span>Hurtigste</span>
+        <span id="routeFastText">Hurtigste</span>
       </label>
 
       <label class="settings-option">
         <input type="radio" id="settingsRouteEco" name="routeMode" />
-        <span>Økonomisk</span>
+        <span id="routeEcoText">Økonomisk</span>
       </label>
+    </div>
+
+    <div class="settings-section">
+      <h3 id="fuelSettingsTitle">Brændstof</h3>
+
+      <label for="settingsFuelType" id="fuelTypeLabel">Brændstoftype</label>
+      <select id="settingsFuelType">
+        <option value="benzin95">Benzin 95</option>
+        <option value="diesel">Diesel</option>
+        <option value="electric">El</option>
+      </select>
+
+      <label for="settingsMaxDetour" id="maxDetourLabel">Maks ekstra omvej</label>
+      <select id="settingsMaxDetour">
+        <option value="500">0,5 km</option>
+        <option value="1000">1 km</option>
+        <option value="2000" selected>2 km</option>
+        <option value="5000">5 km</option>
+      </select>
+
+      <label for="settingsSearchRadius" id="searchRadiusLabel">
+        Søg tankstationer inden for
+      </label>
+      <select id="settingsSearchRadius">
+        <option value="50000">50 km / 50 miles</option>
+        <option value="100000" selected>100 km / 100 miles</option>
+        <option value="200000">200 km / 200 miles</option>
+      </select>
+
+      <div class="settings-note" id="radiusNote">
+        I Danmark tolkes dette som kilometer. I USA tolkes det som miles.
+      </div>
     </div>
 
   </div>
@@ -197,12 +235,11 @@
 
 </div>
 
-<!-- FUEL LIST -->
 <div id="fuelListBackdrop" class="modal-backdrop hidden"></div>
 
 <div id="fuelListModal" class="fuel-list-modal hidden">
   <div class="fuel-list-header">
-    <h2>Billigste stationer</h2>
+    <h2 id="fuelListTitle">Billigste stationer</h2>
     <button id="closeFuelListBtn" class="btn-muted small">Luk</button>
   </div>
 
@@ -214,12 +251,11 @@
   <div id="fuelListContent" class="fuel-list-content"></div>
 </div>
 
-<!-- PRICE HISTORY -->
 <div id="fuelHistoryBackdrop" class="modal-backdrop hidden"></div>
 
 <div id="fuelHistoryModal" class="fuel-list-modal hidden">
   <div class="fuel-list-header">
-    <h2>Prishistorik</h2>
+    <h2 id="fuelHistoryTitle">Prishistorik</h2>
     <button id="closeFuelHistoryBtn" class="btn-muted small">Luk</button>
   </div>
 
