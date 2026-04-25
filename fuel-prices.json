@@ -1,1 +1,11 @@
 
+[
+  {
+    "id": "ingo-albertslund",
+    "name": "INGO Albertslund",
+    "lat": 55.6612,
+    "lng": 12.3463,
+    "fuelType": "benzin95",
+    "price": null
+  }
+]
