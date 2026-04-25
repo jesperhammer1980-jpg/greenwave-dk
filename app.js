@@ -23,17 +23,17 @@ const state = {
     region: "dk",
     routeMode: "fast",
     fuelType: "benzin95",
-    maxDetourMeters: 2000
+    maxDetourMeters: 2000,
+    searchRadiusBase: 100000
   }
 };
 
-const SETTINGS_KEY = "greenwave_settings_stable_v1";
-const HISTORY_KEY = "greenwave_history_stable_v1";
-const PRICE_HISTORY_KEY = "greenwave_price_history_stable_v1";
+const SETTINGS_KEY = "greenwave_settings_radius_v1";
+const HISTORY_KEY = "greenwave_history_radius_v1";
+const PRICE_HISTORY_KEY = "greenwave_price_history_radius_v1";
 const FUEL_DATA_URL = "./fuel-prices.json";
 
 const els = {};
-
 [
   "destinationInput",
   "autocompleteBox",
@@ -45,6 +45,7 @@ const els = {};
   "historyToggleBtn",
   "historyBox",
   "historyList",
+
   "openSettingsBtn",
   "closeSettingsBtn",
   "saveSettingsBtn",
@@ -56,23 +57,31 @@ const els = {};
   "regionUS",
   "settingsRouteFast",
   "settingsRouteEco",
+  "settingsFuelType",
+  "settingsMaxDetour",
+  "settingsSearchRadius",
+
   "gpsStatusChip",
   "navStatusChip",
   "mapModeLabel",
+
   "fuelDisclaimer",
   "fuelContent",
   "openFuelListBtn",
   "openFuelHistoryBtn",
+
   "fuelListBackdrop",
   "fuelListModal",
   "closeFuelListBtn",
   "sortFuelByPriceBtn",
   "sortFuelByDetourBtn",
   "fuelListContent",
+
   "fuelHistoryBackdrop",
   "fuelHistoryModal",
   "closeFuelHistoryBtn",
   "fuelHistoryContent",
+
   "navOverlay",
   "exitNavOverlayBtn",
   "navBannerMain",
@@ -80,8 +89,29 @@ const els = {};
   "driveRemainingDistance",
   "driveRemainingTime",
   "driveCurrentValue",
+
   "titleText",
-  "mapRotationInner"
+  "subtitleText",
+  "destinationLabel",
+  "historyTitle",
+  "fuelPanelTitle",
+  "settingsTitle",
+  "languageTitle",
+  "regionTitle",
+  "regionNote",
+  "routeTitle",
+  "routeFastText",
+  "routeEcoText",
+  "fuelSettingsTitle",
+  "fuelTypeLabel",
+  "maxDetourLabel",
+  "searchRadiusLabel",
+  "radiusNote",
+  "fuelListTitle",
+  "fuelHistoryTitle",
+  "navDistanceLabel",
+  "navTimeLabel",
+  "navSpeedLabel"
 ].forEach((id) => {
   els[id] = document.getElementById(id);
 });
@@ -89,13 +119,17 @@ const els = {};
 const i18n = {
   da: {
     title: "Billigste brændstof",
-    destination: "Indtast adresse...",
+    subtitle: "Find billigste tankstation langs din rute",
+    destination: "Destination",
+    destinationPlaceholder: "Indtast adresse...",
     calc: "Beregn rute",
     start: "Start",
     stop: "Stop",
     center: "Centrér",
     history: "Historik",
     settings: "Settings",
+    recentDestinations: "Seneste destinationer",
+    cheapestTank: "Billigste tank",
     cheapest: "Se billigste på ruten",
     priceHistory: "Se prishistorik",
     noRoute: "Beregn en rute først.",
@@ -109,25 +143,49 @@ const i18n = {
     mapReady: "Kort: klar",
     routeCalculating: "Beregner rute...",
     routeFailed: "Kunne ikke beregne rute",
-    noFuelOnRoute: "Ingen stationer med pris på ruten.",
+    noFuelOnRoute: "Ingen stationer med pris inden for den valgte afstand.",
     openMaps: "Åbn via Google Maps",
     detour: "Omvej",
     fromRoute: "Fra rute",
     source: "Kilde",
     match: "Match",
+    settingsTitle: "Indstillinger",
+    languageTitle: "Sprog",
+    regionTitle: "Marked",
+    routeTitle: "Rute",
+    fuelSettingsTitle: "Brændstof",
+    fuelType: "Brændstoftype",
+    maxDetour: "Maks ekstra omvej",
+    searchRadius: "Søg tankstationer inden for",
+    regionNote: "USA kræver amerikanske prisdata. Danske priser bruges ikke som USA-priser.",
+    radiusNote: "I Danmark tolkes dette som kilometer. I USA tolkes det som miles.",
+    fast: "Hurtigste",
+    eco: "Økonomisk",
+    fuelListTitle: "Billigste stationer",
+    fuelHistoryTitle: "Prishistorik",
+    distance: "Afstand",
+    time: "Tid",
+    speed: "Speed",
     cheapestAround: "Billigst ca.",
     mostExpensiveAround: "Dyrest ca.",
-    notEnoughHistory: "Ikke nok historik endnu."
+    notEnoughHistory: "Ikke nok historik endnu.",
+    noUsPriceData: "USA-mode kræver amerikanske prisdata i fuel-prices.json.",
+    pricePosts: "Prisposter",
+    stationsOnRoute: "Stationer fundet"
   },
   en: {
     title: "Cheapest fuel",
-    destination: "Enter address...",
+    subtitle: "Find the cheapest fuel station along your route",
+    destination: "Destination",
+    destinationPlaceholder: "Enter address...",
     calc: "Calculate route",
     start: "Start",
     stop: "Stop",
     center: "Center",
     history: "History",
     settings: "Settings",
+    recentDestinations: "Recent destinations",
+    cheapestTank: "Cheapest fuel",
     cheapest: "Cheapest on route",
     priceHistory: "Price history",
     noRoute: "Calculate a route first.",
@@ -141,15 +199,35 @@ const i18n = {
     mapReady: "Map: ready",
     routeCalculating: "Calculating route...",
     routeFailed: "Could not calculate route",
-    noFuelOnRoute: "No stations with price on route.",
+    noFuelOnRoute: "No stations with prices within the selected distance.",
     openMaps: "Open in Google Maps",
     detour: "Detour",
     fromRoute: "From route",
     source: "Source",
     match: "Match",
+    settingsTitle: "Settings",
+    languageTitle: "Language",
+    regionTitle: "Market",
+    routeTitle: "Route",
+    fuelSettingsTitle: "Fuel",
+    fuelType: "Fuel type",
+    maxDetour: "Max extra detour",
+    searchRadius: "Search fuel stations within",
+    regionNote: "USA mode requires US price data. Danish prices are not used as US prices.",
+    radiusNote: "In Denmark this is interpreted as kilometers. In the USA it is interpreted as miles.",
+    fast: "Fastest",
+    eco: "Eco",
+    fuelListTitle: "Cheapest stations",
+    fuelHistoryTitle: "Price history",
+    distance: "Distance",
+    time: "Time",
+    speed: "Speed",
     cheapestAround: "Cheapest around",
     mostExpensiveAround: "Most expensive around",
-    notEnoughHistory: "Not enough history yet."
+    notEnoughHistory: "Not enough history yet.",
+    noUsPriceData: "USA mode requires US price data in fuel-prices.json.",
+    pricePosts: "Price records",
+    stationsOnRoute: "Stations found"
   }
 };
 
@@ -177,7 +255,7 @@ async function init() {
       updateFuelMarkers();
     }, 5 * 60 * 1000);
   } catch (error) {
-    console.error("Init fejl:", error);
+    console.error("Init error:", error);
   }
 }
 
@@ -267,25 +345,56 @@ function applySettingsToUI() {
   if (els.regionUS) els.regionUS.checked = state.settings.region === "us";
   if (els.settingsRouteFast) els.settingsRouteFast.checked = state.settings.routeMode === "fast";
   if (els.settingsRouteEco) els.settingsRouteEco.checked = state.settings.routeMode === "eco";
+  if (els.settingsFuelType) els.settingsFuelType.value = state.settings.fuelType;
+  if (els.settingsMaxDetour) els.settingsMaxDetour.value = String(state.settings.maxDetourMeters);
+  if (els.settingsSearchRadius) els.settingsSearchRadius.value = String(state.settings.searchRadiusBase);
 }
 
 function saveSettingsFromControls() {
   state.settings.language = els.languageEn?.checked ? "en" : "da";
   state.settings.region = els.regionUS?.checked ? "us" : "dk";
   state.settings.routeMode = els.settingsRouteEco?.checked ? "eco" : "fast";
+  state.settings.fuelType = els.settingsFuelType?.value || "benzin95";
+  state.settings.maxDetourMeters = Number(els.settingsMaxDetour?.value || 2000);
+  state.settings.searchRadiusBase = Number(els.settingsSearchRadius?.value || 100000);
 
   saveSettings();
   applyTranslations();
   closeSettings();
-  updateFuelBox();
-  updateFuelMarkers();
+
+  if (state.routeData) {
+    updateFuelBox();
+    updateFuelMarkers();
+  }
 }
 
 function applyTranslations() {
   document.documentElement.lang = state.settings.language;
 
-  if (els.titleText) els.titleText.textContent = t("title");
-  if (els.destinationInput) els.destinationInput.placeholder = t("destination");
+  setText("titleText", t("title"));
+  setText("subtitleText", t("subtitle"));
+  setText("destinationLabel", t("destination"));
+  setText("historyTitle", t("recentDestinations"));
+  setText("fuelPanelTitle", t("cheapestTank"));
+  setText("settingsTitle", t("settingsTitle"));
+  setText("languageTitle", t("languageTitle"));
+  setText("regionTitle", t("regionTitle"));
+  setText("regionNote", t("regionNote"));
+  setText("routeTitle", t("routeTitle"));
+  setText("routeFastText", t("fast"));
+  setText("routeEcoText", t("eco"));
+  setText("fuelSettingsTitle", t("fuelSettingsTitle"));
+  setText("fuelTypeLabel", t("fuelType"));
+  setText("maxDetourLabel", t("maxDetour"));
+  setText("searchRadiusLabel", t("searchRadius"));
+  setText("radiusNote", t("radiusNote"));
+  setText("fuelListTitle", t("fuelListTitle"));
+  setText("fuelHistoryTitle", t("fuelHistoryTitle"));
+  setText("navDistanceLabel", t("distance"));
+  setText("navTimeLabel", t("time"));
+  setText("navSpeedLabel", t("speed"));
+
+  if (els.destinationInput) els.destinationInput.placeholder = t("destinationPlaceholder");
   if (els.calcRouteBtn) els.calcRouteBtn.textContent = t("calc");
   if (els.startNavBtn) els.startNavBtn.textContent = t("start");
   if (els.stopNavBtn) els.stopNavBtn.textContent = t("stop");
@@ -300,6 +409,10 @@ function applyTranslations() {
   setMapStatus(t("mapReady"));
 }
 
+function setText(id, value) {
+  if (els[id]) els[id].textContent = value;
+}
+
 function openSettings() {
   els.settingsPanel?.classList.remove("hidden");
   els.settingsBackdrop?.classList.remove("hidden");
@@ -308,6 +421,28 @@ function openSettings() {
 function closeSettings() {
   els.settingsPanel?.classList.add("hidden");
   els.settingsBackdrop?.classList.add("hidden");
+}
+
+function getSearchRadiusMeters() {
+  const base = Number(state.settings.searchRadiusBase || 100000);
+
+  if (state.settings.region === "us") {
+    const miles = base / 1000;
+    return miles * 1609.344;
+  }
+
+  return base;
+}
+
+function getSearchRadiusLabel() {
+  const base = Number(state.settings.searchRadiusBase || 100000);
+  const value = base / 1000;
+
+  if (state.settings.region === "us") {
+    return `${value} miles`;
+  }
+
+  return `${value} km`;
 }
 
 async function loadFuelPrices() {
@@ -340,6 +475,7 @@ function normalizeFuelData(rawStations) {
 
     const stationLat = numberOrNull(station.lat);
     const stationLng = numberOrNull(station.lng);
+    const country = String(station.country || station.market || "DK").toUpperCase();
 
     if (station.fuelTypes && typeof station.fuelTypes === "object") {
       Object.entries(station.fuelTypes).forEach(([fuelType, data]) => {
@@ -353,6 +489,7 @@ function normalizeFuelData(rawStations) {
           city: extractCity(station.address || ""),
           lat: stationLat,
           lng: stationLng,
+          country,
           fuelType,
           price: data.price,
           currency: data.currency || "DKK",
@@ -374,6 +511,7 @@ function normalizeFuelData(rawStations) {
         city: extractCity(station.address || ""),
         lat: stationLat,
         lng: stationLng,
+        country,
         fuelType: station.fuelType || state.settings.fuelType,
         price: station.price,
         currency: station.currency || "DKK",
@@ -385,6 +523,14 @@ function normalizeFuelData(rawStations) {
   });
 
   return out;
+}
+
+function isFuelRecordCompatible(item) {
+  if (state.settings.region === "us") {
+    return item.country === "US" || item.currency === "USD" || item.unit === "gallon";
+  }
+
+  return item.country !== "US" && item.currency !== "USD";
 }
 
 async function runAutocomplete() {
@@ -508,7 +654,7 @@ async function calculateRoute() {
 
     setGpsStatus(t("gpsReady"));
     setNavStatus(t("navReady"));
-    setMapStatus(t("mapReady"));
+    setMapStatus(`${t("mapReady")} • ${getSearchRadiusLabel()}`);
 
     if (els.startNavBtn) els.startNavBtn.disabled = false;
   } catch (error) {
@@ -581,9 +727,11 @@ async function loadFuelStations(geometry) {
       return;
     }
 
+    const radiusMeters = Math.min(getSearchRadiusMeters(), 50000);
+
     const queryParts = points.map((p) => `
-      node(around:2500,${p.lat},${p.lng})["amenity"="fuel"];
-      way(around:2500,${p.lat},${p.lng})["amenity"="fuel"];
+      node(around:${Math.round(radiusMeters)},${p.lat},${p.lng})["amenity"="fuel"];
+      way(around:${Math.round(radiusMeters)},${p.lat},${p.lng})["amenity"="fuel"];
     `);
 
     const query = `
@@ -621,7 +769,7 @@ function sampleRoutePoints(geometry) {
 
   const points = [];
 
-  for (let i = 0; i < geometry.length; i += 35) {
+  for (let i = 0; i < geometry.length; i += 80) {
     points.push({
       lng: geometry[i][0],
       lat: geometry[i][1]
@@ -643,7 +791,7 @@ function sampleRoutePoints(geometry) {
       seen.add(key);
       return true;
     })
-    .slice(0, 25);
+    .slice(0, 12);
 }
 
 function normalizeOsmFuelStation(el) {
@@ -655,13 +803,14 @@ function normalizeOsmFuelStation(el) {
   const tags = el.tags || {};
   const name = tags.name || tags.brand || tags.operator || "Tankstation";
   const brand = normalizeBrand(tags.brand || tags.operator || name);
+  const address = buildOsmAddress(tags);
 
   return {
     id: `osm-${el.type}-${el.id}`,
     name,
     brand,
-    address: buildOsmAddress(tags),
-    city: tags["addr:city"] || extractCity(buildOsmAddress(tags)),
+    address,
+    city: tags["addr:city"] || extractCity(address),
     lat,
     lng,
     price: null,
@@ -696,7 +845,8 @@ function applyPriceToStation(station) {
 function findFuelPrice(station) {
   const candidates = state.fuelPriceOverrides.filter((x) =>
     x.fuelType === state.settings.fuelType &&
-    typeof x.price === "number"
+    typeof x.price === "number" &&
+    isFuelRecordCompatible(x)
   );
 
   if (!candidates.length) return null;
@@ -781,11 +931,18 @@ function updateFuelBox() {
   const candidates = getFuelCandidates();
 
   if (!candidates.length) {
+    const extra =
+      state.settings.region === "us"
+        ? `<div class="fuel-meta">${t("noUsPriceData")}</div>`
+        : "";
+
     if (els.fuelContent) {
       els.fuelContent.innerHTML = `
         <div class="fuel-name">${t("noPrices")}</div>
-        <div class="fuel-meta">Stationer langs ruten: ${state.osmFuelStations.length}</div>
-        <div class="fuel-meta">Prisposter: ${state.fuelPriceOverrides.length}</div>
+        ${extra}
+        <div class="fuel-meta">${t("stationsOnRoute")}: ${state.osmFuelStations.length}</div>
+        <div class="fuel-meta">${t("pricePosts")}: ${state.fuelPriceOverrides.length}</div>
+        <div class="fuel-meta">${t("searchRadius")}: ${getSearchRadiusLabel()}</div>
       `;
     }
 
@@ -795,7 +952,7 @@ function updateFuelBox() {
   }
 
   const best = candidates.slice().sort((a, b) =>
-    a.price - b.price || a.extraDetourMeters - b.extraDetourMeters
+    a.price - b.price || a.distanceFromCurrentMeters - b.distanceFromCurrentMeters
   )[0];
 
   state.currentFuelStation = best;
@@ -806,8 +963,9 @@ function updateFuelBox() {
     els.fuelContent.innerHTML = `
       <div class="fuel-name">${escapeHtml(best.name)}</div>
       <div class="fuel-price">${formatPrice(best.price)}</div>
-      <div class="fuel-meta">${t("detour")}: ${formatDistance(best.extraDetourMeters)}</div>
+      <div class="fuel-meta">${t("distance")}: ${formatDistance(best.distanceFromCurrentMeters)}</div>
       <div class="fuel-meta">${t("fromRoute")}: ${formatDistance(best.distanceToRouteMeters)}</div>
+      <div class="fuel-meta">${t("searchRadius")}: ${getSearchRadiusLabel()}</div>
       <div class="fuel-meta">${t("match")}: ${escapeHtml(best.priceMatchMode || "prisdata")}</div>
       <a class="fuel-link" href="${buildGoogleMapsLink(best)}" target="_blank" rel="noopener noreferrer">
         ${t("openMaps")}
@@ -817,11 +975,20 @@ function updateFuelBox() {
 }
 
 function getFuelCandidates() {
-  if (!state.routeData) return [];
+  if (!state.routeData || !state.currentPosition) return [];
+
+  const radiusMeters = getSearchRadiusMeters();
 
   return state.osmFuelStations
     .filter((s) => typeof s.price === "number")
     .map((s) => {
+      const distanceFromCurrentMeters = haversineMeters(
+        state.currentPosition.lat,
+        state.currentPosition.lng,
+        s.lat,
+        s.lng
+      );
+
       const distanceToRouteMeters = distanceToRouteMetersFromGeometry(
         { lat: s.lat, lng: s.lng },
         state.routeData.geometry
@@ -829,12 +996,12 @@ function getFuelCandidates() {
 
       return {
         ...s,
+        distanceFromCurrentMeters,
         distanceToRouteMeters,
         extraDetourMeters: distanceToRouteMeters * 2
       };
     })
-    .filter((s) => s.distanceToRouteMeters <= 1000)
-    .filter((s) => s.extraDetourMeters <= state.settings.maxDetourMeters);
+    .filter((s) => s.distanceFromCurrentMeters <= radiusMeters);
 }
 
 function updateFuelMarkers() {
@@ -844,7 +1011,7 @@ function updateFuelMarkers() {
 
   const candidates = getFuelCandidates()
     .slice()
-    .sort((a, b) => a.price - b.price || a.extraDetourMeters - b.extraDetourMeters)
+    .sort((a, b) => a.price - b.price || a.distanceFromCurrentMeters - b.distanceFromCurrentMeters)
     .slice(0, 10);
 
   candidates.forEach((station, index) => {
@@ -866,7 +1033,8 @@ function updateFuelMarkers() {
       .bindPopup(`
         <strong>${escapeHtml(station.name)}</strong><br>
         ${formatPrice(station.price)}<br>
-        ${t("detour")}: ${formatDistance(station.extraDetourMeters)}<br>
+        ${t("distance")}: ${formatDistance(station.distanceFromCurrentMeters)}<br>
+        ${t("fromRoute")}: ${formatDistance(station.distanceToRouteMeters)}<br>
         <a href="${buildGoogleMapsLink(station)}" target="_blank" rel="noopener noreferrer">
           ${t("openMaps")}
         </a>
@@ -907,10 +1075,10 @@ function renderFuelList() {
 
   const sorted = candidates.slice().sort((a, b) => {
     if (state.fuelListSort === "detour") {
-      return a.extraDetourMeters - b.extraDetourMeters || a.price - b.price;
+      return a.distanceFromCurrentMeters - b.distanceFromCurrentMeters || a.price - b.price;
     }
 
-    return a.price - b.price || a.extraDetourMeters - b.extraDetourMeters;
+    return a.price - b.price || a.distanceFromCurrentMeters - b.distanceFromCurrentMeters;
   }).slice(0, 10);
 
   els.fuelListContent.innerHTML = sorted.map((station, index) => `
@@ -924,7 +1092,7 @@ function renderFuelList() {
       </div>
 
       <div class="fuel-list-meta-grid">
-        <div class="fuel-list-meta">${t("detour")}<br><strong>${formatDistance(station.extraDetourMeters)}</strong></div>
+        <div class="fuel-list-meta">${t("distance")}<br><strong>${formatDistance(station.distanceFromCurrentMeters)}</strong></div>
         <div class="fuel-list-meta">${t("fromRoute")}<br><strong>${formatDistance(station.distanceToRouteMeters)}</strong></div>
         <div class="fuel-list-meta">${t("match")}<br><strong>${escapeHtml(station.priceMatchMode || "prisdata")}</strong></div>
         <div class="fuel-list-meta">${t("source")}<br><strong>${escapeHtml(station.source || "fuel-prices.json")}</strong></div>
@@ -1297,6 +1465,12 @@ function normalizeBrand(value) {
   if (text.includes("shell")) return "shell";
   if (text.includes("go on") || text.includes("goon")) return "goon";
   if (text.includes("oil")) return "oil";
+  if (text.includes("chevron")) return "chevron";
+  if (text.includes("exxon")) return "exxon";
+  if (text.includes("mobil")) return "mobil";
+  if (text.includes("bp")) return "bp";
+  if (text.includes("speedway")) return "speedway";
+  if (text.includes("7 eleven")) return "7-eleven";
 
   return text;
 }
@@ -1325,6 +1499,11 @@ function formatPriceShort(price) {
 
 function formatDistance(meters) {
   if (!Number.isFinite(meters)) return "—";
+
+  if (state.settings.region === "us") {
+    const miles = meters / 1609.344;
+    return `${miles.toFixed(1)} mi`;
+  }
 
   if (meters < 1000) {
     return `${Math.round(meters)} m`;
