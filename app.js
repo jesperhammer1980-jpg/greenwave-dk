@@ -1,3 +1,157 @@
+const state = {
+  map: null,
+  currentPosition: null,
+  destination: null,
+  routeData: null,
+  routeLine: null,
+  userMarker: null,
+  destMarker: null,
+
+  fuelPriceOverrides: [],
+  osmFuelStations: [],
+  currentFuelStation: null,
+
+  settings: {
+    fuelType: "benzin95",
+    maxDetourMeters: 2000
+  }
+};
+
+const FUEL_DATA_URL = "./fuel-prices.json";
+
+init();
+
+async function init() {
+  initMap();
+  bindEvents();
+  await loadFuelPrices();
+}
+
+function initMap() {
+  state.map = L.map("map").setView([56.2639, 9.5018], 7);
+
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    attribution: "&copy; OpenStreetMap"
+  }).addTo(state.map);
+}
+
+function bindEvents() {
+  document.getElementById("calcRouteBtn").onclick = calculateRoute;
+}
+
+async function loadFuelPrices() {
+  try {
+    const res = await fetch(FUEL_DATA_URL);
+    state.fuelPriceOverrides = await res.json();
+    console.log("Fuel loaded:", state.fuelPriceOverrides.length);
+  } catch {
+    console.log("Fuel load failed");
+  }
+}
+
+async function calculateRoute() {
+  const input = document.getElementById("destinationInput").value;
+  if (!input) return;
+
+  const pos = await getPosition();
+
+  const dest = await geocode(input);
+
+  drawRoute(pos, dest);
+
+  await loadFuelStations();
+
+  updateFuel();
+}
+
+async function getPosition() {
+  return new Promise((resolve, reject) => {
+    navigator.geolocation.getCurrentPosition(
+      (p) =>
+        resolve({
+          lat: p.coords.latitude,
+          lng: p.coords.longitude
+        }),
+      reject
+    );
+  });
+}
+
+async function geocode(query) {
+  const res = await fetch(
+    `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(
+      query
+    )}`
+  );
+  const data = await res.json();
+  return {
+    lat: Number(data[0].lat),
+    lng: Number(data[0].lon)
+  };
+}
+
+function drawRoute(from, to) {
+  if (state.routeLine) state.map.removeLayer(state.routeLine);
+
+  const line = [
+    [from.lat, from.lng],
+    [to.lat, to.lng]
+  ];
+
+  state.routeLine = L.polyline(line, { color: "blue" }).addTo(state.map);
+  state.map.fitBounds(state.routeLine.getBounds());
+}
+
+async function loadFuelStations() {
+  const res = await fetch(
+    "https://overpass-api.de/api/interpreter",
+    {
+      method: "POST",
+      body: `[out:json];node["amenity"="fuel"](55,7,58,13);out;`
+    }
+  );
+
+  const data = await res.json();
+
+  state.osmFuelStations = data.elements.map((el) => ({
+    lat: el.lat,
+    lng: el.lon,
+    name: el.tags?.name || "Station"
+  }));
+}
+
+function updateFuel() {
+  const el = document.getElementById("fuelContent");
+
+  if (!state.osmFuelStations.length || !state.fuelPriceOverrides.length) {
+    el.innerHTML = "Ingen prisdata fundet";
+    return;
+  }
+
+  const best = state.osmFuelStations
+    .map((station) => {
+      const price = findFuelPriceOverride(station);
+      if (!price) return null;
+
+      return {
+        ...station,
+        price: price.price
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.price - b.price)[0];
+
+  if (!best) {
+    el.innerHTML = "Ingen prisdata fundet";
+    return;
+  }
+
+  el.innerHTML = `
+    <b>${best.name}</b><br>
+    ${best.price.toFixed(2)} kr/L
+  `;
+}
+
 function findFuelPriceOverride(osmStation) {
   const fuelType = state.settings.fuelType;
 
@@ -9,60 +163,5 @@ function findFuelPriceOverride(osmStation) {
 
   if (!candidates.length) return null;
 
-  const osmBrand = normalizeBrand(osmStation.brand || osmStation.name);
-  const osmCity = normalizeText(osmStation.city || extractCity(osmStation.address));
-
-  // 🔵 1. PRIO: SAMME BRAND + SAMME BY
-  const cityMatches = candidates.filter((item) => {
-    const itemBrand = normalizeBrand(item.brand || item.name);
-    const itemCity = normalizeText(item.city || extractCity(item.address));
-
-    return (
-      itemBrand === osmBrand &&
-      itemCity &&
-      osmCity &&
-      itemCity === osmCity
-    );
-  });
-
-  if (cityMatches.length) {
-    return cityMatches.sort((a, b) => a.price - b.price)[0];
-  }
-
-  // 🟡 2. PRIO: SAMME BRAND + TÆT PÅ (op til 5 km)
-  const nearbyMatches = candidates
-    .map((item) => {
-      if (!Number.isFinite(item.lat) || !Number.isFinite(item.lng)) return null;
-
-      return {
-        ...item,
-        distance: haversineMeters(
-          osmStation.lat,
-          osmStation.lng,
-          item.lat,
-          item.lng
-        )
-      };
-    })
-    .filter((item) => item && item.distance < 5000)
-    .sort((a, b) => {
-      if (a.price !== b.price) return a.price - b.price;
-      return a.distance - b.distance;
-    });
-
-  if (nearbyMatches.length) {
-    return nearbyMatches[0];
-  }
-
-  // 🔴 3. FALLBACK: BILLIGSTE I HELE DK (samme brand)
-  const brandMatches = candidates.filter((item) => {
-    const itemBrand = normalizeBrand(item.brand || item.name);
-    return itemBrand === osmBrand;
-  });
-
-  if (brandMatches.length) {
-    return brandMatches.sort((a, b) => a.price - b.price)[0];
-  }
-
-  return null;
+  return candidates.sort((a, b) => a.price - b.price)[0];
 }
