@@ -1,1 +1,40 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Greenwave DK</title>
 
+  <link rel="stylesheet" href="style.css" />
+
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+  />
+</head>
+
+<body>
+
+<div id="map"></div>
+
+<div class="overlay">
+  <input id="destinationInput" placeholder="Søg adresse..." />
+
+  <button id="calcRouteBtn">Beregn rute</button>
+  <button id="startNavBtn">Start navigation</button>
+  <button id="stopNavBtn">Stop</button>
+
+  <div class="box">
+    <div>Max: <span id="driveMaxValue">ukendt</span></div>
+    <div>Anb: <span id="driveRecommendedValue">ukendt</span></div>
+    <div>Nu: <span id="driveCurrentValue">ukendt</span></div>
+  </div>
+
+  <div id="fuelBox"></div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="app.js"></script>
+
+</body>
+</html>
