@@ -60,9 +60,9 @@ const state = {
   speedLookupQueue: new Set()
 };
 
-const HISTORY_KEY = "greenwave_dk_history_v3";
-const OBS_KEY = "greenwave_dk_observations_v3";
-const SETTINGS_KEY = "greenwave_dk_settings_v3";
+const HISTORY_KEY = "greenwave_dk_history_v4";
+const OBS_KEY = "greenwave_dk_observations_v4";
+const SETTINGS_KEY = "greenwave_dk_settings_v4";
 const FUEL_DATA_URL = "./fuel-prices.json";
 
 const MAX_FUEL_DISTANCE_FROM_ROUTE_METERS = 1000;
@@ -333,7 +333,7 @@ async function loadFuelPriceOverrides() {
     state.fuelPriceOverrides = normalizeFuelData(Array.isArray(data) ? data : []);
 
     els.fuelDisclaimer.textContent =
-      "Tankstationer hentes fra OSM. Priser hentes kun fra fuel-prices.json, hvis de findes.";
+      "Tankstationer hentes fra OSM. Priser matches fra fuel-prices.json på brand/navn/by.";
   } catch (error) {
     console.warn(error);
     state.fuelPriceOverrides = [];
@@ -348,10 +348,15 @@ function normalizeFuelData(rawStations) {
   rawStations.forEach((station) => {
     if (!station || typeof station !== "object") return;
 
-    const lat = Number(station.lat);
-    const lng = Number(station.lng);
+    const lat = station.lat === null || station.lat === undefined ? null : Number(station.lat);
+    const lng = station.lng === null || station.lng === undefined ? null : Number(station.lng);
 
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+    if (
+      (lat !== null && !Number.isFinite(lat)) ||
+      (lng !== null && !Number.isFinite(lng))
+    ) {
+      return;
+    }
 
     if (station.fuelTypes && typeof station.fuelTypes === "object") {
       Object.entries(station.fuelTypes).forEach(([fuelType, data]) => {
@@ -360,6 +365,7 @@ function normalizeFuelData(rawStations) {
           name: station.name || "Ukendt station",
           brand: station.brand || "",
           address: station.address || "",
+          city: extractCity(station.address || ""),
           lat,
           lng,
           fuelType,
@@ -378,6 +384,7 @@ function normalizeFuelData(rawStations) {
       name: station.name || "Ukendt station",
       brand: station.brand || "",
       address: station.address || "",
+      city: extractCity(station.address || ""),
       lat,
       lng,
       fuelType: station.fuelType || "benzin95",
@@ -730,8 +737,8 @@ function normalizeOsmFuelElement(element) {
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
 
   const tags = element.tags;
-  const brand = tags.brand || tags.operator || "";
-  const name = tags.name || brand || "Tankstation";
+  const brand = normalizeBrand(tags.brand || tags.operator || tags.name || "");
+  const name = tags.name || tags.brand || tags.operator || "Tankstation";
   const address = buildOsmAddress(tags);
 
   return {
@@ -740,6 +747,7 @@ function normalizeOsmFuelElement(element) {
     name,
     brand,
     address,
+    city: extractCity(address),
     lat,
     lng,
     fuelType: state.settings.fuelType,
@@ -775,24 +783,63 @@ function applyPriceOverrideToOsmStation(osmStation) {
     unit: match.unit,
     updatedAt: match.updatedAt,
     source: match.source || "fuel-prices.json",
-    priceMatched: true
+    priceMatched: true,
+    priceMatchMode: match.matchMode || "ukendt"
   };
 }
 
 function findFuelPriceOverride(osmStation) {
-  const sameFuel = state.fuelPriceOverrides.filter((item) => item.fuelType === state.settings.fuelType);
+  const sameFuel = state.fuelPriceOverrides.filter(
+    (item) =>
+      item.fuelType === state.settings.fuelType &&
+      typeof item.price === "number"
+  );
 
   if (!sameFuel.length) return null;
 
-  const byDistance = sameFuel
+  const distanceMatches = sameFuel
+    .filter((item) => Number.isFinite(item.lat) && Number.isFinite(item.lng))
     .map((item) => ({
       ...item,
-      matchDistance: haversineMeters(osmStation.lat, osmStation.lng, item.lat, item.lng)
+      matchDistance: haversineMeters(osmStation.lat, osmStation.lng, item.lat, item.lng),
+      matchMode: "koordinat"
     }))
     .filter((item) => item.matchDistance <= 80)
     .sort((a, b) => a.matchDistance - b.matchDistance);
 
-  return byDistance[0] || null;
+  if (distanceMatches.length) return distanceMatches[0];
+
+  const osmBrand = normalizeBrand(osmStation.brand || osmStation.name || "");
+  const osmName = normalizeText(osmStation.name || "");
+  const osmAddress = normalizeText(osmStation.address || "");
+  const osmCity = normalizeText(osmStation.city || extractCity(osmStation.address || ""));
+
+  const nameMatches = sameFuel
+    .map((item) => {
+      const itemBrand = normalizeBrand(item.brand || item.name || "");
+      const itemName = normalizeText(item.name || "");
+      const itemAddress = normalizeText(item.address || "");
+      const itemCity = normalizeText(item.city || extractCity(item.address || ""));
+
+      let score = 0;
+
+      if (osmBrand && itemBrand && osmBrand === itemBrand) score += 40;
+      if (osmCity && itemCity && osmCity === itemCity) score += 35;
+
+      if (osmName && itemName && (osmName.includes(itemName) || itemName.includes(osmName))) score += 20;
+      if (osmAddress && itemCity && osmAddress.includes(itemCity)) score += 10;
+      if (itemAddress && osmCity && itemAddress.includes(osmCity)) score += 10;
+
+      return {
+        ...item,
+        matchScore: score,
+        matchMode: "brand/navn/by"
+      };
+    })
+    .filter((item) => item.matchScore >= 65)
+    .sort((a, b) => b.matchScore - a.matchScore);
+
+  return nameMatches[0] || null;
 }
 
 function dedupeFuelStations(stations) {
@@ -821,7 +868,7 @@ function updateFuelBox() {
   if (!state.settings.showFuelBox) return;
 
   if (!state.routeData) {
-    els.fuelContent.textContent = "Beregn en rute for at se brændstofstatus langs ruten.";
+    els.fuelContent.textContent = "Beregn en rute for at se billigste brændstof.";
     state.currentFuelStation = null;
     return;
   }
@@ -829,8 +876,23 @@ function updateFuelBox() {
   if (!state.osmFuelStations.length) {
     els.fuelContent.innerHTML = `
       <div class="fuel-meta">
-        Ingen OSM-tankstationer fundet langs ruten. Det kan skyldes Overpass/OSM-data eller for lille søgeområde.
+        Ingen OSM-tankstationer fundet langs ruten.
       </div>
+    `;
+    state.currentFuelStation = null;
+    return;
+  }
+
+  const stationsWithKnownPrice = state.osmFuelStations.filter(
+    (station) => typeof station.price === "number"
+  );
+
+  if (!stationsWithKnownPrice.length) {
+    els.fuelContent.innerHTML = `
+      <div class="fuel-name">Ingen prisdata fundet</div>
+      <div class="fuel-meta">Kan ikke afgøre billigste tank endnu.</div>
+      <div class="fuel-meta">Stationer fundet langs ruten: ${state.osmFuelStations.length}</div>
+      <div class="fuel-meta">Prisposter i fuel-prices.json: ${state.fuelPriceOverrides.length}</div>
     `;
     state.currentFuelStation = null;
     return;
@@ -841,21 +903,21 @@ function updateFuelBox() {
 
   if (!best) {
     els.fuelContent.innerHTML = `
-      <div class="fuel-meta">
-        Der blev fundet ${state.osmFuelStations.length} OSM-tankstationer i området, men ingen inden for ${formatDistance(state.settings.maxDetourMeters)} ekstra omvej.
-      </div>
+      <div class="fuel-name">Ingen billig tank inden for omvej</div>
+      <div class="fuel-meta">Der findes prisdata, men ingen station med pris ligger inden for ${formatDistance(state.settings.maxDetourMeters)} ekstra omvej.</div>
+      <div class="fuel-meta">Stationer med pris langs ruten: ${stationsWithKnownPrice.length}</div>
     `;
     return;
   }
 
   const mapsLink = `https://www.google.com/maps/dir/?api=1&destination=${best.lat},${best.lng}`;
-  const priceText =
-    typeof best.price === "number"
-      ? `${best.price.toFixed(2).replace(".", ",")} kr/L`
-      : "—";
 
   els.fuelContent.innerHTML = `
     <div class="fuel-name">${escapeHtml(best.name)}</div>
+
+    <div class="fuel-price">
+      ${best.price.toFixed(2).replace(".", ",")} kr/L
+    </div>
 
     <div class="fuel-meta">
       📍 ${formatDistance(best.distanceToRouteMeters)} fra rute
@@ -865,16 +927,12 @@ function updateFuelBox() {
       ↪ Omvej ${formatDistance(best.extraDetourMeters)}
     </div>
 
-    <div class="fuel-price">
-      ${escapeHtml(priceText)}
+    <div class="fuel-meta">
+      Match: ${escapeHtml(best.priceMatchMode || "prisdata")}
     </div>
 
     <div class="fuel-meta">
-      ${typeof best.price === "number" ? "Pris fra fuel-prices.json" : "Ingen livepris tilsluttet endnu"}
-    </div>
-
-    <div class="fuel-meta">
-      Stationer fundet langs ruten: ${state.osmFuelStations.length}
+      ${stationsWithKnownPrice.length} stationer med pris / ${state.osmFuelStations.length} stationer fundet
     </div>
 
     <a class="fuel-link" href="${mapsLink}" target="_blank" rel="noopener noreferrer">
@@ -885,6 +943,7 @@ function updateFuelBox() {
 
 function findBestFuelStationNearRoute(geometry) {
   const candidates = state.osmFuelStations
+    .filter((station) => typeof station.price === "number")
     .map((station) => {
       const distanceToRouteMeters = distanceToRouteMetersFromGeometry(
         { lat: station.lat, lng: station.lng },
@@ -902,13 +961,7 @@ function findBestFuelStationNearRoute(geometry) {
     .filter((station) => station.distanceToRouteMeters <= MAX_FUEL_DISTANCE_FROM_ROUTE_METERS)
     .filter((station) => station.extraDetourMeters <= state.settings.maxDetourMeters)
     .sort((a, b) => {
-      const aHasPrice = typeof a.price === "number";
-      const bHasPrice = typeof b.price === "number";
-
-      if (aHasPrice && bHasPrice && a.price !== b.price) return a.price - b.price;
-      if (aHasPrice && !bHasPrice) return -1;
-      if (!aHasPrice && bHasPrice) return 1;
-
+      if (a.price !== b.price) return a.price - b.price;
       return a.extraDetourMeters - b.extraDetourMeters;
     });
 
@@ -1589,7 +1642,7 @@ function updateGreenWaveUI() {
 
 function handleAddFuelStop() {
   if (!state.currentFuelStation) {
-    setWarningMessage("Ingen brændstofstation klar endnu.");
+    setWarningMessage("Ingen billig station med pris klar endnu.");
     return;
   }
 
@@ -1606,7 +1659,7 @@ function handleAddFuelStop() {
       ? state.currentFuelStation.address
       : `${state.currentFuelStation.lat},${state.currentFuelStation.lng}`;
 
-  setInfoMessage("Brændstofstation er sat som destination. Beregn ruten igen.");
+  setInfoMessage("Billigste station med pris er sat som destination. Beregn ruten igen.");
 }
 
 function drawRoute(latLngs) {
@@ -2001,6 +2054,46 @@ function formatDuration(seconds) {
 
   if (hours === 0) return `${minutes} min`;
   return `${hours} t ${minutes} min`;
+}
+
+function normalizeText(value) {
+  return String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replaceAll("æ", "ae")
+    .replaceAll("ø", "oe")
+    .replaceAll("å", "aa")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function normalizeBrand(value) {
+  const text = normalizeText(value);
+
+  if (text.includes("uno x") || text.includes("unox")) return "uno-x";
+  if (text.includes("f24")) return "f24";
+  if (text.includes("ingo")) return "ingo";
+  if (text.includes("circle")) return "circle-k";
+  if (text.includes("ok")) return "ok";
+  if (text.includes("q8")) return "q8";
+  if (text.includes("shell")) return "shell";
+  if (text.includes("go on") || text.includes("goon")) return "goon";
+  if (text.includes("oil")) return "oil";
+
+  return text;
+}
+
+function extractCity(value) {
+  const text = String(value || "");
+  const parts = text.split(",").map((part) => part.trim()).filter(Boolean);
+
+  if (parts.length >= 2) {
+    const last = parts[parts.length - 1];
+    return last.replace(/^\d{4}\s*/, "").trim();
+  }
+
+  return text.replace(/^\d{4}\s*/, "").trim();
 }
 
 function getFriendlyError(error) {
