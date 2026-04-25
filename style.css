@@ -1037,3 +1037,14 @@ button:disabled {
     font-size: 20px;
   }
 }
+.fuel-list-modal h2 {
+  margin: 0;
+}
+
+.fuel-list-item {
+  transition: transform 0.15s ease;
+}
+
+.fuel-list-item:hover {
+  transform: scale(1.01);
+}
