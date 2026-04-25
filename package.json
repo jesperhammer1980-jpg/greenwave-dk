@@ -1,0 +1,14 @@
+{
+  "name": "greenwave-dk",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Greenwave DK fuel price updater",
+  "type": "module",
+  "scripts": {
+    "update:fuel": "node scripts/update-fuel-prices.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {}
+}
