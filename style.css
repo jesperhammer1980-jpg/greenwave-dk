@@ -1048,3 +1048,31 @@ button:disabled {
 .fuel-list-item:hover {
   transform: scale(1.01);
 }
+/* PRICE MARKERS ON MAP */
+
+.fuel-price-marker {
+  background: transparent;
+  border: 0;
+}
+
+.fuel-price-label {
+  background: #0b0f14;
+  color: white;
+  border: 2px solid white;
+  border-radius: 999px;
+  padding: 6px 9px;
+  font-size: 12px;
+  font-weight: 900;
+  box-shadow: 0 8px 22px rgba(0,0,0,0.35);
+  white-space: nowrap;
+}
+
+.fuel-price-label.best {
+  background: #00c853;
+  color: white;
+}
+
+.fuel-price-label.no-price {
+  background: #263241;
+  color: rgba(255,255,255,0.7);
+}
