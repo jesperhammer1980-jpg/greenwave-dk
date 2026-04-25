@@ -88,8 +88,8 @@
             <ul id="dataHonestyList">
               <li>Ingen falske standard-fartgrænser.</li>
               <li>Fartgrænse vises kun som bekræftet, OSM-estimat eller ukendt.</li>
-              <li>Brændstofpriser hentes fra fuel-prices.json.</li>
-              <li>Hvis live prisdata mangler, markeres det tydeligt.</li>
+              <li>Brændstofpriser opdateres automatisk via GitHub Action.</li>
+              <li>Hvis prisdata mangler, vises det tydeligt.</li>
               <li>Danmark prioriteres før udlandet.</li>
             </ul>
           </div>
@@ -153,11 +153,17 @@
           </div>
 
           <div class="fuel-disclaimer" id="fuelDisclaimer">
-            Brændstofdata hentes fra fuel-prices.json. Hvis prisen mangler, vises det ærligt.
+            Brændstofdata hentes fra fuel-prices.json.
           </div>
 
           <div id="fuelContent" class="fuel-content">
             Beregn en rute for at se brændstofstatus langs ruten.
+          </div>
+
+          <div class="button-row single fuel-list-button-wrap">
+            <button id="openFuelListBtn" class="btn btn-muted" type="button" disabled>
+              Se billigste priser på rute
+            </button>
           </div>
         </div>
       </section>
@@ -283,6 +289,34 @@
     </main>
   </div>
 
+  <div id="fuelListBackdrop" class="modal-backdrop hidden"></div>
+
+  <section id="fuelListModal" class="fuel-list-modal hidden" aria-hidden="true">
+    <div class="fuel-list-header">
+      <div>
+        <div class="settings-eyebrow">Brændstof på ruten</div>
+        <h2>Billigste priser på rute</h2>
+      </div>
+
+      <button id="closeFuelListBtn" class="btn btn-muted small" type="button">
+        Luk
+      </button>
+    </div>
+
+    <div class="fuel-list-controls">
+      <button id="sortFuelByPriceBtn" class="btn btn-primary small" type="button">
+        Sortér efter pris
+      </button>
+      <button id="sortFuelByDetourBtn" class="btn btn-muted small" type="button">
+        Sortér efter omvej
+      </button>
+    </div>
+
+    <div id="fuelListContent" class="fuel-list-content">
+      Beregn en rute først.
+    </div>
+  </section>
+
   <div id="settingsBackdrop" class="settings-backdrop hidden"></div>
 
   <aside id="settingsPanel" class="settings-panel hidden" aria-hidden="true">
@@ -386,7 +420,7 @@
         </div>
 
         <div class="settings-note">
-          Brændstofmodulet bruger fuel-prices.json. Live-data kan kobles på senere.
+          Brændstofmodulet bruger fuel-prices.json, som opdateres automatisk via GitHub Action.
         </div>
       </section>
 
