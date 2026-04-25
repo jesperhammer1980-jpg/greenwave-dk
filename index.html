@@ -2,462 +2,232 @@
 <html lang="da">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>Greenwave DK</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
+  <title>GreenWave</title>
+
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
   <link rel="stylesheet" href="style.css" />
-
-  <link
-    rel="stylesheet"
-    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-    crossorigin=""
-  />
 </head>
 
 <body>
-  <div class="app-shell">
-    <header class="hero" id="hero">
-      <div class="hero-copy">
-        <div class="eyebrow" id="prototypeBadge">Prototype DK</div>
-        <h1 id="appTitle">Grøn bølge Danmark</h1>
-        <p id="appSubtitle">
-          Fokus: rigtige fartgrænser, billigste brændstof langs ruten og læring fra dine ture.
-        </p>
-      </div>
 
-      <div class="hero-status">
-        <button id="openSettingsBtn" class="btn btn-muted settings-btn" type="button">
-          Settings
-        </button>
-        <div class="status-chip" id="gpsStatusChip">GPS: ikke startet</div>
-        <div class="status-chip" id="navStatusChip">Navigation: inaktiv</div>
-      </div>
-    </header>
+<div class="app-shell">
 
-    <main class="app-grid">
-      <section class="left-column" id="leftColumn">
-        <div class="panel route-panel">
-          <div class="panel-head">
-            <h2 id="routePanelTitle">Planlæg rute</h2>
-            <span class="panel-tag" id="routePanelTag">Danmark først</span>
-          </div>
+  <!-- HEADER -->
+  <header class="hero">
+    <div class="hero-copy">
+      <span class="eyebrow">GreenWave</span>
+      <h1 id="titleText">Billigste brændstof</h1>
+      <p>Find billigste tankstation langs din rute</p>
+    </div>
 
-          <label for="destinationInput" id="destinationLabel">Destination</label>
+    <div class="hero-status">
+      <div id="gpsStatusChip" class="status-chip">GPS: klar</div>
+      <div id="navStatusChip" class="status-chip">Navigation: inaktiv</div>
+      <div id="mapModeLabel" class="map-pill">Kort: klar</div>
+    </div>
+  </header>
 
-          <div class="search-wrap">
-            <div class="input-row">
-              <input
-                id="destinationInput"
-                type="text"
-                placeholder="Søg adresse i Danmark"
-                autocomplete="off"
-                spellcheck="false"
-              />
-              <button id="historyToggleBtn" class="btn btn-muted" type="button">
-                Historik
-              </button>
-            </div>
+  <main class="app-grid">
 
-            <div id="autocompleteBox" class="autocomplete-box hidden">
-              <div id="autocompleteList" class="autocomplete-list"></div>
-            </div>
-          </div>
+    <!-- LEFT -->
+    <div class="left-column">
 
-          <div id="historyBox" class="history-box hidden">
-            <div class="history-title" id="historyTitle">Seneste 5 destinationer</div>
-            <div id="historyList" class="history-list"></div>
-          </div>
+      <section class="panel">
 
-          <div class="button-row">
-            <button id="calcRouteBtn" class="btn btn-primary" type="button">
-              Beregn rute
-            </button>
-            <button id="startNavBtn" class="btn btn-accent" type="button" disabled>
-              Start live navigation
-            </button>
-          </div>
+        <label>Destination</label>
 
-          <div class="button-row single">
-            <button id="stopNavBtn" class="btn btn-danger" type="button" disabled>
-              Stop navigation
-            </button>
-          </div>
+        <div class="search-wrap">
+          <input id="destinationInput" placeholder="Indtast adresse..." />
 
-          <div class="notice warning" id="dataHonestyBox">
-            <strong id="dataHonestyTitle">Ærlig datastatus</strong>
-            <ul id="dataHonestyList">
-              <li>Ingen falske standard-fartgrænser.</li>
-              <li>Fartgrænse vises kun som bekræftet, OSM-estimat eller ukendt.</li>
-              <li>Brændstofpriser opdateres automatisk via GitHub Action.</li>
-              <li>Hvis prisdata mangler, vises det tydeligt.</li>
-              <li>Danmark prioriteres før udlandet.</li>
-            </ul>
+          <div id="autocompleteBox" class="autocomplete-box hidden">
+            <div id="autocompleteList"></div>
           </div>
         </div>
 
-        <div class="panel summary-panel">
-          <div class="panel-head">
-            <h2 id="summaryTitle">Ruteoversigt</h2>
-            <span class="panel-tag" id="routeStatusLabel">Ingen rute</span>
-          </div>
-
-          <div class="summary-list">
-            <div><strong id="fromStrong">Fra:</strong> <span id="fromLabel">—</span></div>
-            <div><strong id="toStrong">Til:</strong> <span id="toLabel">—</span></div>
-            <div><strong id="routeModeStrong">Rutevalg:</strong> <span id="routeModeSummary">Hurtigst</span></div>
-            <div><strong id="routeDistanceStrong">Afstand:</strong> <span id="routeDistanceLabel">—</span></div>
-            <div><strong id="routeDurationStrong">Tid:</strong> <span id="routeDurationLabel">—</span></div>
-          </div>
+        <div class="button-row">
+          <button id="calcRouteBtn" class="btn-primary">Beregn rute</button>
+          <button id="startNavBtn" class="btn-accent" disabled>Start</button>
         </div>
 
-        <div class="panel speed-source-panel">
-          <div class="panel-head">
-            <h2 id="speedSourceTitle">Fartgrænse-kilde</h2>
-            <span class="panel-tag" id="speedSourceTag">Ingen gæt</span>
-          </div>
-
-          <div class="source-stack">
-            <div class="source-row">
-              <span class="source-label">Aktuel kilde</span>
-              <strong id="speedSourceValue">ukendt</strong>
-            </div>
-            <div class="source-row">
-              <span class="source-label">Sikkerhed</span>
-              <strong id="speedConfidenceValue">ukendt</strong>
-            </div>
-            <div class="source-row">
-              <span class="source-label">Segment</span>
-              <strong id="speedSegmentValue">—</strong>
-            </div>
-          </div>
+        <div class="button-row">
+          <button id="stopNavBtn" class="btn-danger" disabled>Stop</button>
+          <button id="recenterBtn" class="btn-muted">Centrér</button>
         </div>
 
-        <div class="panel observation-panel">
-          <div class="panel-head">
-            <h2 id="observationTitle">Læring fra ture</h2>
-            <span class="panel-tag" id="observationTag">Lokal model</span>
-          </div>
-
-          <div class="summary-list">
-            <div><strong id="observationCountStrong">Gemte observationer:</strong> <span id="observationCountLabel">0</span></div>
-            <div><strong id="greenWaveStrong">Grøn bølge-status:</strong> <span id="greenWaveSummary">ukendt</span></div>
-            <div><strong id="timeSlotStrong">Tids-slot:</strong> <span id="timeSlotLabel">—</span></div>
-            <div><strong id="stopLearningStrong">Stop-mønster:</strong> <span id="stopPatternLabel">ikke nok data</span></div>
-          </div>
+        <div class="button-row">
+          <button id="historyToggleBtn" class="btn-muted">Historik</button>
+          <button id="openSettingsBtn" class="btn-muted">Settings</button>
         </div>
 
-        <div class="panel fuel-panel" id="fuelPanel">
-          <div class="panel-head">
-            <h2 id="fuelTitle">Billigste brændstof</h2>
-            <span class="panel-tag" id="fuelTag">Maks 2 km omvej</span>
-          </div>
+        <div id="historyBox" class="history-box hidden">
+          <div class="history-title">Seneste destinationer</div>
+          <div id="historyList" class="history-list"></div>
+        </div>
 
-          <div class="fuel-disclaimer" id="fuelDisclaimer">
-            Brændstofdata hentes fra fuel-prices.json.
-          </div>
+      </section>
 
-          <div id="fuelContent" class="fuel-content">
-            Beregn en rute for at se brændstofstatus langs ruten.
-          </div>
+      <!-- FUEL -->
+      <section id="fuelPanel" class="panel">
+        <div class="panel-head">
+          <h2>Billigste tank</h2>
+        </div>
 
-          <div class="button-row single fuel-list-button-wrap">
-            <button id="openFuelListBtn" class="btn btn-muted" type="button" disabled>
-              Se billigste priser på rute
-            </button>
-          </div>
+        <div id="fuelDisclaimer" class="fuel-disclaimer"></div>
+        <div id="fuelContent"></div>
+
+        <div class="button-row single">
+          <button id="openFuelListBtn" class="btn-primary">Se billigste på ruten</button>
+        </div>
+
+        <div class="button-row single">
+          <button id="openFuelHistoryBtn" class="btn-muted">Se prishistorik</button>
         </div>
       </section>
 
-      <section class="center-column">
-        <div class="stats-grid" id="preNavStats">
-          <div class="stat-card important">
-            <div class="stat-label" id="speedLimitLabel">Max hastighed</div>
-            <div class="stat-value" id="speedLimitValue">ukendt</div>
-            <div class="stat-note" id="speedLimitNote">Ingen aktiv rute</div>
-          </div>
+    </div>
 
-          <div class="stat-card important recommended" id="recommendedSpeedCard">
-            <div class="stat-label" id="recommendedSpeedLabel">Anbefalet hastighed</div>
-            <div class="stat-value" id="recommendedSpeedValue">ukendt</div>
-            <div class="stat-note" id="recommendedSpeedNote">Kræver bekræftet eller troværdig fartgrænse</div>
-          </div>
+    <!-- MAP -->
+    <div class="center-column">
+      <section class="map-panel">
 
-          <div class="stat-card">
-            <div class="stat-label" id="currentSpeedLabel">Nuværende hastighed</div>
-            <div class="stat-value" id="currentSpeedValue">—</div>
-            <div class="stat-note" id="currentSpeedNote">Fra GPS hvis tilgængelig</div>
-          </div>
-
-          <div class="stat-card">
-            <div class="stat-label" id="remainingDistanceLabel">Resterende afstand</div>
-            <div class="stat-value" id="remainingDistanceValue">—</div>
-            <div class="stat-note" id="remainingDistanceNote">—</div>
-          </div>
-
-          <div class="stat-card wide">
-            <div class="stat-label" id="nextInstructionLabel">Næste manøvre</div>
-            <div class="stat-value text" id="nextInstructionValue">Ingen rute endnu</div>
-            <div class="stat-note" id="nextInstructionNote">—</div>
+        <div id="map-rotation-wrap">
+          <div id="map-rotation-inner">
+            <div id="map"></div>
           </div>
         </div>
 
-        <div id="navMessage" class="notice info large">
-          Beregn en rute først. Start derefter live navigation.
+        <!-- NAV OVERLAY -->
+        <div id="navOverlay" class="nav-overlay hidden">
+
+          <div class="nav-top">
+            <div class="nav-top-actions">
+              <button id="exitNavOverlayBtn" class="overlay-btn overlay-btn-danger">Stop</button>
+            </div>
+
+            <div id="navBannerMain">—</div>
+            <div id="navBannerSub">—</div>
+          </div>
+
+          <div class="nav-bottom">
+            <div class="nav-bottom-main">
+              <div class="nav-meta">
+                <span>Afstand</span>
+                <strong id="driveRemainingDistance">—</strong>
+              </div>
+              <div class="nav-meta">
+                <span>Tid</span>
+                <strong id="driveRemainingTime">—</strong>
+              </div>
+              <div class="nav-meta">
+                <span>Speed</span>
+                <strong id="driveCurrentValue">—</strong>
+              </div>
+            </div>
+          </div>
+
         </div>
 
-        <div class="map-panel nav-map-panel" id="mapPanel">
-          <div class="map-toolbar" id="mapToolbar">
-            <div class="map-toolbar-left">
-              <span class="map-pill" id="mapModeLabel">Kort: klar</span>
-            </div>
-
-            <div class="map-toolbar-right">
-              <button id="recenterBtn" class="btn btn-muted small" type="button">
-                Centrér kort
-              </button>
-            </div>
-          </div>
-
-          <div class="nav-overlay hidden" id="navOverlay">
-            <div class="nav-top compact-right">
-              <div class="nav-top-actions">
-                <button id="exitNavOverlayBtn" class="overlay-btn overlay-btn-danger" type="button">
-                  Afslut
-                </button>
-              </div>
-
-              <div class="nav-instruction" id="navBannerMain">Ingen aktiv navigation</div>
-              <div class="nav-sub" id="navBannerSub">—</div>
-            </div>
-
-            <div class="speed-cluster-right">
-              <div class="speed-bubble recommended" id="driveRecommendedCard">
-                <div class="bubble-value" id="driveRecommendedValue">ukendt</div>
-                <div class="bubble-label" id="driveRecommendedLabel">Anb.</div>
-              </div>
-
-              <div class="speed-bubble current">
-                <div class="bubble-value" id="driveCurrentValue">—</div>
-                <div class="bubble-label" id="driveCurrentLabel">Nu</div>
-              </div>
-
-              <div class="speed-bubble max">
-                <div class="bubble-value" id="driveMaxValue">ukendt</div>
-                <div class="bubble-label" id="driveMaxLabel">Max</div>
-              </div>
-            </div>
-
-            <div class="nav-bottom compact-bottom">
-              <div class="nav-bottom-main compact-main">
-                <div class="nav-meta">
-                  <span class="nav-meta-label" id="driveRemainingDistanceLabel">Tilbage</span>
-                  <span class="nav-meta-value" id="driveRemainingDistance">—</span>
-                </div>
-
-                <div class="nav-meta">
-                  <span class="nav-meta-label" id="driveRemainingTimeLabel">Tid</span>
-                  <span class="nav-meta-value" id="driveRemainingTime">—</span>
-                </div>
-
-                <div class="nav-meta">
-                  <span class="nav-meta-label" id="driveGreenWaveLabel">Grøn bølge</span>
-                  <span class="nav-meta-value" id="driveGreenWaveStatus">ukendt</span>
-                </div>
-              </div>
-
-              <div class="nav-bottom-pills compact-pills">
-                <span class="pill-item"><span id="wakeShortLabel">Wake:</span> <strong id="wakeLockStatus">ukendt</strong></span>
-                <span class="pill-item"><span id="obsShortLabel">Obs:</span> <strong id="driveObservationCount">0</strong></span>
-                <span class="pill-item"><span id="slotShortLabel">Slot:</span> <strong id="driveTimeSlot">—</strong></span>
-              </div>
-
-              <div class="nav-bottom-actions">
-                <button id="addFuelStopBtn" class="overlay-btn" type="button">
-                  Tilføj billigste tank
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <div id="map-rotation-wrap">
-            <div id="map-rotation-inner">
-              <div id="map"></div>
-            </div>
-          </div>
-        </div>
       </section>
-    </main>
+    </div>
+
+  </main>
+</div>
+
+<!-- SETTINGS -->
+<div id="settingsBackdrop" class="settings-backdrop hidden"></div>
+
+<div id="settingsPanel" class="settings-panel hidden">
+
+  <div class="settings-header">
+    <h2>Indstillinger</h2>
+    <button id="closeSettingsBtn" class="btn-muted small">Luk</button>
   </div>
 
-  <div id="fuelListBackdrop" class="modal-backdrop hidden"></div>
+  <div class="settings-body">
 
-  <section id="fuelListModal" class="fuel-list-modal hidden" aria-hidden="true">
-    <div class="fuel-list-header">
-      <div>
-        <div class="settings-eyebrow">Brændstof på ruten</div>
-        <h2>Billigste priser på rute</h2>
-      </div>
+    <div class="settings-section">
+      <h3>Sprog</h3>
 
-      <button id="closeFuelListBtn" class="btn btn-muted small" type="button">
-        Luk
-      </button>
+      <label class="settings-option">
+        <input type="radio" id="languageDa" name="language" checked />
+        <span>Dansk</span>
+      </label>
+
+      <label class="settings-option">
+        <input type="radio" id="languageEn" name="language" />
+        <span>English</span>
+      </label>
     </div>
 
-    <div class="fuel-list-controls">
-      <button id="sortFuelByPriceBtn" class="btn btn-primary small" type="button">
-        Sortér efter pris
-      </button>
-      <button id="sortFuelByDetourBtn" class="btn btn-muted small" type="button">
-        Sortér efter omvej
-      </button>
+    <div class="settings-section">
+      <h3>Marked</h3>
+
+      <label class="settings-option">
+        <input type="radio" id="regionDK" name="region" checked />
+        <span>Danmark</span>
+      </label>
+
+      <label class="settings-option">
+        <input type="radio" id="regionUS" name="region" />
+        <span>USA</span>
+      </label>
     </div>
 
-    <div id="fuelListContent" class="fuel-list-content">
-      Beregn en rute først.
-    </div>
-  </section>
+    <div class="settings-section">
+      <h3>Rute</h3>
 
-  <div id="settingsBackdrop" class="settings-backdrop hidden"></div>
+      <label class="settings-option">
+        <input type="radio" id="settingsRouteFast" name="routeMode" checked />
+        <span>Hurtigste</span>
+      </label>
 
-  <aside id="settingsPanel" class="settings-panel hidden" aria-hidden="true">
-    <div class="settings-header">
-      <div>
-        <div class="settings-eyebrow">Settings</div>
-        <h2 id="settingsTitle">Indstillinger</h2>
-      </div>
-
-      <button id="closeSettingsBtn" class="btn btn-muted small" type="button">
-        Luk
-      </button>
+      <label class="settings-option">
+        <input type="radio" id="settingsRouteEco" name="routeMode" />
+        <span>Økonomisk</span>
+      </label>
     </div>
 
-    <div class="settings-body">
-      <section class="settings-section">
-        <div class="settings-section-head">
-          <h3 id="languageSectionTitle">Sprog</h3>
-          <span class="settings-tag">Language</span>
-        </div>
+  </div>
 
-        <div class="settings-option-group">
-          <label class="settings-option">
-            <input type="radio" name="languageSetting" id="languageDa" value="da" checked />
-            <span>Dansk</span>
-          </label>
+  <div class="settings-footer">
+    <button id="saveSettingsBtn" class="btn-primary">Gem</button>
+  </div>
 
-          <label class="settings-option">
-            <input type="radio" name="languageSetting" id="languageEn" value="en" />
-            <span>English</span>
-          </label>
-        </div>
-      </section>
+</div>
 
-      <section class="settings-section">
-        <div class="settings-section-head">
-          <h3 id="routeSettingsTitle">Rute</h3>
-          <span class="settings-tag">Route</span>
-        </div>
+<!-- FUEL LIST -->
+<div id="fuelListBackdrop" class="modal-backdrop hidden"></div>
 
-        <div class="settings-field">
-          <label id="routeModeSettingsLabel">Standard rutevalg</label>
+<div id="fuelListModal" class="fuel-list-modal hidden">
+  <div class="fuel-list-header">
+    <h2>Billigste stationer</h2>
+    <button id="closeFuelListBtn" class="btn-muted small">Luk</button>
+  </div>
 
-          <div class="settings-option-group">
-            <label class="settings-option">
-              <input type="radio" name="routeModeSetting" id="settingsRouteFast" value="fast" checked />
-              <span id="settingsRouteFastLabel">Hurtigst</span>
-            </label>
+  <div class="fuel-list-controls">
+    <button id="sortFuelByPriceBtn" class="btn-primary small">Pris</button>
+    <button id="sortFuelByDetourBtn" class="btn-muted small">Omvej</button>
+  </div>
 
-            <label class="settings-option">
-              <input type="radio" name="routeModeSetting" id="settingsRouteEco" value="eco" />
-              <span id="settingsRouteEcoLabel">Mest økonomisk</span>
-            </label>
-          </div>
-        </div>
+  <div id="fuelListContent" class="fuel-list-content"></div>
+</div>
 
-        <div class="settings-field">
-          <label class="settings-switch">
-            <input type="checkbox" id="settingsHeadingUp" checked />
-            <span id="settingsHeadingUpLabel">Kørselsretning opad</span>
-          </label>
-        </div>
+<!-- PRICE HISTORY -->
+<div id="fuelHistoryBackdrop" class="modal-backdrop hidden"></div>
 
-        <div class="settings-field">
-          <label class="settings-switch">
-            <input type="checkbox" id="settingsSmoothNavigation" checked />
-            <span id="settingsSmoothNavigationLabel">Flydende navigation</span>
-          </label>
-        </div>
-      </section>
+<div id="fuelHistoryModal" class="fuel-list-modal hidden">
+  <div class="fuel-list-header">
+    <h2>Prishistorik</h2>
+    <button id="closeFuelHistoryBtn" class="btn-muted small">Luk</button>
+  </div>
 
-      <section class="settings-section">
-        <div class="settings-section-head">
-          <h3 id="fuelSettingsTitle">Brændstof</h3>
-          <span class="settings-tag">Fuel</span>
-        </div>
+  <div id="fuelHistoryContent" class="fuel-list-content"></div>
+</div>
 
-        <div class="settings-field">
-          <label for="settingsFuelType" id="fuelTypeLabel">Brændstoftype</label>
-          <select id="settingsFuelType">
-            <option value="benzin95">Benzin 95</option>
-            <option value="diesel">Diesel</option>
-            <option value="electric">El</option>
-          </select>
-        </div>
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script src="app.js"></script>
 
-        <div class="settings-field">
-          <label for="settingsMaxDetour" id="maxDetourLabel">Maks ekstra omvej</label>
-          <select id="settingsMaxDetour">
-            <option value="500">0,5 km</option>
-            <option value="1000">1 km</option>
-            <option value="2000" selected>2 km</option>
-          </select>
-        </div>
-
-        <div class="settings-field">
-          <label class="settings-switch">
-            <input type="checkbox" id="settingsShowFuelBox" checked />
-            <span id="settingsShowFuelBoxLabel">Vis brændstof-boks</span>
-          </label>
-        </div>
-
-        <div class="settings-note">
-          Brændstofmodulet bruger fuel-prices.json, som opdateres automatisk via GitHub Action.
-        </div>
-      </section>
-
-      <section class="settings-section">
-        <div class="settings-section-head">
-          <h3 id="speedSettingsTitle">Fartgrænser</h3>
-          <span class="settings-tag">Speed</span>
-        </div>
-
-        <div class="settings-field">
-          <label class="settings-switch">
-            <input type="checkbox" id="settingsUseOsmSpeed" checked />
-            <span id="settingsUseOsmSpeedLabel">Brug OSM maxspeed når den findes</span>
-          </label>
-        </div>
-
-        <div class="settings-field">
-          <label class="settings-switch">
-            <input type="checkbox" id="settingsAllowRoadTypeFallback" />
-            <span id="settingsAllowRoadTypeFallbackLabel">Tillad forsigtig vejtype-fallback</span>
-          </label>
-        </div>
-
-        <div class="settings-note">
-          Standard er sikkert: ingen automatisk 50/80/130-gæt. Ukendt er bedre end forkert.
-        </div>
-      </section>
-    </div>
-
-    <div class="settings-footer">
-      <button id="saveSettingsBtn" class="btn btn-primary" type="button">
-        Gem indstillinger
-      </button>
-    </div>
-  </aside>
-
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-  <script src="app.js"></script>
 </body>
 </html>
