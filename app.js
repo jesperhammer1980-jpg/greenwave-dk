@@ -850,17 +850,10 @@ function updateFuelBox() {
 
   const mapsLink = `https://www.google.com/maps/dir/?api=1&destination=${best.lat},${best.lng}`;
   const priceText =
-    typeof best.price === "number"
-      ? `${best.price.toFixed(2).replace(".", ",")} ${best.currency}/${best.unit === "liter" ? "L" : best.unit}`
-      : "Pris mangler";
-
-  const priceNote =
-    typeof best.price === "number"
-      ? `Pris matchet fra ${best.source}`
-      : "Ingen livepris tilsluttet endnu";
-
-  const updatedText = best.updatedAt ? `Opdateret: ${best.updatedAt}` : "Opdateringstid mangler";
-
+  typeof best.price === "number"
+    ? `${best.price.toFixed(2).replace(".", ",")} kr/L`
+    : "—";
+  
   els.fuelContent.innerHTML = `
     <div class="fuel-name">${escapeHtml(best.name)}</div>
     <div class="fuel-address">${escapeHtml(best.address)}</div>
