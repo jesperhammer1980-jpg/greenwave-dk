@@ -1,71 +1,83 @@
 import fs from "fs/promises";
 
 const OUTPUT_FILE = "./fuel-prices.json";
-const OK_API_URL = "https://mobility-prices.ok.dk/api/v1/fuel-prices";
 
-async function fetchOKPrices() {
+const CIRCLEK_INGO_API_URL =
+  "https://api.circlek.com/eu/prices/v1/fuel/countries/DK";
+
+async function fetchCircleKIngoPrices() {
   try {
-    const res = await fetch(OK_API_URL, {
+    const res = await fetch(CIRCLEK_INGO_API_URL, {
       headers: {
-        Accept: "application/json"
+        Accept: "application/json",
+        "X-App-Name": "PRICES"
       }
     });
 
     if (!res.ok) {
-      console.log("OK API fejl:", res.status, res.statusText);
+      console.log("Circle K/INGO API fejl:", res.status, res.statusText);
       return [];
     }
 
     const data = await res.json();
 
-    const stations = Array.isArray(data)
+    const sites = Array.isArray(data)
       ? data
-      : Array.isArray(data.stations)
-        ? data.stations
+      : Array.isArray(data.sites)
+        ? data.sites
         : Array.isArray(data.data)
           ? data.data
           : [];
 
-    console.log(`OK rå stationer: ${stations.length}`);
+    console.log(`Circle K/INGO rå sites: ${sites.length}`);
 
-    return stations
-      .map(normalizeOKStation)
-      .filter(Boolean);
+    return sites.map(normalizeCircleKIngoSite).filter(Boolean);
   } catch (err) {
-    console.log("OK fetch fejl:", err.message);
+    console.log("Circle K/INGO fetch fejl:", err.message);
     return [];
   }
 }
 
-function normalizeOKStation(station) {
+function normalizeCircleKIngoSite(site) {
   const lat =
-    Number(station.latitude) ||
-    Number(station.lat) ||
-    Number(station.location?.latitude) ||
-    Number(station.location?.lat);
+    Number(site.latitude) ||
+    Number(site.lat) ||
+    Number(site.location?.latitude) ||
+    Number(site.location?.lat) ||
+    Number(site.coordinates?.latitude) ||
+    Number(site.coordinates?.lat);
 
   const lng =
-    Number(station.longitude) ||
-    Number(station.lng) ||
-    Number(station.lon) ||
-    Number(station.location?.longitude) ||
-    Number(station.location?.lng) ||
-    Number(station.location?.lon);
+    Number(site.longitude) ||
+    Number(site.lng) ||
+    Number(site.lon) ||
+    Number(site.location?.longitude) ||
+    Number(site.location?.lng) ||
+    Number(site.location?.lon) ||
+    Number(site.coordinates?.longitude) ||
+    Number(site.coordinates?.lng) ||
+    Number(site.coordinates?.lon);
 
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
     return null;
   }
 
-  const id = station.id || station.stationId || station.siteId || `${lat},${lng}`;
-  const name = station.name || station.stationName || "OK";
-  const address = buildAddress(station);
+  const id = String(site.id || site.siteId || site.code || `${lat},${lng}`);
+  const brand = detectBrand(site);
+  const name =
+    site.name ||
+    site.siteName ||
+    site.displayName ||
+    site.title ||
+    `${brand} station`;
 
-  const prices = extractPrices(station);
+  const address = buildAddress(site);
+  const prices = extractCircleKIngoPrices(site);
 
   return {
-    id: `ok-${slugify(String(id))}`,
+    id: `${slugify(brand)}-${slugify(id)}`,
     name,
-    brand: "OK",
+    brand,
     address,
     lat,
     lng,
@@ -76,69 +88,142 @@ function normalizeOKStation(station) {
         currency: "DKK",
         unit: "liter",
         updatedAt: prices.updatedAt,
-        source: "OK API"
+        source: `${brand} API`
       },
       diesel: {
         price: prices.diesel,
         currency: "DKK",
         unit: "liter",
         updatedAt: prices.updatedAt,
-        source: "OK API"
+        source: `${brand} API`
       }
     }
   };
 }
 
-function buildAddress(station) {
-  const direct =
-    station.address ||
-    station.streetAddress ||
-    station.addressLine ||
-    station.location?.address;
+function detectBrand(site) {
+  const raw = String(
+    site.brand ||
+      site.brandName ||
+      site.company ||
+      site.operator ||
+      site.name ||
+      site.siteName ||
+      site.displayName ||
+      ""
+  ).toLowerCase();
 
-  if (direct) return String(direct);
+  if (raw.includes("ingo")) return "INGO";
+  if (raw.includes("circle")) return "Circle K";
+
+  return "Circle K";
+}
+
+function buildAddress(site) {
+  const direct =
+    site.address ||
+    site.streetAddress ||
+    site.addressLine ||
+    site.location?.address ||
+    site.contact?.address;
+
+  if (typeof direct === "string" && direct.trim()) return direct.trim();
+
+  if (direct && typeof direct === "object") {
+    const street = [
+      direct.street,
+      direct.streetName,
+      direct.houseNumber,
+      direct.number
+    ].filter(Boolean).join(" ");
+
+    const city = [
+      direct.postalCode || direct.zipCode,
+      direct.city
+    ].filter(Boolean).join(" ");
+
+    const combined = [street, city].filter(Boolean).join(", ");
+    if (combined) return combined;
+  }
 
   const street = [
-    station.street,
-    station.houseNumber
+    site.street,
+    site.streetName,
+    site.houseNumber,
+    site.number
   ].filter(Boolean).join(" ");
 
   const city = [
-    station.postalCode || station.zipCode,
-    station.city
+    site.postalCode || site.zipCode || site.postcode,
+    site.city || site.town
   ].filter(Boolean).join(" ");
 
   return [street, city].filter(Boolean).join(", ");
 }
 
-function extractPrices(station) {
+function extractCircleKIngoPrices(site) {
   const now = new Date().toISOString();
 
-  const candidates = [
-    station.prices,
-    station.fuelPrices,
-    station.products,
-    station.fuels,
-    station.priceList,
-    station
+  const updatedAt =
+    site.lastUpdated ||
+    site.updatedAt ||
+    site.priceUpdatedAt ||
+    site.modifiedAt ||
+    now;
+
+  const priceContainers = [
+    site.prices,
+    site.fuelPrices,
+    site.products,
+    site.fuels,
+    site.priceList,
+    site.sitePrices,
+    site
   ].filter(Boolean);
 
   let benzin95 = null;
   let diesel = null;
-  let updatedAt =
-    station.updatedAt ||
-    station.lastUpdated ||
-    station.priceUpdatedAt ||
-    now;
 
-  for (const source of candidates) {
+  for (const container of priceContainers) {
     const found95 =
-      getPrice(source, ["benzin95", "benzine95", "gasoline95", "e5", "E5", "95", "octane95"]) ??
-      findPriceInArray(source, ["benzin95", "benzine95", "gasoline95", "e5", "95", "octane95"]);
+      getPriceByKeys(container, [
+        "benzin95",
+        "benzine95",
+        "gasoline95",
+        "miles95",
+        "miles 95",
+        "e10",
+        "E10",
+        "e5",
+        "E5",
+        "95",
+        "octane95"
+      ]) ?? findPriceInArray(container, [
+        "benzin95",
+        "benzine95",
+        "gasoline95",
+        "miles95",
+        "miles 95",
+        "e10",
+        "e5",
+        "95",
+        "octane95"
+      ]);
 
     const foundDiesel =
-      getPrice(source, ["diesel", "Diesel", "b7", "B7"]) ??
-      findPriceInArray(source, ["diesel", "b7"]);
+      getPriceByKeys(container, [
+        "diesel",
+        "Diesel",
+        "b7",
+        "B7",
+        "miles diesel",
+        "milesdiesel"
+      ]) ?? findPriceInArray(container, [
+        "diesel",
+        "b7",
+        "miles diesel",
+        "milesdiesel"
+      ]);
 
     if (benzin95 === null && found95 !== null) benzin95 = found95;
     if (diesel === null && foundDiesel !== null) diesel = foundDiesel;
@@ -151,7 +236,7 @@ function extractPrices(station) {
   };
 }
 
-function getPrice(source, keys) {
+function getPriceByKeys(source, keys) {
   if (!source || typeof source !== "object" || Array.isArray(source)) return null;
 
   for (const key of keys) {
@@ -172,21 +257,27 @@ function findPriceInArray(source, names) {
 
     const name = String(
       item.name ||
-      item.productName ||
-      item.fuelType ||
-      item.type ||
-      item.product ||
-      ""
+        item.displayName ||
+        item.productName ||
+        item.fuelType ||
+        item.type ||
+        item.product ||
+        item.description ||
+        ""
     ).toLowerCase();
 
-    const isMatch = names.some((candidate) => name.includes(candidate.toLowerCase()));
+    const isMatch = names.some((candidate) =>
+      name.includes(candidate.toLowerCase())
+    );
+
     if (!isMatch) continue;
 
     const parsed = parsePrice(
       item.price ??
-      item.amount ??
-      item.value ??
-      item.currentPrice
+        item.amount ??
+        item.value ??
+        item.currentPrice ??
+        item.unitPrice
     );
 
     if (parsed !== null) return parsed;
@@ -208,7 +299,8 @@ function parsePrice(value) {
       value.amount ??
       value.value ??
       value.currentPrice ??
-      value.priceInclVat;
+      value.priceInclVat ??
+      value.unitPrice;
 
     return parsePrice(nested);
   }
@@ -235,7 +327,7 @@ function normalizePriceNumber(num) {
 }
 
 function slugify(value) {
-  return value
+  return String(value)
     .toLowerCase()
     .replaceAll("æ", "ae")
     .replaceAll("ø", "oe")
@@ -244,14 +336,68 @@ function slugify(value) {
     .replace(/^-+|-+$/g, "");
 }
 
+function dedupeStations(stations) {
+  const result = [];
+
+  for (const station of stations) {
+    const duplicate = result.find((existing) => {
+      return (
+        haversineMeters(station.lat, station.lng, existing.lat, existing.lng) < 25 &&
+        station.brand === existing.brand
+      );
+    });
+
+    if (!duplicate) result.push(station);
+  }
+
+  return result;
+}
+
+function haversineMeters(lat1, lng1, lat2, lng2) {
+  const R = 6371000;
+  const toRad = (deg) => deg * Math.PI / 180;
+
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) *
+      Math.cos(toRad(lat2)) *
+      Math.sin(dLng / 2) ** 2;
+
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+async function fetchF24Prices() {
+  console.log("F24: ingen offentlig API tilsluttet endnu.");
+  return [];
+}
+
+async function fetchUnoXPrices() {
+  console.log("Uno-X: API kræver adgang/kontakt og er ikke tilsluttet endnu.");
+  return [];
+}
+
 async function run() {
-  console.log("Henter OK brændstofpriser...");
+  console.log("Henter brændstofpriser...");
 
-  const okStations = await fetchOKPrices();
+  const circleKIngoStations = await fetchCircleKIngoPrices();
+  const f24Stations = await fetchF24Prices();
+  const unoXStations = await fetchUnoXPrices();
 
-  console.log(`OK stationer normaliseret: ${okStations.length}`);
+  const allStations = dedupeStations([
+    ...circleKIngoStations,
+    ...f24Stations,
+    ...unoXStations
+  ]);
 
-  await fs.writeFile(OUTPUT_FILE, JSON.stringify(okStations, null, 2));
+  console.log(`Circle K/INGO stationer: ${circleKIngoStations.length}`);
+  console.log(`F24 stationer: ${f24Stations.length}`);
+  console.log(`Uno-X stationer: ${unoXStations.length}`);
+  console.log(`Stationer i alt: ${allStations.length}`);
+
+  await fs.writeFile(OUTPUT_FILE, JSON.stringify(allStations, null, 2));
 
   console.log("fuel-prices.json opdateret");
 }
