@@ -1,3 +1,20 @@
+const i18n = {
+  da: {
+    title: "Billigste brændstof",
+    calc: "Beregn rute",
+    start: "Start live navigation",
+    noPrice: "Ingen prisdata fundet",
+    cheapest: "Billigste station",
+  },
+  en: {
+    title: "Cheapest fuel",
+    calc: "Calculate route",
+    start: "Start live navigation",
+    noPrice: "No price data found",
+    cheapest: "Cheapest station",
+  }
+};
+
 const state = {
   map: null,
   currentPosition: null,
