@@ -982,3 +982,58 @@ button:disabled {
     min-height: 100vh;
   }
 }
+
+.settings-option input[type="radio"],
+.settings-switch input[type="checkbox"] {
+  width: 22px;
+  height: 22px;
+  min-width: 22px;
+  min-height: 22px;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--blue);
+}
+
+.settings-option,
+.settings-switch {
+  display: grid;
+  grid-template-columns: 28px 1fr;
+  align-items: center;
+  min-height: 48px;
+}
+
+.settings-option span,
+.settings-switch span {
+  font-size: 15px;
+  line-height: 1.25;
+  color: white;
+  overflow-wrap: anywhere;
+}
+
+.settings-panel {
+  left: 8px;
+  right: 8px;
+  width: auto;
+}
+
+@media (max-width: 760px) {
+  .settings-panel {
+    top: 8px;
+    right: 8px;
+    bottom: 8px;
+    left: 8px;
+    width: auto;
+  }
+
+  .settings-header {
+    align-items: center;
+  }
+
+  .settings-header h2 {
+    font-size: 24px;
+  }
+
+  .settings-section h3 {
+    font-size: 20px;
+  }
+}
