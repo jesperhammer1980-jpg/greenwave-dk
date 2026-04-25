@@ -850,20 +850,36 @@ function updateFuelBox() {
 
   const mapsLink = `https://www.google.com/maps/dir/?api=1&destination=${best.lat},${best.lng}`;
   const priceText =
-  typeof best.price === "number"
-    ? `${best.price.toFixed(2).replace(".", ",")} kr/L`
-    : "—";
-  
+    typeof best.price === "number"
+      ? `${best.price.toFixed(2).replace(".", ",")} kr/L`
+      : "—";
+
   els.fuelContent.innerHTML = `
     <div class="fuel-name">${escapeHtml(best.name)}</div>
-    <div class="fuel-address">${escapeHtml(best.address)}</div>
-    <div class="fuel-price">${escapeHtml(priceText)}</div>
-    <div class="fuel-meta">${escapeHtml(priceNote)}</div>
-    <div class="fuel-meta">${escapeHtml(updatedText)}</div>
-    <div class="fuel-meta">Stationer fundet langs ruten: ${state.osmFuelStations.length}</div>
-    <div class="fuel-meta">Ekstra omvej: ca. ${formatDistance(best.extraDetourMeters)}</div>
-    <div class="fuel-meta">Afstand fra rute: ca. ${formatDistance(best.distanceToRouteMeters)}</div>
-    <a class="fuel-link" href="${mapsLink}" target="_blank" rel="noopener noreferrer">Åbn i Google Maps</a>
+
+    <div class="fuel-meta">
+      📍 ${formatDistance(best.distanceToRouteMeters)} fra rute
+    </div>
+
+    <div class="fuel-meta">
+      ↪ Omvej ${formatDistance(best.extraDetourMeters)}
+    </div>
+
+    <div class="fuel-price">
+      ${escapeHtml(priceText)}
+    </div>
+
+    <div class="fuel-meta">
+      ${typeof best.price === "number" ? "Pris fra fuel-prices.json" : "Ingen livepris tilsluttet endnu"}
+    </div>
+
+    <div class="fuel-meta">
+      Stationer fundet langs ruten: ${state.osmFuelStations.length}
+    </div>
+
+    <a class="fuel-link" href="${mapsLink}" target="_blank" rel="noopener noreferrer">
+      Åbn i Maps
+    </a>
   `;
 }
 
