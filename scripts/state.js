@@ -21,6 +21,8 @@ export const state = {
   fuelMarkers: [],
   fuelListSort: "price",
 
+  trafficSignals: [],
+
   watchId: null,
   isNavigating: false,
 
