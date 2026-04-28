@@ -44,6 +44,8 @@ export function startLiveNavigation() {
     "Kort: følger position"
   );
 
+  initializeNavigationUi();
+
   if (state.watchId !== null) {
     navigator.geolocation.clearWatch(state.watchId);
     state.watchId = null;
@@ -92,6 +94,28 @@ export function stopLiveNavigation() {
   recenterMap();
 }
 
+function initializeNavigationUi() {
+  if (els.turnIcon) {
+    els.turnIcon.textContent = "↑";
+  }
+
+  if (els.nextTurnDistance) {
+    els.nextTurnDistance.textContent = "Følg ruten";
+  }
+
+  if (els.nextTurnInstruction) {
+    els.nextTurnInstruction.textContent =
+      "Fortsæt ligeud";
+  }
+
+  if (els.nextTurnRoad) {
+    els.nextTurnRoad.textContent =
+      "GreenWave navigation";
+  }
+
+  updateTurnProgress(0.15);
+}
+
 function handleNavigationPosition(position) {
   const current = {
     lat: position.coords.latitude,
@@ -106,6 +130,8 @@ function handleNavigationPosition(position) {
   updateUserMarker(current.lat, current.lng);
 
   updateNavigationStats(current);
+  updateTurnCard(current);
+
   followCurrentPosition(current);
 }
 
@@ -120,14 +146,18 @@ function handleNavigationError(error) {
 }
 
 function updateNavigationStats(current) {
-  const currentSpeedKmh = getCurrentSpeedKmh(current);
+  const currentSpeedKmh =
+    getCurrentSpeedKmh(current);
 
   if (els.driveCurrentValue) {
     els.driveCurrentValue.textContent =
       `${currentSpeedKmh} km/t`;
   }
 
-  updateRemainingTripStats(current, currentSpeedKmh);
+  updateRemainingTripStats(
+    current,
+    currentSpeedKmh
+  );
 
   const recommendation =
     updateGreenWaveBanner(current);
@@ -138,8 +168,14 @@ function updateNavigationStats(current) {
   );
 }
 
-function updateRemainingTripStats(current, speedKmh) {
-  if (!state.destination || !els.driveRemainingDistance) {
+function updateRemainingTripStats(
+  current,
+  speedKmh
+) {
+  if (
+    !state.destination ||
+    !els.driveRemainingDistance
+  ) {
     return;
   }
 
@@ -154,10 +190,11 @@ function updateRemainingTripStats(current, speedKmh) {
     formatDistance(remainingMeters);
 
   if (els.driveRemainingTime) {
-    const estimatedSeconds = estimateRemainingSeconds(
-      remainingMeters,
-      speedKmh
-    );
+    const estimatedSeconds =
+      estimateRemainingSeconds(
+        remainingMeters,
+        speedKmh
+      );
 
     els.driveRemainingTime.textContent =
       formatDuration(estimatedSeconds);
@@ -168,21 +205,6 @@ function updateGreenWaveBanner(current) {
   const recommendation =
     getGreenWaveRecommendation(current);
 
-  if (els.navBannerMain) {
-    els.navBannerMain.textContent =
-      `Anbefalet fart: ${recommendation.speedKmh} km/t`;
-  }
-
-  if (els.navBannerSub) {
-    if (recommendation.distanceToSignal !== null) {
-      els.navBannerSub.textContent =
-        `Næste trafiklys: ${formatDistance(recommendation.distanceToSignal)} · ${recommendation.message}`;
-    } else {
-      els.navBannerSub.textContent =
-        recommendation.message;
-    }
-  }
-
   return recommendation;
 }
 
@@ -190,37 +212,19 @@ function updateSpeedSigns(
   currentSpeedKmh,
   recommendedSpeedKmh
 ) {
-  /*
-    Maks tilladt hastighed:
-    Midlertidigt ukendt.
-    Senere kommer OSM maxspeed integration.
-  */
-
   if (els.speedLimitValue) {
     els.speedLimitValue.textContent = "?";
   }
-
-  /*
-    Aktuel fart
-  */
 
   if (els.currentSpeedValue) {
     els.currentSpeedValue.textContent =
       String(currentSpeedKmh);
   }
 
-  /*
-    Anbefalet fart
-  */
-
   if (els.recommendedSpeedValue) {
     els.recommendedSpeedValue.textContent =
       String(recommendedSpeedKmh);
   }
-
-  /*
-    Farver på aktuel fart-skilt
-  */
 
   if (!els.currentSpeedSign) {
     return;
@@ -233,27 +237,104 @@ function updateSpeedSigns(
   );
 
   const diff =
-    currentSpeedKmh - recommendedSpeedKmh;
+    currentSpeedKmh -
+    recommendedSpeedKmh;
 
   if (Math.abs(diff) <= 4) {
-    els.currentSpeedSign.classList.add("speed-ok");
+    els.currentSpeedSign.classList.add(
+      "speed-ok"
+    );
     return;
   }
 
   if (Math.abs(diff) <= 10) {
-    els.currentSpeedSign.classList.add("speed-warning");
+    els.currentSpeedSign.classList.add(
+      "speed-warning"
+    );
     return;
   }
 
-  els.currentSpeedSign.classList.add("speed-danger");
+  els.currentSpeedSign.classList.add(
+    "speed-danger"
+  );
+}
+
+function updateTurnCard(current) {
+  /*
+    Første premium navigation version.
+    Rigtige OSRM maneuvers kommer senere.
+  */
+
+  const speedKmh =
+    getCurrentSpeedKmh(current);
+
+  let instruction =
+    "Fortsæt ligeud";
+
+  let icon = "↑";
+
+  if (speedKmh < 8) {
+    instruction =
+      "Kør roligt frem";
+  }
+
+  if (speedKmh > 70) {
+    instruction =
+      "Hold banen";
+  }
+
+  if (els.turnIcon) {
+    els.turnIcon.textContent = icon;
+  }
+
+  if (els.nextTurnDistance) {
+    els.nextTurnDistance.textContent =
+      "Næste instruktion";
+  }
+
+  if (els.nextTurnInstruction) {
+    els.nextTurnInstruction.textContent =
+      instruction;
+  }
+
+  if (els.nextTurnRoad) {
+    els.nextTurnRoad.textContent =
+      "GreenWave Route";
+  }
+
+  const progress =
+    Math.min(
+      1,
+      Math.max(
+        0.1,
+        speedKmh / 100
+      )
+    );
+
+  updateTurnProgress(progress);
+}
+
+function updateTurnProgress(progress) {
+  if (!els.turnProgressBar) {
+    return;
+  }
+
+  els.turnProgressBar.style.width =
+    `${progress * 100}%`;
 }
 
 function followCurrentPosition(current) {
-  if (!state.map || !state.isNavigating) {
+  if (
+    !state.map ||
+    !state.isNavigating
+  ) {
     return;
   }
 
-  const zoom = Math.max(state.map.getZoom(), 17);
+  const zoom = Math.max(
+    state.map.getZoom(),
+    17
+  );
 
   state.map.setView(
     [current.lat, current.lng],
@@ -265,7 +346,10 @@ function followCurrentPosition(current) {
   );
 
   window.requestAnimationFrame(() => {
-    if (!state.map || !state.isNavigating) {
+    if (
+      !state.map ||
+      !state.isNavigating
+    ) {
       return;
     }
 
@@ -297,7 +381,9 @@ function estimateRemainingSeconds(
   distanceMeters,
   speedKmh
 ) {
-  if (!Number.isFinite(distanceMeters)) {
+  if (
+    !Number.isFinite(distanceMeters)
+  ) {
     return null;
   }
 
@@ -315,7 +401,9 @@ function estimateRemainingSeconds(
 }
 
 function formatDuration(seconds) {
-  if (!Number.isFinite(seconds)) {
+  if (
+    !Number.isFinite(seconds)
+  ) {
     return "—";
   }
 
@@ -328,8 +416,11 @@ function formatDuration(seconds) {
     return `${minutes} min`;
   }
 
-  const hours = Math.floor(minutes / 60);
-  const restMinutes = minutes % 60;
+  const hours =
+    Math.floor(minutes / 60);
+
+  const restMinutes =
+    minutes % 60;
 
   if (restMinutes === 0) {
     return `${hours} t`;
