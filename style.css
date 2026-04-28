@@ -732,7 +732,6 @@ button:disabled {
   margin-top: 8px;
 }
 
-/* FUEL LIST MODAL */
 .fuel-list-modal {
   position: fixed;
   left: 50%;
@@ -846,12 +845,29 @@ button:disabled {
   display: none !important;
 }
 
+.navigation-active {
+  overflow: hidden;
+}
+
 .navigation-active .hero,
 .navigation-active .left-column,
 .navigation-active #preNavStats,
 .navigation-active #navMessage,
 .navigation-active .map-toolbar {
   display: none;
+}
+
+.navigation-active .app-shell,
+.navigation-active .app-grid,
+.navigation-active .center-column,
+.navigation-active .map-panel,
+.navigation-active #map-rotation-wrap,
+.navigation-active #map-rotation-inner,
+.navigation-active #map {
+  width: 100vw !important;
+  height: 100vh !important;
+  min-height: 100vh !important;
+  max-height: 100vh !important;
 }
 
 .navigation-active .app-grid {
@@ -864,21 +880,100 @@ button:disabled {
 }
 
 .navigation-active .map-panel {
-  min-height: 100vh;
   border: 0;
   border-radius: 0;
 }
 
 .navigation-active #map-rotation-wrap {
-  height: 100vh;
-  min-height: 100vh;
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
 }
 
 .navigation-active #map-rotation-inner {
-  width: 240%;
-  height: 240%;
-  left: -70%;
-  top: -70%;
+  position: absolute;
+  left: 0 !important;
+  top: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+}
+
+.navigation-active .nav-overlay {
+  position: fixed;
+  inset: env(safe-area-inset-top) 10px env(safe-area-inset-bottom) 10px;
+  z-index: 1000;
+}
+
+.settings-option input[type="radio"],
+.settings-switch input[type="checkbox"] {
+  width: 22px;
+  height: 22px;
+  min-width: 22px;
+  min-height: 22px;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--blue);
+}
+
+.settings-option,
+.settings-switch {
+  display: grid;
+  grid-template-columns: 28px 1fr;
+  align-items: center;
+  min-height: 48px;
+}
+
+.settings-option span,
+.settings-switch span {
+  font-size: 15px;
+  line-height: 1.25;
+  color: white;
+  overflow-wrap: anywhere;
+}
+
+.settings-panel {
+  left: 8px;
+  right: 8px;
+  width: auto;
+}
+
+.fuel-list-modal h2 {
+  margin: 0;
+}
+
+.fuel-list-item {
+  transition: transform 0.15s ease;
+}
+
+.fuel-list-item:hover {
+  transform: scale(1.01);
+}
+
+.fuel-price-marker {
+  background: transparent;
+  border: 0;
+}
+
+.fuel-price-label {
+  background: #0b0f14;
+  color: white;
+  border: 2px solid white;
+  border-radius: 999px;
+  padding: 6px 9px;
+  font-size: 12px;
+  font-weight: 900;
+  box-shadow: 0 8px 22px rgba(0,0,0,0.35);
+  white-space: nowrap;
+}
+
+.fuel-price-label.best {
+  background: #00c853;
+  color: white;
+}
+
+.fuel-price-label.no-price {
+  background: #263241;
+  color: rgba(255,255,255,0.7);
 }
 
 @media (max-width: 760px) {
@@ -977,46 +1072,6 @@ button:disabled {
     grid-template-columns: 1fr;
   }
 
-  .navigation-active #map-rotation-wrap {
-    height: 100vh;
-    min-height: 100vh;
-  }
-}
-
-.settings-option input[type="radio"],
-.settings-switch input[type="checkbox"] {
-  width: 22px;
-  height: 22px;
-  min-width: 22px;
-  min-height: 22px;
-  margin: 0;
-  padding: 0;
-  accent-color: var(--blue);
-}
-
-.settings-option,
-.settings-switch {
-  display: grid;
-  grid-template-columns: 28px 1fr;
-  align-items: center;
-  min-height: 48px;
-}
-
-.settings-option span,
-.settings-switch span {
-  font-size: 15px;
-  line-height: 1.25;
-  color: white;
-  overflow-wrap: anywhere;
-}
-
-.settings-panel {
-  left: 8px;
-  right: 8px;
-  width: auto;
-}
-
-@media (max-width: 760px) {
   .settings-panel {
     top: 8px;
     right: 8px;
@@ -1036,43 +1091,4 @@ button:disabled {
   .settings-section h3 {
     font-size: 20px;
   }
-}
-.fuel-list-modal h2 {
-  margin: 0;
-}
-
-.fuel-list-item {
-  transition: transform 0.15s ease;
-}
-
-.fuel-list-item:hover {
-  transform: scale(1.01);
-}
-/* PRICE MARKERS ON MAP */
-
-.fuel-price-marker {
-  background: transparent;
-  border: 0;
-}
-
-.fuel-price-label {
-  background: #0b0f14;
-  color: white;
-  border: 2px solid white;
-  border-radius: 999px;
-  padding: 6px 9px;
-  font-size: 12px;
-  font-weight: 900;
-  box-shadow: 0 8px 22px rgba(0,0,0,0.35);
-  white-space: nowrap;
-}
-
-.fuel-price-label.best {
-  background: #00c853;
-  color: white;
-}
-
-.fuel-price-label.no-price {
-  background: #263241;
-  color: rgba(255,255,255,0.7);
 }
