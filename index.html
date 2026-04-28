@@ -18,23 +18,13 @@
     <div class="hero-copy">
       <span class="eyebrow">GreenWave</span>
       <h1 id="titleText">Billigste brændstof</h1>
-      <p id="subtitleText">
-        Find billigste tankstation langs din rute
-      </p>
+      <p id="subtitleText">Find billigste tankstation langs din rute</p>
     </div>
 
     <div class="hero-status">
-      <div id="gpsStatusChip" class="status-chip">
-        GPS: klar
-      </div>
-
-      <div id="navStatusChip" class="status-chip">
-        Navigation: inaktiv
-      </div>
-
-      <div id="mapModeLabel" class="map-pill">
-        Kort: klar
-      </div>
+      <div id="gpsStatusChip" class="status-chip">GPS: klar</div>
+      <div id="navStatusChip" class="status-chip">Navigation: inaktiv</div>
+      <div id="mapModeLabel" class="map-pill">Kort: klar</div>
     </div>
   </header>
 
@@ -44,510 +34,259 @@
 
       <section class="panel">
 
-        <label id="destinationLabel">
-          Destination
-        </label>
+        <label id="destinationLabel">Destination</label>
 
         <div class="search-wrap">
-
-          <input
-            id="destinationInput"
-            placeholder="Indtast adresse..."
-            autocomplete="off"
-          />
+          <input id="destinationInput" placeholder="Indtast adresse..." autocomplete="off" />
 
           <div id="autocompleteBox" class="autocomplete-box hidden">
             <div id="autocompleteList"></div>
           </div>
-
         </div>
 
         <div class="button-row">
-          <button id="calcRouteBtn" class="btn-primary">
-            Beregn rute
-          </button>
-
-          <button
-            id="startNavBtn"
-            class="btn-accent"
-            disabled
-          >
-            Start
-          </button>
+          <button id="calcRouteBtn" class="btn-primary">Beregn rute</button>
+          <button id="startNavBtn" class="btn-accent" disabled>Start</button>
         </div>
 
         <div class="button-row">
-          <button
-            id="stopNavBtn"
-            class="btn-danger"
-            disabled
-          >
-            Stop
-          </button>
-
-          <button
-            id="recenterBtn"
-            class="btn-muted"
-          >
-            Centrér
-          </button>
+          <button id="stopNavBtn" class="btn-danger" disabled>Stop</button>
+          <button id="recenterBtn" class="btn-muted">Centrér</button>
         </div>
 
         <div class="button-row">
-          <button
-            id="historyToggleBtn"
-            class="btn-muted"
-          >
-            Historik
-          </button>
-
-          <button
-            id="openSettingsBtn"
-            class="btn-muted"
-          >
-            Settings
-          </button>
+          <button id="historyToggleBtn" class="btn-muted">Historik</button>
+          <button id="openSettingsBtn" class="btn-muted">Settings</button>
         </div>
 
         <div id="historyBox" class="history-box hidden">
-
-          <div
-            class="history-title"
-            id="historyTitle"
-          >
-            Seneste destinationer
-          </div>
-
-          <div
-            id="historyList"
-            class="history-list"
-          ></div>
-
+          <div class="history-title" id="historyTitle">Seneste destinationer</div>
+          <div id="historyList" class="history-list"></div>
         </div>
 
       </section>
 
       <section id="fuelPanel" class="panel">
-
         <div class="panel-head">
-          <h2 id="fuelPanelTitle">
-            Billigste tank
-          </h2>
+          <h2 id="fuelPanelTitle">Billigste tank</h2>
         </div>
 
-        <div
-          id="fuelDisclaimer"
-          class="fuel-disclaimer"
-        ></div>
-
+        <div id="fuelDisclaimer" class="fuel-disclaimer"></div>
         <div id="fuelContent"></div>
 
         <div class="button-row single">
-          <button
-            id="openFuelListBtn"
-            class="btn-primary"
-            disabled
-          >
+          <button id="openFuelListBtn" class="btn-primary" disabled>
             Se billigste på ruten
           </button>
         </div>
 
         <div class="button-row single">
-          <button
-            id="openFuelHistoryBtn"
-            class="btn-muted"
-          >
+          <button id="openFuelHistoryBtn" class="btn-muted">
             Se prishistorik
           </button>
         </div>
-
       </section>
 
     </div>
 
     <div class="center-column">
-
       <section class="map-panel">
 
         <div id="map-rotation-wrap">
-
           <div id="map-rotation-inner">
             <div id="map"></div>
           </div>
-
         </div>
 
         <div id="navOverlay" class="nav-overlay hidden">
 
           <div class="nav-top">
-
             <div class="nav-top-actions">
-
-              <button
-                id="exitNavOverlayBtn"
-                class="overlay-btn overlay-btn-danger"
-              >
+              <button id="exitNavOverlayBtn" class="overlay-btn overlay-btn-danger">
                 Stop
               </button>
-
             </div>
 
             <div id="navBannerMain">—</div>
             <div id="navBannerSub">—</div>
+          </div>
 
+          <div class="speed-sign-stack">
+            <div class="speed-sign-block">
+              <div class="speed-sign-label">Max</div>
+              <div id="speedLimitSign" class="speed-sign speed-sign-limit">
+                <span id="speedLimitValue">?</span>
+              </div>
+            </div>
+
+            <div class="speed-sign-block">
+              <div class="speed-sign-label">Aktuel</div>
+              <div id="currentSpeedSign" class="speed-sign speed-sign-current speed-ok">
+                <span id="currentSpeedValue">0</span>
+              </div>
+            </div>
+
+            <div class="speed-sign-block">
+              <div class="speed-sign-label">Anbefalet</div>
+              <div id="recommendedSpeedSign" class="speed-sign speed-sign-recommended">
+                <span id="recommendedSpeedValue">45</span>
+              </div>
+            </div>
           </div>
 
           <div class="nav-bottom">
-
             <div class="nav-bottom-main">
-
               <div class="nav-meta">
-                <span id="navDistanceLabel">
-                  Afstand
-                </span>
-
-                <strong id="driveRemainingDistance">
-                  —
-                </strong>
+                <span id="navDistanceLabel">Afstand</span>
+                <strong id="driveRemainingDistance">—</strong>
               </div>
 
               <div class="nav-meta">
-                <span id="navTimeLabel">
-                  Tid
-                </span>
-
-                <strong id="driveRemainingTime">
-                  —
-                </strong>
+                <span id="navTimeLabel">Tid</span>
+                <strong id="driveRemainingTime">—</strong>
               </div>
 
               <div class="nav-meta">
-                <span id="navSpeedLabel">
-                  Speed
-                </span>
-
-                <strong id="driveCurrentValue">
-                  —
-                </strong>
+                <span id="navSpeedLabel">Speed</span>
+                <strong id="driveCurrentValue">—</strong>
               </div>
-
             </div>
-
           </div>
 
         </div>
 
       </section>
-
     </div>
 
   </main>
-
 </div>
 
-<div
-  id="settingsBackdrop"
-  class="settings-backdrop hidden"
-></div>
+<div id="settingsBackdrop" class="settings-backdrop hidden"></div>
 
-<div
-  id="settingsPanel"
-  class="settings-panel hidden"
->
+<div id="settingsPanel" class="settings-panel hidden">
 
   <div class="settings-header">
-
-    <h2 id="settingsTitle">
-      Indstillinger
-    </h2>
-
-    <button
-      id="closeSettingsBtn"
-      class="btn-muted small"
-    >
-      Luk
-    </button>
-
+    <h2 id="settingsTitle">Indstillinger</h2>
+    <button id="closeSettingsBtn" class="btn-muted small">Luk</button>
   </div>
 
   <div class="settings-body">
 
     <div class="settings-section">
-
-      <h3 id="languageTitle">
-        Sprog
-      </h3>
+      <h3 id="languageTitle">Sprog</h3>
 
       <label class="settings-option">
-        <input
-          type="radio"
-          id="languageDa"
-          name="language"
-          checked
-        />
+        <input type="radio" id="languageDa" name="language" checked />
         <span>Dansk</span>
       </label>
 
       <label class="settings-option">
-        <input
-          type="radio"
-          id="languageEn"
-          name="language"
-        />
+        <input type="radio" id="languageEn" name="language" />
         <span>English</span>
       </label>
-
     </div>
 
     <div class="settings-section">
-
-      <h3 id="regionTitle">
-        Marked
-      </h3>
+      <h3 id="regionTitle">Marked</h3>
 
       <label class="settings-option">
-        <input
-          type="radio"
-          id="regionDK"
-          name="region"
-          checked
-        />
+        <input type="radio" id="regionDK" name="region" checked />
         <span>Danmark</span>
       </label>
 
       <label class="settings-option">
-        <input
-          type="radio"
-          id="regionUS"
-          name="region"
-        />
+        <input type="radio" id="regionUS" name="region" />
         <span>USA</span>
       </label>
 
       <div class="settings-note" id="regionNote">
-        USA kræver amerikanske prisdata.
-        Danske priser kan ikke bruges korrekt i USA.
+        USA kræver amerikanske prisdata. Danske priser kan ikke bruges korrekt i USA.
       </div>
-
     </div>
 
     <div class="settings-section">
-
-      <h3 id="routeTitle">
-        Rute
-      </h3>
+      <h3 id="routeTitle">Rute</h3>
 
       <label class="settings-option">
-        <input
-          type="radio"
-          id="settingsRouteFast"
-          name="routeMode"
-          checked
-        />
-        <span id="routeFastText">
-          Hurtigste
-        </span>
+        <input type="radio" id="settingsRouteFast" name="routeMode" checked />
+        <span id="routeFastText">Hurtigste</span>
       </label>
 
       <label class="settings-option">
-        <input
-          type="radio"
-          id="settingsRouteEco"
-          name="routeMode"
-        />
-        <span id="routeEcoText">
-          Økonomisk
-        </span>
+        <input type="radio" id="settingsRouteEco" name="routeMode" />
+        <span id="routeEcoText">Økonomisk</span>
       </label>
-
     </div>
 
     <div class="settings-section">
+      <h3 id="fuelSettingsTitle">Brændstof</h3>
 
-      <h3 id="fuelSettingsTitle">
-        Brændstof
-      </h3>
-
-      <label
-        for="settingsFuelType"
-        id="fuelTypeLabel"
-      >
-        Brændstoftype
-      </label>
-
+      <label for="settingsFuelType" id="fuelTypeLabel">Brændstoftype</label>
       <select id="settingsFuelType">
-        <option value="benzin95">
-          Benzin 95
-        </option>
-
-        <option value="diesel">
-          Diesel
-        </option>
-
-        <option value="electric">
-          El
-        </option>
+        <option value="benzin95">Benzin 95</option>
+        <option value="diesel">Diesel</option>
+        <option value="electric">El</option>
       </select>
 
-      <label
-        for="settingsMaxDetour"
-        id="maxDetourLabel"
-      >
-        Maks ekstra omvej
-      </label>
-
+      <label for="settingsMaxDetour" id="maxDetourLabel">Maks ekstra omvej</label>
       <select id="settingsMaxDetour">
-        <option value="500">
-          0,5 km
-        </option>
-
-        <option value="1000">
-          1 km
-        </option>
-
-        <option value="2000" selected>
-          2 km
-        </option>
-
-        <option value="5000">
-          5 km
-        </option>
+        <option value="500">0,5 km</option>
+        <option value="1000">1 km</option>
+        <option value="2000" selected>2 km</option>
+        <option value="5000">5 km</option>
       </select>
 
-      <label
-        for="settingsSearchRadius"
-        id="searchRadiusLabel"
-      >
+      <label for="settingsSearchRadius" id="searchRadiusLabel">
         Søg tankstationer inden for
       </label>
-
       <select id="settingsSearchRadius">
-
-        <option value="50000">
-          50 km / 50 miles
-        </option>
-
-        <option value="100000" selected>
-          100 km / 100 miles
-        </option>
-
-        <option value="200000">
-          200 km / 200 miles
-        </option>
-
+        <option value="50000">50 km / 50 miles</option>
+        <option value="100000" selected>100 km / 100 miles</option>
+        <option value="200000">200 km / 200 miles</option>
       </select>
 
       <div class="settings-note" id="radiusNote">
-        I Danmark tolkes dette som kilometer.
-        I USA tolkes det som miles.
+        I Danmark tolkes dette som kilometer. I USA tolkes det som miles.
       </div>
-
     </div>
 
   </div>
 
   <div class="settings-footer">
-
-    <button
-      id="saveSettingsBtn"
-      class="btn-primary"
-    >
-      Gem
-    </button>
-
+    <button id="saveSettingsBtn" class="btn-primary">Gem</button>
   </div>
 
 </div>
 
-<div
-  id="fuelListBackdrop"
-  class="modal-backdrop hidden"
-></div>
+<div id="fuelListBackdrop" class="modal-backdrop hidden"></div>
 
-<div
-  id="fuelListModal"
-  class="fuel-list-modal hidden"
->
-
+<div id="fuelListModal" class="fuel-list-modal hidden">
   <div class="fuel-list-header">
-
-    <h2 id="fuelListTitle">
-      Billigste stationer
-    </h2>
-
-    <button
-      id="closeFuelListBtn"
-      class="btn-muted small"
-    >
-      Luk
-    </button>
-
+    <h2 id="fuelListTitle">Billigste stationer</h2>
+    <button id="closeFuelListBtn" class="btn-muted small">Luk</button>
   </div>
 
   <div class="fuel-list-controls">
-
-    <button
-      id="sortFuelByPriceBtn"
-      class="btn-primary small"
-    >
-      Pris
-    </button>
-
-    <button
-      id="sortFuelByDetourBtn"
-      class="btn-muted small"
-    >
-      Omvej
-    </button>
-
+    <button id="sortFuelByPriceBtn" class="btn-primary small">Pris</button>
+    <button id="sortFuelByDetourBtn" class="btn-muted small">Omvej</button>
   </div>
 
-  <div
-    id="fuelListContent"
-    class="fuel-list-content"
-  ></div>
-
+  <div id="fuelListContent" class="fuel-list-content"></div>
 </div>
 
-<div
-  id="fuelHistoryBackdrop"
-  class="modal-backdrop hidden"
-></div>
+<div id="fuelHistoryBackdrop" class="modal-backdrop hidden"></div>
 
-<div
-  id="fuelHistoryModal"
-  class="fuel-list-modal hidden"
->
-
+<div id="fuelHistoryModal" class="fuel-list-modal hidden">
   <div class="fuel-list-header">
-
-    <h2 id="fuelHistoryTitle">
-      Prishistorik
-    </h2>
-
-    <button
-      id="closeFuelHistoryBtn"
-      class="btn-muted small"
-    >
-      Luk
-    </button>
-
+    <h2 id="fuelHistoryTitle">Prishistorik</h2>
+    <button id="closeFuelHistoryBtn" class="btn-muted small">Luk</button>
   </div>
 
-  <div
-    id="fuelHistoryContent"
-    class="fuel-list-content"
-  ></div>
-
+  <div id="fuelHistoryContent" class="fuel-list-content"></div>
 </div>
 
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
-
-<!-- Cache-buster -->
-<script
-  type="module"
-  src="./scripts/main.js?v=6"
-></script>
+<script type="module" src="./scripts/main.js?v=7"></script>
 
 </body>
 </html>
