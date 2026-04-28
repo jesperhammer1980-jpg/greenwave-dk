@@ -17,6 +17,10 @@ import {
   sharedWordScore
 } from "./utils.js";
 
+import {
+  estimateUsFuelPrice
+} from "./usa-fuel-estimates.js";
+
 export async function loadFuelPrices() {
   try {
     const response = await fetch(FUEL_DATA_URL, {
@@ -247,6 +251,8 @@ function normalizeOsmStation(element) {
     address,
     city: tags["addr:city"] || extractCity(address),
     price: null,
+    currency: null,
+    unit: null,
     source: "OSM",
     matchMode: null,
     updatedAt: null,
@@ -314,23 +320,44 @@ export function computeRouteDistances() {
 
 export function applyPricesToStations() {
   state.osmFuelStations = state.osmFuelStations.map(station => {
-    const match = findFuelPrice(station);
+    const realMatch = findFuelPrice(station);
 
-    if (!match) {
+    if (realMatch) {
       return {
         ...station,
-        price: null,
-        matchMode: null,
+        price: realMatch.price,
+        currency: realMatch.currency || null,
+        unit: realMatch.unit || null,
+        source: realMatch.source,
+        matchMode: realMatch.matchMode,
+        updatedAt: realMatch.updatedAt
+      };
+    }
+
+    if (state.settings.region === "us") {
+      const estimate = estimateUsFuelPrice(
+        station,
+        state.settings.fuelType
+      );
+
+      return {
+        ...station,
+        price: estimate.price,
+        currency: estimate.currency,
+        unit: estimate.unit,
+        source: estimate.source,
+        matchMode: estimate.matchMode,
         updatedAt: null
       };
     }
 
     return {
       ...station,
-      price: match.price,
-      source: match.source,
-      matchMode: match.matchMode,
-      updatedAt: match.updatedAt
+      price: null,
+      currency: null,
+      unit: null,
+      matchMode: null,
+      updatedAt: null
     };
   });
 }
@@ -534,7 +561,6 @@ export function updateFuelBox() {
       <div class="fuel-name">Pris mangler</div>
       <div class="fuel-meta">Tankstationer fundet: ${stations.length}</div>
       <div class="fuel-meta">Prisposter: ${state.fuelPriceOverrides.length}</div>
-      <div class="fuel-meta">USA kræver særskilte amerikanske prisdata.</div>
     `;
     return;
   }
@@ -553,6 +579,7 @@ export function updateFuelBox() {
     <div class="fuel-meta">Langs ruten: ${formatDistance(best.distanceAlongRoute)}</div>
     <div class="fuel-meta">Fra rute: ${formatDistance(best.distanceToRoute)}</div>
     <div class="fuel-meta">Match: ${escapeHtml(best.matchMode || "prisdata")}</div>
+    <div class="fuel-meta">Kilde: ${escapeHtml(best.source || "OSM")}</div>
     <a class="fuel-link" href="${buildGoogleMapsLink(best)}" target="_blank" rel="noopener noreferrer">
       Åbn via Google Maps
     </a>
@@ -740,6 +767,7 @@ export function updateFuelMarkers() {
         ${typeof station.price === "number" ? formatPrice(station.price) : "Pris mangler"}<br>
         Langs ruten: ${formatDistance(station.distanceAlongRoute)}<br>
         Fra rute: ${formatDistance(station.distanceToRoute)}<br>
+        Kilde: ${escapeHtml(station.source || "OSM")}<br>
         <a href="${buildGoogleMapsLink(station)}" target="_blank" rel="noopener noreferrer">
           Åbn via Google Maps
         </a>
