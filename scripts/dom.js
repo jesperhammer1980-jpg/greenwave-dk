@@ -67,7 +67,14 @@ const elementIds = [
   "driveCurrentValue",
 
   "navBannerMain",
-  "navBannerSub"
+  "navBannerSub",
+
+  "speedLimitSign",
+  "speedLimitValue",
+  "currentSpeedSign",
+  "currentSpeedValue",
+  "recommendedSpeedSign",
+  "recommendedSpeedValue"
 ];
 
 export function cacheDom() {
