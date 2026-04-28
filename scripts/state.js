@@ -12,6 +12,9 @@ export const state = {
   autocompleteAbortController: null,
 
   routeData: null,
+  routeSteps: [],
+  currentStepIndex: 0,
+
   routeLine: null,
   userMarker: null,
   destMarker: null,
