@@ -21,6 +21,10 @@ import {
 } from "./fuel.js";
 
 import {
+  loadTrafficSignals
+} from "./greenwave.js";
+
+import {
   saveHistory,
   renderHistory
 } from "./history.js";
@@ -67,7 +71,10 @@ export async function calculateRoute() {
     saveHistory(state.destination);
     renderHistory();
 
-    await loadFuelStations(state.routeData.geometry);
+    await Promise.allSettled([
+      loadFuelStations(state.routeData.geometry),
+      loadTrafficSignals(state.routeData.geometry)
+    ]);
 
     computeRouteDistances();
     applyPricesToStations();
