@@ -1,97 +1,130 @@
+import {
+  getUsStatePriceEstimate
+} from "./us-state-prices.js";
+
 export function estimateUsFuelPrice(station, fuelType = "benzin95") {
-  const base = getBasePrice(fuelType);
+  const stateEstimate = getUsStatePriceEstimate(
+    station.lat,
+    station.lng,
+    fuelType
+  );
+
+  const base = stateEstimate.basePrice;
   const brandDelta = getBrandModifier(station.brand || station.name);
-  const locationDelta = getLocationModifier(station.lat, station.lng);
+  const localDelta = getLocalMarketModifier(station.lat, station.lng);
   const stationDelta = getStableStationVariation(station);
 
-  const price = base + brandDelta + locationDelta + stationDelta;
+  const price =
+    base +
+    brandDelta +
+    localDelta +
+    stationDelta;
 
   return {
-    price: roundToCents(Math.max(2.49, Math.min(6.99, price))),
+    price: roundToCents(
+      Math.max(
+        2.25,
+        Math.min(7.25, price)
+      )
+    ),
     currency: "USD",
     unit: "gallon",
-    source: "USA estimate",
-    matchMode: "estimeret USA-pris"
+    source: stateEstimate.source,
+    matchMode: "estimeret USA-pris",
+    stateCode: stateEstimate.stateCode,
+    dataAgeLabel: stateEstimate.dataAgeLabel,
+    updatedAt: null
   };
-}
-
-function getBasePrice(fuelType) {
-  if (fuelType === "diesel") {
-    return 3.95;
-  }
-
-  if (fuelType === "electric") {
-    return 0;
-  }
-
-  return 3.45;
 }
 
 function getBrandModifier(value) {
   const brand = normalize(value);
 
-  if (brand.includes("costco")) return -0.28;
-  if (brand.includes("sam")) return -0.24;
-  if (brand.includes("walmart")) return -0.18;
-  if (brand.includes("murphy")) return -0.16;
+  if (brand.includes("costco")) return -0.32;
+  if (brand.includes("sam")) return -0.28;
+  if (brand.includes("walmart")) return -0.22;
+  if (brand.includes("murphy")) return -0.18;
+  if (brand.includes("arco")) return -0.15;
   if (brand.includes("speedway")) return -0.08;
-  if (brand.includes("arco")) return -0.12;
   if (brand.includes("valero")) return -0.06;
   if (brand.includes("citgo")) return -0.04;
 
-  if (brand.includes("chevron")) return 0.22;
-  if (brand.includes("shell")) return 0.16;
-  if (brand.includes("exxon")) return 0.14;
-  if (brand.includes("mobil")) return 0.14;
-  if (brand.includes("bp")) return 0.1;
-  if (brand.includes("76")) return 0.12;
+  if (brand.includes("chevron")) return 0.26;
+  if (brand.includes("shell")) return 0.18;
+  if (brand.includes("exxon")) return 0.16;
+  if (brand.includes("mobil")) return 0.16;
+  if (brand.includes("bp")) return 0.12;
+  if (brand.includes("76")) return 0.14;
 
   return 0;
 }
 
-function getLocationModifier(lat, lng) {
+function getLocalMarketModifier(lat, lng) {
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
     return 0;
   }
 
-  // California / West Coast-ish
-  if (lat > 32 && lat < 42 && lng < -114 && lng > -125) {
-    return 1.05;
+  /*
+    Grov by-/kystjustering.
+    State estimate er basen. Denne justerer lidt for dyre metroområder.
+  */
+
+  // Los Angeles / Orange County / San Diego-ish
+  if (lat > 32.5 && lat < 34.5 && lng > -119.0 && lng < -116.5) {
+    return 0.18;
   }
 
-  // New York / Northeast-ish
-  if (lat > 39 && lat < 45 && lng < -70 && lng > -80) {
-    return 0.35;
+  // Bay Area-ish
+  if (lat > 37.0 && lat < 38.4 && lng > -123.0 && lng < -121.5) {
+    return 0.22;
   }
 
-  // Florida-ish
-  if (lat > 24 && lat < 31 && lng < -79 && lng > -88) {
-    return 0.05;
+  // NYC metro-ish
+  if (lat > 40.3 && lat < 41.1 && lng > -74.4 && lng < -73.4) {
+    return 0.18;
   }
 
-  // Texas-ish
-  if (lat > 25 && lat < 37 && lng < -93 && lng > -107) {
-    return -0.28;
+  // Seattle-ish
+  if (lat > 47.2 && lat < 47.9 && lng > -122.6 && lng < -121.9) {
+    return 0.12;
   }
 
-  // Midwest-ish
-  if (lat > 36 && lat < 48 && lng < -82 && lng > -104) {
-    return -0.12;
+  // Las Vegas-ish
+  if (lat > 35.8 && lat < 36.4 && lng > -115.5 && lng < -114.8) {
+    return 0.08;
+  }
+
+  // Houston / Dallas-ish can be cheaper
+  if (
+    (lat > 29.4 && lat < 30.2 && lng > -95.8 && lng < -94.8) ||
+    (lat > 32.5 && lat < 33.1 && lng > -97.3 && lng < -96.4)
+  ) {
+    return -0.06;
   }
 
   return 0;
 }
 
 function getStableStationVariation(station) {
-  const key = `${station.name || ""}-${station.brand || ""}-${station.lat || ""}-${station.lng || ""}`;
+  const key =
+    `${station.name || ""}-${station.brand || ""}-${station.lat || ""}-${station.lng || ""}`;
+
   let hash = 0;
 
   for (let i = 0; i < key.length; i++) {
-    hash = ((hash << 5) - hash) + key.charCodeAt(i);
+    hash =
+      ((hash << 5) - hash) +
+      key.charCodeAt(i);
+
     hash |= 0;
   }
 
-  const normalized = Math.abs(hash % 41) / 100;
+  /*
+    Stabil variation mellem ca. -0.20 og +0.20.
+    Samme station får samme estimat hver gang.
+  */
+  const normalized =
+    Math.abs(hash % 41) / 100;
 
   return normalized - 0.2;
 }
@@ -101,5 +134,7 @@ function roundToCents(value) {
 }
 
 function normalize(value) {
-  return String(value || "").toLowerCase().trim();
+  return String(value || "")
+    .toLowerCase()
+    .trim();
 }
