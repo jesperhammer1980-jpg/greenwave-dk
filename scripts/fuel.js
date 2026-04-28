@@ -88,7 +88,10 @@ function normalizeFuelPrices(rawStations) {
             currency: data.currency || "DKK",
             unit: data.unit || "liter",
             source: data.source || "fuel-prices.json",
-            updatedAt: data.updatedAt || null
+            updatedAt: data.updatedAt || null,
+            dataAgeLabel: data.updatedAt
+              ? `Opdateret: ${formatDateTime(data.updatedAt)}`
+              : null
           });
         }
       );
@@ -110,7 +113,10 @@ function normalizeFuelPrices(rawStations) {
         currency: station.currency || "DKK",
         unit: station.unit || "liter",
         source: station.source || "fuel-prices.json",
-        updatedAt: station.updatedAt || null
+        updatedAt: station.updatedAt || null,
+        dataAgeLabel: station.updatedAt
+          ? `Opdateret: ${formatDateTime(station.updatedAt)}`
+          : null
       });
     }
   });
@@ -256,6 +262,8 @@ function normalizeOsmStation(element) {
     source: "OSM",
     matchMode: null,
     updatedAt: null,
+    dataAgeLabel: null,
+    stateCode: null,
     distanceAlongRoute: Infinity,
     distanceToRoute: Infinity
   };
@@ -330,7 +338,15 @@ export function applyPricesToStations() {
         unit: realMatch.unit || null,
         source: realMatch.source,
         matchMode: realMatch.matchMode,
-        updatedAt: realMatch.updatedAt
+        updatedAt: realMatch.updatedAt || null,
+        dataAgeLabel:
+          realMatch.dataAgeLabel ||
+          (
+            realMatch.updatedAt
+              ? `Opdateret: ${formatDateTime(realMatch.updatedAt)}`
+              : "Prisdata fra lokal fil"
+          ),
+        stateCode: realMatch.stateCode || null
       };
     }
 
@@ -347,7 +363,9 @@ export function applyPricesToStations() {
         unit: estimate.unit,
         source: estimate.source,
         matchMode: estimate.matchMode,
-        updatedAt: null
+        stateCode: estimate.stateCode,
+        dataAgeLabel: estimate.dataAgeLabel,
+        updatedAt: estimate.updatedAt
       };
     }
 
@@ -356,8 +374,11 @@ export function applyPricesToStations() {
       price: null,
       currency: null,
       unit: null,
+      source: "OSM",
       matchMode: null,
-      updatedAt: null
+      updatedAt: null,
+      dataAgeLabel: null,
+      stateCode: null
     };
   });
 }
@@ -580,6 +601,16 @@ export function updateFuelBox() {
     <div class="fuel-meta">Fra rute: ${formatDistance(best.distanceToRoute)}</div>
     <div class="fuel-meta">Match: ${escapeHtml(best.matchMode || "prisdata")}</div>
     <div class="fuel-meta">Kilde: ${escapeHtml(best.source || "OSM")}</div>
+    ${
+      best.stateCode
+        ? `<div class="fuel-meta">Stat: ${escapeHtml(best.stateCode)}</div>`
+        : ""
+    }
+    ${
+      best.dataAgeLabel
+        ? `<div class="fuel-meta">${escapeHtml(best.dataAgeLabel)}</div>`
+        : ""
+    }
     <a class="fuel-link" href="${buildGoogleMapsLink(best)}" target="_blank" rel="noopener noreferrer">
       Åbn via Google Maps
     </a>
@@ -643,6 +674,16 @@ export function renderFuelList() {
         <div class="fuel-list-meta">
           Kilde<br>
           <strong>${escapeHtml(station.source || "OSM")}</strong>
+        </div>
+
+        <div class="fuel-list-meta">
+          Prisstatus<br>
+          <strong>${escapeHtml(station.dataAgeLabel || "—")}</strong>
+        </div>
+
+        <div class="fuel-list-meta">
+          Stat / marked<br>
+          <strong>${escapeHtml(station.stateCode || state.settings.region.toUpperCase())}</strong>
         </div>
       </div>
 
@@ -768,6 +809,8 @@ export function updateFuelMarkers() {
         Langs ruten: ${formatDistance(station.distanceAlongRoute)}<br>
         Fra rute: ${formatDistance(station.distanceToRoute)}<br>
         Kilde: ${escapeHtml(station.source || "OSM")}<br>
+        ${station.stateCode ? `Stat: ${escapeHtml(station.stateCode)}<br>` : ""}
+        ${station.dataAgeLabel ? `${escapeHtml(station.dataAgeLabel)}<br>` : ""}
         <a href="${buildGoogleMapsLink(station)}" target="_blank" rel="noopener noreferrer">
           Åbn via Google Maps
         </a>
