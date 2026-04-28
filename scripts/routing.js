@@ -29,6 +29,10 @@ import {
   renderHistory
 } from "./history.js";
 
+import {
+  fetchTomTomRoute
+} from "./tomtom.js";
+
 export async function calculateRoute() {
   const input = els.destinationInput?.value.trim();
 
@@ -61,13 +65,13 @@ export async function calculateRoute() {
       state.destination.lng
     );
 
-    const route = await fetchRoute(
+    const route = await fetchBestRoute(
       state.currentPosition,
       state.destination
     );
 
     state.routeData = route;
-    state.routeSteps = route.steps;
+    state.routeSteps = route.steps || [];
     state.currentStepIndex = 0;
 
     drawRoute(state.routeData.geometry);
@@ -90,7 +94,9 @@ export async function calculateRoute() {
 
     setStatus(
       "GPS: klar",
-      "Navigation: rute klar",
+      route.provider === "tomtom"
+        ? "Navigation: TomTom rute klar"
+        : "Navigation: OSRM fallback klar",
       "Kort: klar"
     );
   } catch (error) {
@@ -110,6 +116,26 @@ export async function calculateRoute() {
     );
   } finally {
     setRouteBusy(false);
+  }
+}
+
+async function fetchBestRoute(from, to) {
+  try {
+    const route = await fetchTomTomRoute(from, to);
+
+    return {
+      ...route,
+      provider: "tomtom"
+    };
+  } catch (error) {
+    console.warn("TomTom fejlede, bruger OSRM fallback", error);
+
+    const route = await fetchOsrmRoute(from, to);
+
+    return {
+      ...route,
+      provider: "osrm"
+    };
   }
 }
 
@@ -178,7 +204,7 @@ export async function geocode(query) {
   };
 }
 
-export async function fetchRoute(from, to) {
+export async function fetchOsrmRoute(from, to) {
   if (!from || !to) {
     throw new Error("Mangler start eller destination");
   }
@@ -204,17 +230,18 @@ export async function fetchRoute(from, to) {
 
   const route = data.routes[0];
 
-  const steps = extractRouteSteps(route);
+  const steps = extractOsrmRouteSteps(route);
 
   return {
     geometry: route.geometry.coordinates,
     distance: route.distance,
     duration: route.duration,
+    trafficDelay: 0,
     steps
   };
 }
 
-function extractRouteSteps(route) {
+function extractOsrmRouteSteps(route) {
   const steps = [];
 
   const legs = Array.isArray(route.legs)
@@ -245,6 +272,7 @@ function extractRouteSteps(route) {
         geometry: step.geometry?.coordinates || [],
         maneuverType: maneuver.type || "continue",
         maneuverModifier: maneuver.modifier || "",
+        message: "",
         location: {
           lng: Number(location[0]),
           lat: Number(location[1])
