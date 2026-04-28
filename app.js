@@ -2,26 +2,65 @@ const state = {
   map: null,
   currentPosition: null,
   destination: null,
+  selectedAutocompleteItem: null,
+  autocompleteTimer: null,
+
   routeData: null,
   routeLine: null,
+  userMarker: null,
+  destMarker: null,
 
   fuelPriceOverrides: [],
   osmFuelStations: [],
   fuelMarkers: [],
+  fuelListSort: "price",
+  watchId: null,
 
   settings: {
+    language: "da",
     region: "dk",
+    routeMode: "fast",
     fuelType: "benzin95",
-    routeLimitKm: 100
+    searchRadiusBase: 100000
   }
 };
+
+const SETTINGS_KEY = "greenwave_settings_working_v3";
+const HISTORY_KEY = "greenwave_history_working_v3";
+const FUEL_DATA_URL = "./fuel-prices.json";
+
+const els = {};
+[
+  "destinationInput", "autocompleteBox", "autocompleteList",
+  "calcRouteBtn", "startNavBtn", "stopNavBtn", "recenterBtn",
+  "historyToggleBtn", "historyBox", "historyList",
+  "openSettingsBtn", "closeSettingsBtn", "saveSettingsBtn",
+  "settingsBackdrop", "settingsPanel",
+  "languageDa", "languageEn", "regionDK", "regionUS",
+  "settingsRouteFast", "settingsRouteEco",
+  "settingsFuelType", "settingsMaxDetour", "settingsSearchRadius",
+  "gpsStatusChip", "navStatusChip", "mapModeLabel",
+  "fuelDisclaimer", "fuelContent", "openFuelListBtn",
+  "openFuelHistoryBtn",
+  "fuelListBackdrop", "fuelListModal", "closeFuelListBtn",
+  "sortFuelByPriceBtn", "sortFuelByDetourBtn", "fuelListContent",
+  "fuelHistoryBackdrop", "fuelHistoryModal", "closeFuelHistoryBtn",
+  "fuelHistoryContent",
+  "navOverlay", "exitNavOverlayBtn",
+  "driveRemainingDistance", "driveRemainingTime", "driveCurrentValue"
+].forEach(id => els[id] = document.getElementById(id));
 
 init();
 
 async function init() {
+  loadSettings();
   initMap();
-  bindUI();
+  bindEvents();
+  applySettingsToUI();
+  renderHistory();
+  setStatus("GPS: klar", "Navigation: inaktiv", "Kort: klar");
   await loadFuelPrices();
+  updateFuelBox();
 }
 
 function initMap() {
@@ -33,51 +72,265 @@ function initMap() {
   }).addTo(state.map);
 }
 
-function bindUI() {
-  document.getElementById("calcRouteBtn")?.addEventListener("click", calculateRoute);
-  document.getElementById("openFuelListBtn")?.addEventListener("click", showFuelList);
-  document.getElementById("closeFuelListBtn")?.addEventListener("click", closeFuelList);
-  document.getElementById("fuelListBackdrop")?.addEventListener("click", closeFuelList);
+function bindEvents() {
+  els.destinationInput?.addEventListener("input", () => {
+    state.selectedAutocompleteItem = null;
+    clearTimeout(state.autocompleteTimer);
+    state.autocompleteTimer = setTimeout(runAutocomplete, 250);
+  });
 
-  document.getElementById("settingsSearchRadius")?.addEventListener("change", (e) => {
-    state.settings.routeLimitKm = Number(e.target.value) / 1000;
-    updateMarkers();
-    updateFuelBox();
+  els.calcRouteBtn?.addEventListener("click", calculateRoute);
+  els.startNavBtn?.addEventListener("click", startLiveNavigation);
+  els.stopNavBtn?.addEventListener("click", stopLiveNavigation);
+  els.recenterBtn?.addEventListener("click", recenterMap);
+
+  els.historyToggleBtn?.addEventListener("click", () => {
+    els.historyBox?.classList.toggle("hidden");
+    hideAutocomplete();
+  });
+
+  els.openSettingsBtn?.addEventListener("click", openSettings);
+  els.closeSettingsBtn?.addEventListener("click", closeSettings);
+  els.settingsBackdrop?.addEventListener("click", closeSettings);
+  els.saveSettingsBtn?.addEventListener("click", saveSettingsFromControls);
+
+  els.openFuelListBtn?.addEventListener("click", openFuelList);
+  els.closeFuelListBtn?.addEventListener("click", closeFuelList);
+  els.fuelListBackdrop?.addEventListener("click", closeFuelList);
+
+  els.sortFuelByPriceBtn?.addEventListener("click", () => {
+    state.fuelListSort = "price";
+    renderFuelList();
+  });
+
+  els.sortFuelByDetourBtn?.addEventListener("click", () => {
+    state.fuelListSort = "detour";
+    renderFuelList();
+  });
+
+  els.openFuelHistoryBtn?.addEventListener("click", openFuelHistory);
+  els.closeFuelHistoryBtn?.addEventListener("click", closeFuelHistory);
+  els.fuelHistoryBackdrop?.addEventListener("click", closeFuelHistory);
+
+  els.exitNavOverlayBtn?.addEventListener("click", stopLiveNavigation);
+
+  document.addEventListener("click", event => {
+    if (!event.target.closest(".search-wrap")) hideAutocomplete();
   });
 }
 
+function loadSettings() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}");
+    state.settings = { ...state.settings, ...saved };
+  } catch {}
+}
+
+function saveSettings() {
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(state.settings));
+}
+
+function applySettingsToUI() {
+  if (els.languageDa) els.languageDa.checked = state.settings.language === "da";
+  if (els.languageEn) els.languageEn.checked = state.settings.language === "en";
+  if (els.regionDK) els.regionDK.checked = state.settings.region === "dk";
+  if (els.regionUS) els.regionUS.checked = state.settings.region === "us";
+  if (els.settingsRouteFast) els.settingsRouteFast.checked = state.settings.routeMode === "fast";
+  if (els.settingsRouteEco) els.settingsRouteEco.checked = state.settings.routeMode === "eco";
+  if (els.settingsFuelType) els.settingsFuelType.value = state.settings.fuelType;
+  if (els.settingsSearchRadius) els.settingsSearchRadius.value = String(state.settings.searchRadiusBase);
+}
+
+function saveSettingsFromControls() {
+  state.settings.language = els.languageEn?.checked ? "en" : "da";
+  state.settings.region = els.regionUS?.checked ? "us" : "dk";
+  state.settings.routeMode = els.settingsRouteEco?.checked ? "eco" : "fast";
+  state.settings.fuelType = els.settingsFuelType?.value || "benzin95";
+  state.settings.searchRadiusBase = Number(els.settingsSearchRadius?.value || 100000);
+
+  saveSettings();
+  closeSettings();
+
+  if (state.routeData) {
+    applyPricesToStations();
+    updateFuelBox();
+    updateFuelMarkers();
+  }
+}
+
+function openSettings() {
+  els.settingsPanel?.classList.remove("hidden");
+  els.settingsBackdrop?.classList.remove("hidden");
+}
+
+function closeSettings() {
+  els.settingsPanel?.classList.add("hidden");
+  els.settingsBackdrop?.classList.add("hidden");
+}
+
+async function runAutocomplete() {
+  const query = els.destinationInput?.value.trim();
+
+  if (!query || query.length < 3) {
+    hideAutocomplete();
+    return;
+  }
+
+  const country = state.settings.region === "us" ? "us" : "dk";
+
+  try {
+    const url =
+      `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=6&addressdetails=1&countrycodes=${country}&q=${encodeURIComponent(query)}`;
+
+    const res = await fetch(url);
+    const data = await res.json();
+
+    renderAutocomplete(Array.isArray(data) ? data : []);
+  } catch (error) {
+    console.error(error);
+    hideAutocomplete();
+  }
+}
+
+function renderAutocomplete(items) {
+  if (!els.autocompleteList || !els.autocompleteBox) return;
+
+  els.autocompleteList.innerHTML = "";
+
+  if (!items.length) {
+    els.autocompleteList.innerHTML = `<div class="autocomplete-empty">Ingen forslag</div>`;
+    els.autocompleteBox.classList.remove("hidden");
+    return;
+  }
+
+  items.forEach(item => {
+    const title =
+      item.name ||
+      item.address?.road ||
+      item.address?.city ||
+      item.address?.town ||
+      String(item.display_name || "").split(",")[0];
+
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "autocomplete-item";
+    button.innerHTML = `
+      <span class="autocomplete-title">${escapeHtml(title)}</span>
+      <span class="autocomplete-sub">${escapeHtml(item.display_name || "")}</span>
+    `;
+
+    button.addEventListener("click", () => {
+      state.selectedAutocompleteItem = {
+        lat: Number(item.lat),
+        lng: Number(item.lon),
+        displayName: item.display_name || title
+      };
+
+      els.destinationInput.value = title;
+      hideAutocomplete();
+    });
+
+    els.autocompleteList.appendChild(button);
+  });
+
+  els.autocompleteBox.classList.remove("hidden");
+}
+
+function hideAutocomplete() {
+  els.autocompleteBox?.classList.add("hidden");
+}
+
 async function calculateRoute() {
-  const input = document.getElementById("destinationInput").value.trim();
+  const input = els.destinationInput?.value.trim();
   if (!input) return;
 
-  state.currentPosition = await getPosition();
-  state.destination = await geocode(input);
+  try {
+    els.calcRouteBtn.disabled = true;
+    els.startNavBtn.disabled = true;
+    els.openFuelListBtn.disabled = true;
 
-  state.routeData = await fetchRoute(state.currentPosition, state.destination);
+    setStatus("GPS: henter position", "Navigation: beregner", "Kort: beregner");
 
-  drawRoute(state.routeData.geometry);
+    state.currentPosition = await getPosition();
+    updateUserMarker(state.currentPosition.lat, state.currentPosition.lng);
 
-  await loadFuelStations(state.routeData.geometry);
-  computeRouteDistances();
-  applyPricesToStations();
+    state.destination = state.selectedAutocompleteItem || await geocode(input);
+    updateDestinationMarker(state.destination.lat, state.destination.lng);
 
-  updateMarkers();
-  updateFuelBox();
+    state.routeData = await fetchRoute(state.currentPosition, state.destination);
 
-  const listBtn = document.getElementById("openFuelListBtn");
-  if (listBtn) listBtn.disabled = false;
+    drawRoute(state.routeData.geometry);
+
+    saveHistory(input);
+    renderHistory();
+
+    await loadFuelStations(state.routeData.geometry);
+    computeRouteDistances();
+    applyPricesToStations();
+
+    updateFuelBox();
+    updateFuelMarkers();
+
+    els.startNavBtn.disabled = false;
+    els.openFuelListBtn.disabled = false;
+
+    setStatus("GPS: klar", "Navigation: rute klar", "Kort: klar");
+  } catch (error) {
+    console.error(error);
+    alert("Kunne ikke beregne rute: " + (error.message || error));
+    setStatus("GPS: fejl", "Navigation: fejl", "Kort: fejl");
+  } finally {
+    els.calcRouteBtn.disabled = false;
+  }
+}
+
+async function geocode(q) {
+  const country = state.settings.region === "us" ? "us" : "dk";
+  const res = await fetch(
+    `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=${country}&q=${encodeURIComponent(q)}`
+  );
+
+  const data = await res.json();
+
+  if (!data.length) throw new Error("Destination ikke fundet");
+
+  return {
+    lat: Number(data[0].lat),
+    lng: Number(data[0].lon),
+    displayName: data[0].display_name
+  };
+}
+
+async function fetchRoute(from, to) {
+  const res = await fetch(
+    `https://router.project-osrm.org/route/v1/driving/${from.lng},${from.lat};${to.lng},${to.lat}?overview=full&geometries=geojson`
+  );
+
+  const data = await res.json();
+
+  if (!data.routes?.length) throw new Error("Ingen rute fundet");
+
+  return {
+    geometry: data.routes[0].geometry.coordinates,
+    distance: data.routes[0].distance,
+    duration: data.routes[0].duration
+  };
 }
 
 async function loadFuelPrices() {
   try {
-    const res = await fetch("./fuel-prices.json", { cache: "no-store" });
+    const res = await fetch(FUEL_DATA_URL, { cache: "no-store" });
     const raw = await res.json();
     state.fuelPriceOverrides = normalizeFuelPrices(Array.isArray(raw) ? raw : []);
 
-    const d = document.getElementById("fuelDisclaimer");
-    if (d) d.textContent = `Prisposter: ${state.fuelPriceOverrides.length}`;
+    if (els.fuelDisclaimer) {
+      els.fuelDisclaimer.textContent = `Prisposter: ${state.fuelPriceOverrides.length}`;
+    }
   } catch {
     state.fuelPriceOverrides = [];
+    if (els.fuelDisclaimer) {
+      els.fuelDisclaimer.textContent = "fuel-prices.json kunne ikke hentes";
+    }
   }
 }
 
@@ -85,6 +338,8 @@ function normalizeFuelPrices(rawStations) {
   const out = [];
 
   rawStations.forEach(station => {
+    if (!station || typeof station !== "object") return;
+
     const country = String(station.country || station.market || "DK").toUpperCase();
 
     if (station.fuelTypes && typeof station.fuelTypes === "object") {
@@ -106,6 +361,25 @@ function normalizeFuelPrices(rawStations) {
           source: data.source || "fuel-prices.json",
           updatedAt: data.updatedAt || null
         });
+      });
+      return;
+    }
+
+    if (typeof station.price === "number") {
+      out.push({
+        name: station.name || "Ukendt station",
+        brand: station.brand || "",
+        address: station.address || "",
+        city: extractCity(station.address || ""),
+        lat: numberOrNull(station.lat),
+        lng: numberOrNull(station.lng),
+        country,
+        fuelType: station.fuelType || state.settings.fuelType,
+        price: station.price,
+        currency: station.currency || "DKK",
+        unit: station.unit || "liter",
+        source: station.source || "fuel-prices.json",
+        updatedAt: station.updatedAt || null
       });
     }
   });
@@ -145,6 +419,8 @@ async function loadFuelStations(geometry) {
 function sampleRoutePoints(geometry) {
   const points = [];
   const maxSamples = 20;
+
+  if (!geometry.length) return points;
 
   for (let i = 0; i < maxSamples; i++) {
     const index = Math.round((geometry.length - 1) * (i / (maxSamples - 1)));
@@ -196,7 +472,6 @@ function normalizeOsmStation(el) {
 
 function computeRouteDistances() {
   const route = state.routeData.geometry;
-
   let cumulative = 0;
   const segments = [];
 
@@ -209,7 +484,6 @@ function computeRouteDistances() {
       start,
       end,
       startMeters: cumulative,
-      endMeters: cumulative + length,
       length
     });
 
@@ -270,7 +544,7 @@ function findFuelPrice(station) {
   const stationName = normalizeText(station.name);
   const stationCity = normalizeText(station.city || extractCity(station.address));
 
-  const coordinateMatch = candidates
+  const coord = candidates
     .filter(item => Number.isFinite(item.lat) && Number.isFinite(item.lng))
     .map(item => ({
       ...item,
@@ -280,7 +554,7 @@ function findFuelPrice(station) {
     .filter(item => item.distance <= 150)
     .sort((a, b) => a.distance - b.distance)[0];
 
-  if (coordinateMatch) return coordinateMatch;
+  if (coord) return coord;
 
   const scored = candidates
     .map(item => {
@@ -299,11 +573,7 @@ function findFuelPrice(station) {
         else score += sharedWordScore(stationName, itemName);
       }
 
-      return {
-        ...item,
-        score,
-        matchMode: "brand/navn/by"
-      };
+      return { ...item, score, matchMode: "brand/navn/by" };
     })
     .filter(item => item.score >= 45)
     .sort((a, b) => b.score - a.score || a.price - b.price);
@@ -315,17 +585,18 @@ function findFuelPrice(station) {
     .sort((a, b) => a.price - b.price)[0];
 
   if (sameBrand) {
-    return {
-      ...sameBrand,
-      matchMode: "samme brand fallback"
-    };
+    return { ...sameBrand, matchMode: "samme brand fallback" };
   }
 
   return null;
 }
 
+function getRouteLimitMeters() {
+  return Number(state.settings.searchRadiusBase || 100000);
+}
+
 function getStationsInRange() {
-  const limit = state.settings.routeLimitKm * 1000;
+  const limit = getRouteLimitMeters();
 
   const stations = state.osmFuelStations
     .filter(s => s.distanceAlongRoute <= limit)
@@ -343,11 +614,10 @@ function getStationsInRange() {
 }
 
 function updateFuelBox() {
-  const el = document.getElementById("fuelContent");
-  if (!el) return;
+  if (!els.fuelContent) return;
 
   if (!state.routeData) {
-    el.innerHTML = "Beregn en rute først.";
+    els.fuelContent.innerHTML = "Beregn en rute først.";
     return;
   }
 
@@ -355,15 +625,15 @@ function updateFuelBox() {
   const priced = stations.filter(s => typeof s.price === "number");
 
   if (!stations.length) {
-    el.innerHTML = `
+    els.fuelContent.innerHTML = `
       <div class="fuel-name">Ingen tankstationer fundet</div>
-      <div class="fuel-meta">Inden for de første ${state.settings.routeLimitKm} km af ruten.</div>
+      <div class="fuel-meta">Inden for valgt afstand langs ruten.</div>
     `;
     return;
   }
 
   if (!priced.length) {
-    el.innerHTML = `
+    els.fuelContent.innerHTML = `
       <div class="fuel-name">Pris mangler</div>
       <div class="fuel-meta">Tankstationer fundet: ${stations.length}</div>
       <div class="fuel-meta">Prisposter: ${state.fuelPriceOverrides.length}</div>
@@ -374,7 +644,7 @@ function updateFuelBox() {
 
   const best = priced[0];
 
-  el.innerHTML = `
+  els.fuelContent.innerHTML = `
     <div class="fuel-name">${escapeHtml(best.name)}</div>
     <div class="fuel-price">${formatPrice(best.price)}</div>
     <div class="fuel-meta">Langs ruten: ${formatDistance(best.distanceAlongRoute)}</div>
@@ -386,30 +656,28 @@ function updateFuelBox() {
   `;
 }
 
-function showFuelList() {
+function openFuelList() {
   renderFuelList();
-
-  document.getElementById("fuelListModal")?.classList.remove("hidden");
-  document.getElementById("fuelListBackdrop")?.classList.remove("hidden");
+  els.fuelListModal?.classList.remove("hidden");
+  els.fuelListBackdrop?.classList.remove("hidden");
 }
 
 function closeFuelList() {
-  document.getElementById("fuelListModal")?.classList.add("hidden");
-  document.getElementById("fuelListBackdrop")?.classList.add("hidden");
+  els.fuelListModal?.classList.add("hidden");
+  els.fuelListBackdrop?.classList.add("hidden");
 }
 
 function renderFuelList() {
-  const el = document.getElementById("fuelListContent");
-  if (!el) return;
+  if (!els.fuelListContent) return;
 
   const stations = getStationsInRange();
 
   if (!stations.length) {
-    el.innerHTML = `<div class="fuel-list-empty">Ingen stationer fundet inden for valgt afstand langs ruten.</div>`;
+    els.fuelListContent.innerHTML = `<div class="fuel-list-empty">Ingen stationer fundet inden for valgt afstand langs ruten.</div>`;
     return;
   }
 
-  el.innerHTML = stations.map((s, i) => `
+  els.fuelListContent.innerHTML = stations.map((s, i) => `
     <article class="fuel-list-item">
       <div class="fuel-list-item-top">
         <div>
@@ -437,8 +705,26 @@ function renderFuelList() {
   `).join("");
 }
 
-function updateMarkers() {
-  clearMarkers();
+function openFuelHistory() {
+  if (!els.fuelHistoryContent) return;
+
+  els.fuelHistoryContent.innerHTML = `
+    <div class="fuel-list-empty">
+      Prishistorik kommer, når der er gemt flere prisopdateringer over tid.
+    </div>
+  `;
+
+  els.fuelHistoryModal?.classList.remove("hidden");
+  els.fuelHistoryBackdrop?.classList.remove("hidden");
+}
+
+function closeFuelHistory() {
+  els.fuelHistoryModal?.classList.add("hidden");
+  els.fuelHistoryBackdrop?.classList.add("hidden");
+}
+
+function updateFuelMarkers() {
+  clearFuelMarkers();
 
   getStationsInRange().forEach((s, index) => {
     const isBest = typeof s.price === "number" && index === 0;
@@ -468,15 +754,78 @@ function updateMarkers() {
   });
 }
 
-function clearMarkers() {
+function clearFuelMarkers() {
   state.fuelMarkers.forEach(m => state.map.removeLayer(m));
   state.fuelMarkers = [];
+}
+
+function startLiveNavigation() {
+  if (!state.routeData || !state.destination) return;
+
+  els.navOverlay?.classList.remove("hidden");
+  els.startNavBtn.disabled = true;
+  els.stopNavBtn.disabled = false;
+  setStatus("GPS: live", "Navigation: live", "Kort: live");
+
+  if (state.watchId !== null) navigator.geolocation.clearWatch(state.watchId);
+
+  state.watchId = navigator.geolocation.watchPosition(pos => {
+    const current = {
+      lat: pos.coords.latitude,
+      lng: pos.coords.longitude,
+      speed: pos.coords.speed
+    };
+
+    state.currentPosition = current;
+    updateUserMarker(current.lat, current.lng);
+
+    const kmh = typeof current.speed === "number" ? Math.round(current.speed * 3.6) : 0;
+    if (els.driveCurrentValue) els.driveCurrentValue.textContent = `${kmh} km/t`;
+
+    if (els.driveRemainingDistance) {
+      const remaining = haversine(
+        current.lat,
+        current.lng,
+        state.destination.lat,
+        state.destination.lng
+      );
+      els.driveRemainingDistance.textContent = formatDistance(remaining);
+    }
+  }, console.error, {
+    enableHighAccuracy: true,
+    maximumAge: 500,
+    timeout: 15000
+  });
+}
+
+function stopLiveNavigation() {
+  if (state.watchId !== null) {
+    navigator.geolocation.clearWatch(state.watchId);
+    state.watchId = null;
+  }
+
+  els.navOverlay?.classList.add("hidden");
+  els.startNavBtn.disabled = !state.routeData;
+  els.stopNavBtn.disabled = true;
+  setStatus("GPS: klar", "Navigation: inaktiv", "Kort: klar");
+}
+
+function recenterMap() {
+  if (state.currentPosition) {
+    state.map.setView([state.currentPosition.lat, state.currentPosition.lng], 15);
+    return;
+  }
+
+  if (state.routeLine) {
+    state.map.fitBounds(state.routeLine.getBounds(), { padding: [30, 30] });
+  }
 }
 
 function drawRoute(geometry) {
   if (state.routeLine) state.map.removeLayer(state.routeLine);
 
   const latlngs = geometry.map(p => [p[1], p[0]]);
+
   state.routeLine = L.polyline(latlngs, {
     color: "#5ea2ff",
     weight: 6,
@@ -486,40 +835,43 @@ function drawRoute(geometry) {
   state.map.fitBounds(state.routeLine.getBounds(), { padding: [30, 30] });
 }
 
-async function getPosition() {
-  return new Promise((resolve, reject) => {
-    navigator.geolocation.getCurrentPosition(
-      p => resolve({ lat: p.coords.latitude, lng: p.coords.longitude }),
-      reject,
-      { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 }
-    );
+function updateUserMarker(lat, lng) {
+  if (!state.userMarker) state.userMarker = L.marker([lat, lng]).addTo(state.map);
+  else state.userMarker.setLatLng([lat, lng]);
+}
+
+function updateDestinationMarker(lat, lng) {
+  if (!state.destMarker) state.destMarker = L.marker([lat, lng]).addTo(state.map);
+  else state.destMarker.setLatLng([lat, lng]);
+}
+
+function saveHistory(destination) {
+  const list = getHistory();
+  const next = [destination, ...list.filter(x => x !== destination)].slice(0, 5);
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(next));
+}
+
+function getHistory() {
+  try { return JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]"); }
+  catch { return []; }
+}
+
+function renderHistory() {
+  if (!els.historyList) return;
+  els.historyList.innerHTML = "";
+
+  getHistory().forEach(item => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "history-chip";
+    btn.textContent = item;
+    btn.addEventListener("click", () => {
+      els.destinationInput.value = item;
+      state.selectedAutocompleteItem = null;
+      els.historyBox?.classList.add("hidden");
+    });
+    els.historyList.appendChild(btn);
   });
-}
-
-async function geocode(q) {
-  const res = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=${encodeURIComponent(q)}`);
-  const data = await res.json();
-
-  if (!data.length) throw new Error("Destination ikke fundet");
-
-  return {
-    lat: Number(data[0].lat),
-    lng: Number(data[0].lon)
-  };
-}
-
-async function fetchRoute(from, to) {
-  const res = await fetch(
-    `https://router.project-osrm.org/route/v1/driving/${from.lng},${from.lat};${to.lng},${to.lat}?overview=full&geometries=geojson`
-  );
-
-  const data = await res.json();
-
-  if (!data.routes?.length) throw new Error("Ingen rute fundet");
-
-  return {
-    geometry: data.routes[0].geometry.coordinates
-  };
 }
 
 function projectPointToSegment(pxLat, pxLng, aLat, aLng, bLat, bLng) {
@@ -554,6 +906,7 @@ function projectPointToSegment(pxLat, pxLng, aLat, aLng, bLat, bLng) {
 function haversine(lat1, lon1, lat2, lon2) {
   const R = 6371000;
   const toRad = x => x * Math.PI / 180;
+
   const dLat = toRad(lat2 - lat1);
   const dLon = toRad(lon2 - lon1);
 
@@ -676,6 +1029,12 @@ function buildGoogleMapsLink(station) {
   return `https://www.google.com/maps/dir/?${params.toString()}`;
 }
 
+function setStatus(gps, nav, map) {
+  if (els.gpsStatusChip) els.gpsStatusChip.textContent = gps;
+  if (els.navStatusChip) els.navStatusChip.textContent = nav;
+  if (els.mapModeLabel) els.mapModeLabel.textContent = map;
+}
+
 function escapeHtml(value) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -683,4 +1042,14 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
+}
+
+function getPosition() {
+  return new Promise((resolve, reject) => {
+    navigator.geolocation.getCurrentPosition(
+      p => resolve({ lat: p.coords.latitude, lng: p.coords.longitude }),
+      reject,
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 }
+    );
+  });
 }
