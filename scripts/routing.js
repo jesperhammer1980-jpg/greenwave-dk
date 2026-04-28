@@ -34,7 +34,7 @@ export async function calculateRoute() {
   }
 
   try {
-    setRouteButtonsBusy(true);
+    setRouteBusy(true);
 
     setStatus(
       "GPS: henter position",
@@ -75,13 +75,7 @@ export async function calculateRoute() {
     updateFuelBox();
     updateFuelMarkers();
 
-    if (els.startNavBtn) {
-      els.startNavBtn.disabled = false;
-    }
-
-    if (els.openFuelListBtn) {
-      els.openFuelListBtn.disabled = false;
-    }
+    setRouteReady(true);
 
     setStatus(
       "GPS: klar",
@@ -90,6 +84,8 @@ export async function calculateRoute() {
     );
   } catch (error) {
     console.error("Rutefejl", error);
+
+    setRouteReady(false);
 
     alert(
       "Kunne ikke beregne rute: " +
@@ -102,21 +98,33 @@ export async function calculateRoute() {
       "Kort: fejl"
     );
   } finally {
-    setRouteButtonsBusy(false);
+    setRouteBusy(false);
   }
 }
 
-function setRouteButtonsBusy(isBusy) {
+function setRouteBusy(isBusy) {
   if (els.calcRouteBtn) {
     els.calcRouteBtn.disabled = isBusy;
   }
 
+  if (isBusy) {
+    if (els.startNavBtn) {
+      els.startNavBtn.disabled = true;
+    }
+
+    if (els.openFuelListBtn) {
+      els.openFuelListBtn.disabled = true;
+    }
+  }
+}
+
+function setRouteReady(isReady) {
   if (els.startNavBtn) {
-    els.startNavBtn.disabled = true;
+    els.startNavBtn.disabled = !isReady;
   }
 
   if (els.openFuelListBtn) {
-    els.openFuelListBtn.disabled = true;
+    els.openFuelListBtn.disabled = !isReady;
   }
 }
 
