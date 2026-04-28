@@ -12,6 +12,10 @@ import {
   recenterMap
 } from "./map.js";
 
+import {
+  getGreenWaveRecommendation
+} from "./greenwave.js";
+
 export function startLiveNavigation() {
   if (!state.routeData || !state.destination) {
     return;
@@ -107,48 +111,59 @@ function handleNavigationError(error) {
 }
 
 function updateNavigationStats(current) {
-  const speedKmh =
-    typeof current.speed === "number" &&
-    Number.isFinite(current.speed)
-      ? Math.max(0, Math.round(current.speed * 3.6))
-      : 0;
+  const speedKmh = getCurrentSpeedKmh(current);
 
   if (els.driveCurrentValue) {
     els.driveCurrentValue.textContent = `${speedKmh} km/t`;
   }
 
-  if (state.destination && els.driveRemainingDistance) {
-    const remainingMeters = haversine(
-      current.lat,
-      current.lng,
-      state.destination.lat,
-      state.destination.lng
-    );
+  updateRemainingTripStats(current, speedKmh);
+  updateGreenWaveBanner(current);
+}
 
-    els.driveRemainingDistance.textContent =
-      formatDistance(remainingMeters);
-
-    if (els.driveRemainingTime) {
-      const estimatedSeconds = estimateRemainingSeconds(
-        remainingMeters,
-        speedKmh
-      );
-
-      els.driveRemainingTime.textContent =
-        formatDuration(estimatedSeconds);
-    }
+function updateRemainingTripStats(current, speedKmh) {
+  if (!state.destination || !els.driveRemainingDistance) {
+    return;
   }
 
-  const recommendedSpeed = calculateGreenWaveSpeed(speedKmh);
+  const remainingMeters = haversine(
+    current.lat,
+    current.lng,
+    state.destination.lat,
+    state.destination.lng
+  );
+
+  els.driveRemainingDistance.textContent =
+    formatDistance(remainingMeters);
+
+  if (els.driveRemainingTime) {
+    const estimatedSeconds = estimateRemainingSeconds(
+      remainingMeters,
+      speedKmh
+    );
+
+    els.driveRemainingTime.textContent =
+      formatDuration(estimatedSeconds);
+  }
+}
+
+function updateGreenWaveBanner(current) {
+  const recommendation =
+    getGreenWaveRecommendation(current);
 
   if (els.navBannerMain) {
     els.navBannerMain.textContent =
-      `Anbefalet fart: ${recommendedSpeed} km/t`;
+      `Anbefalet fart: ${recommendation.speedKmh} km/t`;
   }
 
   if (els.navBannerSub) {
-    els.navBannerSub.textContent =
-      "Hold jævn fart for bedst chance for grøn bølge";
+    if (recommendation.distanceToSignal !== null) {
+      els.navBannerSub.textContent =
+        `Næste trafiklys: ${formatDistance(recommendation.distanceToSignal)} · ${recommendation.message}`;
+    } else {
+      els.navBannerSub.textContent =
+        recommendation.message;
+    }
   }
 }
 
@@ -171,7 +186,8 @@ function followCurrentPosition(current) {
   /*
     Navigation offset:
     Leaflet centrerer normalt positionen midt på skærmen.
-    I navigation skal bilen ligge lavere, så man kan se mere vej foran sig.
+    Her flyttes kortet lidt, så bilen ligger lavere på skærmen,
+    og brugeren kan se mere vej foran sig.
   */
   window.requestAnimationFrame(() => {
     if (!state.map || !state.isNavigating) {
@@ -188,31 +204,15 @@ function followCurrentPosition(current) {
   });
 }
 
-function calculateGreenWaveSpeed(currentSpeedKmh) {
-  /*
-    Første stabile GreenWave-version:
-    - ingen live trafiklysdata endnu
-    - anbefaler jævn økonomisk fart
-    - senere kobles denne funktion til trafiklys langs ruten
-  */
-
-  if (currentSpeedKmh <= 10) {
-    return 45;
+function getCurrentSpeedKmh(current) {
+  if (
+    typeof current.speed === "number" &&
+    Number.isFinite(current.speed)
+  ) {
+    return Math.max(0, Math.round(current.speed * 3.6));
   }
 
-  if (currentSpeedKmh < 35) {
-    return 40;
-  }
-
-  if (currentSpeedKmh <= 55) {
-    return currentSpeedKmh;
-  }
-
-  if (currentSpeedKmh <= 70) {
-    return 55;
-  }
-
-  return 60;
+  return 0;
 }
 
 function estimateRemainingSeconds(distanceMeters, speedKmh) {
@@ -221,7 +221,8 @@ function estimateRemainingSeconds(distanceMeters, speedKmh) {
   }
 
   const fallbackSpeedKmh = 70;
-  const safeSpeedKmh = speedKmh > 5 ? speedKmh : fallbackSpeedKmh;
+  const safeSpeedKmh =
+    speedKmh > 5 ? speedKmh : fallbackSpeedKmh;
 
   return Math.round(
     distanceMeters / (safeSpeedKmh * 1000 / 3600)
