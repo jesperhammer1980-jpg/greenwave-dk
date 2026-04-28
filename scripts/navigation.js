@@ -22,6 +22,7 @@ export function startLiveNavigation() {
   }
 
   state.isNavigating = true;
+  state.currentStepIndex = 0;
 
   document.body.classList.add("navigation-active");
   els.navOverlay?.classList.remove("hidden");
@@ -95,25 +96,9 @@ export function stopLiveNavigation() {
 }
 
 function initializeNavigationUi() {
-  if (els.turnIcon) {
-    els.turnIcon.textContent = "↑";
-  }
+  updateTurnCardFromStep(null, null);
 
-  if (els.nextTurnDistance) {
-    els.nextTurnDistance.textContent = "Følg ruten";
-  }
-
-  if (els.nextTurnInstruction) {
-    els.nextTurnInstruction.textContent =
-      "Fortsæt ligeud";
-  }
-
-  if (els.nextTurnRoad) {
-    els.nextTurnRoad.textContent =
-      "GreenWave navigation";
-  }
-
-  updateTurnProgress(0.15);
+  updateTurnProgress(0.12);
 }
 
 function handleNavigationPosition(position) {
@@ -130,8 +115,7 @@ function handleNavigationPosition(position) {
   updateUserMarker(current.lat, current.lng);
 
   updateNavigationStats(current);
-  updateTurnCard(current);
-
+  updateRouteStepProgress(current);
   followCurrentPosition(current);
 }
 
@@ -160,7 +144,7 @@ function updateNavigationStats(current) {
   );
 
   const recommendation =
-    updateGreenWaveBanner(current);
+    getGreenWaveRecommendation(current);
 
   updateSpeedSigns(
     currentSpeedKmh,
@@ -199,13 +183,6 @@ function updateRemainingTripStats(
     els.driveRemainingTime.textContent =
       formatDuration(estimatedSeconds);
   }
-}
-
-function updateGreenWaveBanner(current) {
-  const recommendation =
-    getGreenWaveRecommendation(current);
-
-  return recommendation;
 }
 
 function updateSpeedSigns(
@@ -259,29 +236,80 @@ function updateSpeedSigns(
   );
 }
 
-function updateTurnCard(current) {
-  /*
-    Første premium navigation version.
-    Rigtige OSRM maneuvers kommer senere.
-  */
+function updateRouteStepProgress(current) {
+  const steps = Array.isArray(state.routeSteps)
+    ? state.routeSteps
+    : [];
 
-  const speedKmh =
-    getCurrentSpeedKmh(current);
-
-  let instruction =
-    "Fortsæt ligeud";
-
-  let icon = "↑";
-
-  if (speedKmh < 8) {
-    instruction =
-      "Kør roligt frem";
+  if (!steps.length) {
+    updateTurnCardFromStep(null, null);
+    return;
   }
 
-  if (speedKmh > 70) {
-    instruction =
-      "Hold banen";
+  let index = state.currentStepIndex || 0;
+
+  if (index >= steps.length) {
+    index = steps.length - 1;
   }
+
+  let step = steps[index];
+  let distanceToStep = distanceToStepManeuver(
+    current,
+    step
+  );
+
+  while (
+    index < steps.length - 1 &&
+    Number.isFinite(distanceToStep) &&
+    distanceToStep < 25
+  ) {
+    index += 1;
+    step = steps[index];
+    distanceToStep =
+      distanceToStepManeuver(current, step);
+  }
+
+  state.currentStepIndex = index;
+
+  updateTurnCardFromStep(
+    step,
+    distanceToStep
+  );
+}
+
+function updateTurnCardFromStep(
+  step,
+  distanceToStep
+) {
+  if (!step) {
+    if (els.turnIcon) {
+      els.turnIcon.textContent = "↑";
+    }
+
+    if (els.nextTurnDistance) {
+      els.nextTurnDistance.textContent =
+        "Følg ruten";
+    }
+
+    if (els.nextTurnInstruction) {
+      els.nextTurnInstruction.textContent =
+        "Fortsæt ligeud";
+    }
+
+    if (els.nextTurnRoad) {
+      els.nextTurnRoad.textContent =
+        "GreenWave navigation";
+    }
+
+    updateTurnProgress(0.12);
+    return;
+  }
+
+  const icon = getTurnIcon(step);
+  const instruction =
+    getTurnInstruction(step);
+  const road =
+    getRoadName(step);
 
   if (els.turnIcon) {
     els.turnIcon.textContent = icon;
@@ -289,7 +317,9 @@ function updateTurnCard(current) {
 
   if (els.nextTurnDistance) {
     els.nextTurnDistance.textContent =
-      "Næste instruktion";
+      Number.isFinite(distanceToStep)
+        ? formatDistance(distanceToStep)
+        : "Snart";
   }
 
   if (els.nextTurnInstruction) {
@@ -298,20 +328,54 @@ function updateTurnCard(current) {
   }
 
   if (els.nextTurnRoad) {
-    els.nextTurnRoad.textContent =
-      "GreenWave Route";
+    els.nextTurnRoad.textContent = road;
   }
 
   const progress =
-    Math.min(
-      1,
-      Math.max(
-        0.1,
-        speedKmh / 100
-      )
+    calculateStepProgress(
+      step,
+      distanceToStep
     );
 
   updateTurnProgress(progress);
+}
+
+function distanceToStepManeuver(current, step) {
+  if (!current || !step?.location) {
+    return Infinity;
+  }
+
+  return haversine(
+    current.lat,
+    current.lng,
+    step.location.lat,
+    step.location.lng
+  );
+}
+
+function calculateStepProgress(
+  step,
+  distanceToStep
+) {
+  if (
+    !step ||
+    !Number.isFinite(distanceToStep) ||
+    !Number.isFinite(step.distance) ||
+    step.distance <= 0
+  ) {
+    return 0.18;
+  }
+
+  const done =
+    1 - Math.min(
+      1,
+      Math.max(
+        0,
+        distanceToStep / step.distance
+      )
+    );
+
+  return Math.max(0.08, Math.min(1, done));
 }
 
 function updateTurnProgress(progress) {
@@ -320,7 +384,129 @@ function updateTurnProgress(progress) {
   }
 
   els.turnProgressBar.style.width =
-    `${progress * 100}%`;
+    `${Math.round(progress * 100)}%`;
+}
+
+function getTurnIcon(step) {
+  const type = step.maneuverType;
+  const modifier = step.maneuverModifier;
+
+  if (type === "arrive") {
+    return "🏁";
+  }
+
+  if (type === "roundabout" || type === "rotary") {
+    return "↻";
+  }
+
+  if (modifier?.includes("left")) {
+    return "↰";
+  }
+
+  if (modifier?.includes("right")) {
+    return "↱";
+  }
+
+  if (modifier === "uturn") {
+    return "↶";
+  }
+
+  if (modifier === "straight") {
+    return "↑";
+  }
+
+  if (type === "depart") {
+    return "↑";
+  }
+
+  if (type === "merge") {
+    return "⇢";
+  }
+
+  if (type === "fork") {
+    return "↗";
+  }
+
+  if (type === "on ramp") {
+    return "↗";
+  }
+
+  if (type === "off ramp") {
+    return "↘";
+  }
+
+  return "↑";
+}
+
+function getTurnInstruction(step) {
+  const type = step.maneuverType;
+  const modifier = step.maneuverModifier;
+
+  if (type === "arrive") {
+    return "Du er fremme";
+  }
+
+  if (type === "depart") {
+    return "Start og fortsæt";
+  }
+
+  if (type === "roundabout" || type === "rotary") {
+    return "Kør ind i rundkørslen";
+  }
+
+  if (type === "merge") {
+    return "Flet ind";
+  }
+
+  if (type === "fork") {
+    if (modifier?.includes("left")) {
+      return "Hold til venstre";
+    }
+
+    if (modifier?.includes("right")) {
+      return "Hold til højre";
+    }
+
+    return "Hold retningen";
+  }
+
+  if (type === "on ramp") {
+    return "Kør på rampen";
+  }
+
+  if (type === "off ramp") {
+    return "Tag afkørslen";
+  }
+
+  if (modifier?.includes("left")) {
+    return "Drej til venstre";
+  }
+
+  if (modifier?.includes("right")) {
+    return "Drej til højre";
+  }
+
+  if (modifier === "uturn") {
+    return "Vend om";
+  }
+
+  if (modifier === "straight") {
+    return "Fortsæt ligeud";
+  }
+
+  return "Fortsæt";
+}
+
+function getRoadName(step) {
+  if (step.name) {
+    return step.name;
+  }
+
+  if (step.maneuverType === "arrive") {
+    return "Destination";
+  }
+
+  return "Næste vej";
 }
 
 function followCurrentPosition(current) {
