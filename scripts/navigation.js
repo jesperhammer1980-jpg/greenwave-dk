@@ -97,7 +97,6 @@ export function stopLiveNavigation() {
 
 function initializeNavigationUi() {
   updateTurnCardFromStep(null, null);
-
   updateTurnProgress(0.12);
 }
 
@@ -130,21 +129,15 @@ function handleNavigationError(error) {
 }
 
 function updateNavigationStats(current) {
-  const currentSpeedKmh =
-    getCurrentSpeedKmh(current);
+  const currentSpeedKmh = getCurrentSpeedKmh(current);
 
   if (els.driveCurrentValue) {
-    els.driveCurrentValue.textContent =
-      `${currentSpeedKmh} km/t`;
+    els.driveCurrentValue.textContent = `${currentSpeedKmh} km/t`;
   }
 
-  updateRemainingTripStats(
-    current,
-    currentSpeedKmh
-  );
+  updateRemainingTripStats(current, currentSpeedKmh);
 
-  const recommendation =
-    getGreenWaveRecommendation(current);
+  const recommendation = getGreenWaveRecommendation(current);
 
   updateSpeedSigns(
     currentSpeedKmh,
@@ -152,14 +145,8 @@ function updateNavigationStats(current) {
   );
 }
 
-function updateRemainingTripStats(
-  current,
-  speedKmh
-) {
-  if (
-    !state.destination ||
-    !els.driveRemainingDistance
-  ) {
+function updateRemainingTripStats(current, speedKmh) {
+  if (!state.destination || !els.driveRemainingDistance) {
     return;
   }
 
@@ -185,22 +172,17 @@ function updateRemainingTripStats(
   }
 }
 
-function updateSpeedSigns(
-  currentSpeedKmh,
-  recommendedSpeedKmh
-) {
+function updateSpeedSigns(currentSpeedKmh, recommendedSpeedKmh) {
   if (els.speedLimitValue) {
     els.speedLimitValue.textContent = "?";
   }
 
   if (els.currentSpeedValue) {
-    els.currentSpeedValue.textContent =
-      String(currentSpeedKmh);
+    els.currentSpeedValue.textContent = String(currentSpeedKmh);
   }
 
   if (els.recommendedSpeedValue) {
-    els.recommendedSpeedValue.textContent =
-      String(recommendedSpeedKmh);
+    els.recommendedSpeedValue.textContent = String(recommendedSpeedKmh);
   }
 
   if (!els.currentSpeedSign) {
@@ -213,27 +195,19 @@ function updateSpeedSigns(
     "speed-danger"
   );
 
-  const diff =
-    currentSpeedKmh -
-    recommendedSpeedKmh;
+  const diff = currentSpeedKmh - recommendedSpeedKmh;
 
   if (Math.abs(diff) <= 4) {
-    els.currentSpeedSign.classList.add(
-      "speed-ok"
-    );
+    els.currentSpeedSign.classList.add("speed-ok");
     return;
   }
 
   if (Math.abs(diff) <= 10) {
-    els.currentSpeedSign.classList.add(
-      "speed-warning"
-    );
+    els.currentSpeedSign.classList.add("speed-warning");
     return;
   }
 
-  els.currentSpeedSign.classList.add(
-    "speed-danger"
-  );
+  els.currentSpeedSign.classList.add("speed-danger");
 }
 
 function updateRouteStepProgress(current) {
@@ -253,10 +227,8 @@ function updateRouteStepProgress(current) {
   }
 
   let step = steps[index];
-  let distanceToStep = distanceToStepManeuver(
-    current,
-    step
-  );
+  let distanceToStep =
+    distanceToStepManeuver(current, step);
 
   while (
     index < steps.length - 1 &&
@@ -277,42 +249,30 @@ function updateRouteStepProgress(current) {
   );
 }
 
-function updateTurnCardFromStep(
-  step,
-  distanceToStep
-) {
+function updateTurnCardFromStep(step, distanceToStep) {
   if (!step) {
     if (els.turnIcon) {
       els.turnIcon.textContent = "↑";
     }
 
     if (els.nextTurnDistance) {
-      els.nextTurnDistance.textContent =
-        "Følg ruten";
+      els.nextTurnDistance.textContent = "Følg ruten";
     }
 
     if (els.nextTurnInstruction) {
-      els.nextTurnInstruction.textContent =
-        "Fortsæt ligeud";
+      els.nextTurnInstruction.textContent = "Fortsæt ligeud";
     }
 
     if (els.nextTurnRoad) {
-      els.nextTurnRoad.textContent =
-        "GreenWave navigation";
+      els.nextTurnRoad.textContent = "GreenWave navigation";
     }
 
     updateTurnProgress(0.12);
     return;
   }
 
-  const icon = getTurnIcon(step);
-  const instruction =
-    getTurnInstruction(step);
-  const road =
-    getRoadName(step);
-
   if (els.turnIcon) {
-    els.turnIcon.textContent = icon;
+    els.turnIcon.textContent = getTurnIcon(step);
   }
 
   if (els.nextTurnDistance) {
@@ -324,20 +284,17 @@ function updateTurnCardFromStep(
 
   if (els.nextTurnInstruction) {
     els.nextTurnInstruction.textContent =
-      instruction;
+      getTurnInstruction(step);
   }
 
   if (els.nextTurnRoad) {
-    els.nextTurnRoad.textContent = road;
+    els.nextTurnRoad.textContent =
+      getRoadName(step);
   }
 
-  const progress =
-    calculateStepProgress(
-      step,
-      distanceToStep
-    );
-
-  updateTurnProgress(progress);
+  updateTurnProgress(
+    calculateStepProgress(step, distanceToStep)
+  );
 }
 
 function distanceToStepManeuver(current, step) {
@@ -353,10 +310,7 @@ function distanceToStepManeuver(current, step) {
   );
 }
 
-function calculateStepProgress(
-  step,
-  distanceToStep
-) {
+function calculateStepProgress(step, distanceToStep) {
   if (
     !step ||
     !Number.isFinite(distanceToStep) ||
@@ -367,12 +321,10 @@ function calculateStepProgress(
   }
 
   const done =
-    1 - Math.min(
+    1 -
+    Math.min(
       1,
-      Math.max(
-        0,
-        distanceToStep / step.distance
-      )
+      Math.max(0, distanceToStep / step.distance)
     );
 
   return Math.max(0.08, Math.min(1, done));
@@ -391,49 +343,17 @@ function getTurnIcon(step) {
   const type = step.maneuverType;
   const modifier = step.maneuverModifier;
 
-  if (type === "arrive") {
-    return "🏁";
-  }
-
-  if (type === "roundabout" || type === "rotary") {
-    return "↻";
-  }
-
-  if (modifier?.includes("left")) {
-    return "↰";
-  }
-
-  if (modifier?.includes("right")) {
-    return "↱";
-  }
-
-  if (modifier === "uturn") {
-    return "↶";
-  }
-
-  if (modifier === "straight") {
-    return "↑";
-  }
-
-  if (type === "depart") {
-    return "↑";
-  }
-
-  if (type === "merge") {
-    return "⇢";
-  }
-
-  if (type === "fork") {
-    return "↗";
-  }
-
-  if (type === "on ramp") {
-    return "↗";
-  }
-
-  if (type === "off ramp") {
-    return "↘";
-  }
+  if (type === "arrive") return "🏁";
+  if (type === "roundabout" || type === "rotary") return "↻";
+  if (modifier?.includes("left")) return "↰";
+  if (modifier?.includes("right")) return "↱";
+  if (modifier === "uturn") return "↶";
+  if (modifier === "straight") return "↑";
+  if (type === "depart") return "↑";
+  if (type === "merge") return "⇢";
+  if (type === "fork") return "↗";
+  if (type === "on ramp") return "↗";
+  if (type === "off ramp") return "↘";
 
   return "↑";
 }
@@ -442,57 +362,24 @@ function getTurnInstruction(step) {
   const type = step.maneuverType;
   const modifier = step.maneuverModifier;
 
-  if (type === "arrive") {
-    return "Du er fremme";
-  }
-
-  if (type === "depart") {
-    return "Start og fortsæt";
-  }
-
-  if (type === "roundabout" || type === "rotary") {
-    return "Kør ind i rundkørslen";
-  }
-
-  if (type === "merge") {
-    return "Flet ind";
-  }
+  if (type === "arrive") return "Du er fremme";
+  if (type === "depart") return "Start og fortsæt";
+  if (type === "roundabout" || type === "rotary") return "Kør ind i rundkørslen";
+  if (type === "merge") return "Flet ind";
 
   if (type === "fork") {
-    if (modifier?.includes("left")) {
-      return "Hold til venstre";
-    }
-
-    if (modifier?.includes("right")) {
-      return "Hold til højre";
-    }
-
+    if (modifier?.includes("left")) return "Hold til venstre";
+    if (modifier?.includes("right")) return "Hold til højre";
     return "Hold retningen";
   }
 
-  if (type === "on ramp") {
-    return "Kør på rampen";
-  }
+  if (type === "on ramp") return "Kør på rampen";
+  if (type === "off ramp") return "Tag afkørslen";
 
-  if (type === "off ramp") {
-    return "Tag afkørslen";
-  }
-
-  if (modifier?.includes("left")) {
-    return "Drej til venstre";
-  }
-
-  if (modifier?.includes("right")) {
-    return "Drej til højre";
-  }
-
-  if (modifier === "uturn") {
-    return "Vend om";
-  }
-
-  if (modifier === "straight") {
-    return "Fortsæt ligeud";
-  }
+  if (modifier?.includes("left")) return "Drej til venstre";
+  if (modifier?.includes("right")) return "Drej til højre";
+  if (modifier === "uturn") return "Vend om";
+  if (modifier === "straight") return "Fortsæt ligeud";
 
   return "Fortsæt";
 }
@@ -510,43 +397,26 @@ function getRoadName(step) {
 }
 
 function followCurrentPosition(current) {
-  if (
-    !state.map ||
-    !state.isNavigating
-  ) {
+  if (!state.map || !state.isNavigating) {
     return;
   }
 
-  const zoom = Math.max(
-    state.map.getZoom(),
-    17
-  );
+  const zoom = Math.max(state.map.getZoom(), 17);
 
+  /*
+    VIGTIG RETTELSE:
+    Tidligere brugte vi panBy() efter setView().
+    Det fik GPS-positionen til at se forkert ud i navigation.
+    Nu centreres kortet direkte på den faktiske position.
+  */
   state.map.setView(
     [current.lat, current.lng],
     zoom,
     {
       animate: true,
-      duration: 0.4
+      duration: 0.35
     }
   );
-
-  window.requestAnimationFrame(() => {
-    if (
-      !state.map ||
-      !state.isNavigating
-    ) {
-      return;
-    }
-
-    state.map.panBy(
-      [0, 120],
-      {
-        animate: true,
-        duration: 0.25
-      }
-    );
-  });
 }
 
 function getCurrentSpeedKmh(current) {
@@ -554,59 +424,39 @@ function getCurrentSpeedKmh(current) {
     typeof current.speed === "number" &&
     Number.isFinite(current.speed)
   ) {
-    return Math.max(
-      0,
-      Math.round(current.speed * 3.6)
-    );
+    return Math.max(0, Math.round(current.speed * 3.6));
   }
 
   return 0;
 }
 
-function estimateRemainingSeconds(
-  distanceMeters,
-  speedKmh
-) {
-  if (
-    !Number.isFinite(distanceMeters)
-  ) {
+function estimateRemainingSeconds(distanceMeters, speedKmh) {
+  if (!Number.isFinite(distanceMeters)) {
     return null;
   }
 
   const fallbackSpeedKmh = 70;
-
   const safeSpeedKmh =
-    speedKmh > 5
-      ? speedKmh
-      : fallbackSpeedKmh;
+    speedKmh > 5 ? speedKmh : fallbackSpeedKmh;
 
   return Math.round(
-    distanceMeters /
-    (safeSpeedKmh * 1000 / 3600)
+    distanceMeters / (safeSpeedKmh * 1000 / 3600)
   );
 }
 
 function formatDuration(seconds) {
-  if (
-    !Number.isFinite(seconds)
-  ) {
+  if (!Number.isFinite(seconds)) {
     return "—";
   }
 
-  const minutes = Math.max(
-    1,
-    Math.round(seconds / 60)
-  );
+  const minutes = Math.max(1, Math.round(seconds / 60));
 
   if (minutes < 60) {
     return `${minutes} min`;
   }
 
-  const hours =
-    Math.floor(minutes / 60);
-
-  const restMinutes =
-    minutes % 60;
+  const hours = Math.floor(minutes / 60);
+  const restMinutes = minutes % 60;
 
   if (restMinutes === 0) {
     return `${hours} t`;
