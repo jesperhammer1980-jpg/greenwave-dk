@@ -26,6 +26,10 @@ export function startLiveNavigation() {
   document.body.classList.add("navigation-active");
   els.navOverlay?.classList.remove("hidden");
 
+  setTimeout(() => {
+    state.map?.invalidateSize();
+  }, 250);
+
   if (els.startNavBtn) {
     els.startNavBtn.disabled = true;
   }
@@ -66,6 +70,10 @@ export function stopLiveNavigation() {
 
   document.body.classList.remove("navigation-active");
   els.navOverlay?.classList.add("hidden");
+
+  setTimeout(() => {
+    state.map?.invalidateSize();
+  }, 250);
 
   if (els.startNavBtn) {
     els.startNavBtn.disabled = !state.routeData;
@@ -183,12 +191,6 @@ function followCurrentPosition(current) {
     }
   );
 
-  /*
-    Navigation offset:
-    Leaflet centrerer normalt positionen midt på skærmen.
-    Her flyttes kortet lidt, så bilen ligger lavere på skærmen,
-    og brugeren kan se mere vej foran sig.
-  */
   window.requestAnimationFrame(() => {
     if (!state.map || !state.isNavigating) {
       return;
