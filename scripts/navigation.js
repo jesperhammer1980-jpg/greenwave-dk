@@ -104,6 +104,7 @@ function handleNavigationPosition(position) {
   state.currentPosition = current;
 
   updateUserMarker(current.lat, current.lng);
+
   updateNavigationStats(current);
   followCurrentPosition(current);
 }
@@ -119,14 +120,22 @@ function handleNavigationError(error) {
 }
 
 function updateNavigationStats(current) {
-  const speedKmh = getCurrentSpeedKmh(current);
+  const currentSpeedKmh = getCurrentSpeedKmh(current);
 
   if (els.driveCurrentValue) {
-    els.driveCurrentValue.textContent = `${speedKmh} km/t`;
+    els.driveCurrentValue.textContent =
+      `${currentSpeedKmh} km/t`;
   }
 
-  updateRemainingTripStats(current, speedKmh);
-  updateGreenWaveBanner(current);
+  updateRemainingTripStats(current, currentSpeedKmh);
+
+  const recommendation =
+    updateGreenWaveBanner(current);
+
+  updateSpeedSigns(
+    currentSpeedKmh,
+    recommendation.speedKmh
+  );
 }
 
 function updateRemainingTripStats(current, speedKmh) {
@@ -173,6 +182,70 @@ function updateGreenWaveBanner(current) {
         recommendation.message;
     }
   }
+
+  return recommendation;
+}
+
+function updateSpeedSigns(
+  currentSpeedKmh,
+  recommendedSpeedKmh
+) {
+  /*
+    Maks tilladt hastighed:
+    Midlertidigt ukendt.
+    Senere kommer OSM maxspeed integration.
+  */
+
+  if (els.speedLimitValue) {
+    els.speedLimitValue.textContent = "?";
+  }
+
+  /*
+    Aktuel fart
+  */
+
+  if (els.currentSpeedValue) {
+    els.currentSpeedValue.textContent =
+      String(currentSpeedKmh);
+  }
+
+  /*
+    Anbefalet fart
+  */
+
+  if (els.recommendedSpeedValue) {
+    els.recommendedSpeedValue.textContent =
+      String(recommendedSpeedKmh);
+  }
+
+  /*
+    Farver på aktuel fart-skilt
+  */
+
+  if (!els.currentSpeedSign) {
+    return;
+  }
+
+  els.currentSpeedSign.classList.remove(
+    "speed-ok",
+    "speed-warning",
+    "speed-danger"
+  );
+
+  const diff =
+    currentSpeedKmh - recommendedSpeedKmh;
+
+  if (Math.abs(diff) <= 4) {
+    els.currentSpeedSign.classList.add("speed-ok");
+    return;
+  }
+
+  if (Math.abs(diff) <= 10) {
+    els.currentSpeedSign.classList.add("speed-warning");
+    return;
+  }
+
+  els.currentSpeedSign.classList.add("speed-danger");
 }
 
 function followCurrentPosition(current) {
@@ -211,23 +284,33 @@ function getCurrentSpeedKmh(current) {
     typeof current.speed === "number" &&
     Number.isFinite(current.speed)
   ) {
-    return Math.max(0, Math.round(current.speed * 3.6));
+    return Math.max(
+      0,
+      Math.round(current.speed * 3.6)
+    );
   }
 
   return 0;
 }
 
-function estimateRemainingSeconds(distanceMeters, speedKmh) {
+function estimateRemainingSeconds(
+  distanceMeters,
+  speedKmh
+) {
   if (!Number.isFinite(distanceMeters)) {
     return null;
   }
 
   const fallbackSpeedKmh = 70;
+
   const safeSpeedKmh =
-    speedKmh > 5 ? speedKmh : fallbackSpeedKmh;
+    speedKmh > 5
+      ? speedKmh
+      : fallbackSpeedKmh;
 
   return Math.round(
-    distanceMeters / (safeSpeedKmh * 1000 / 3600)
+    distanceMeters /
+    (safeSpeedKmh * 1000 / 3600)
   );
 }
 
@@ -236,7 +319,10 @@ function formatDuration(seconds) {
     return "—";
   }
 
-  const minutes = Math.max(1, Math.round(seconds / 60));
+  const minutes = Math.max(
+    1,
+    Math.round(seconds / 60)
+  );
 
   if (minutes < 60) {
     return `${minutes} min`;
