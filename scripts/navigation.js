@@ -20,7 +20,6 @@ export function startLiveNavigation() {
   state.isNavigating = true;
 
   document.body.classList.add("navigation-active");
-
   els.navOverlay?.classList.remove("hidden");
 
   if (els.startNavBtn) {
@@ -62,7 +61,6 @@ export function stopLiveNavigation() {
   }
 
   document.body.classList.remove("navigation-active");
-
   els.navOverlay?.classList.add("hidden");
 
   if (els.startNavBtn) {
@@ -94,7 +92,6 @@ function handleNavigationPosition(position) {
   state.currentPosition = current;
 
   updateUserMarker(current.lat, current.lng);
-
   updateNavigationStats(current);
   followCurrentPosition(current);
 }
@@ -142,14 +139,16 @@ function updateNavigationStats(current) {
     }
   }
 
+  const recommendedSpeed = calculateGreenWaveSpeed(speedKmh);
+
   if (els.navBannerMain) {
     els.navBannerMain.textContent =
-      "Fortsæt mod destinationen";
+      `Anbefalet fart: ${recommendedSpeed} km/t`;
   }
 
   if (els.navBannerSub) {
     els.navBannerSub.textContent =
-      "GreenWave følger din position";
+      "Hold jævn fart for bedst chance for grøn bølge";
   }
 }
 
@@ -158,13 +157,62 @@ function followCurrentPosition(current) {
     return;
   }
 
+  const zoom = Math.max(state.map.getZoom(), 17);
+
   state.map.setView(
     [current.lat, current.lng],
-    Math.max(state.map.getZoom(), 16),
+    zoom,
     {
-      animate: true
+      animate: true,
+      duration: 0.4
     }
   );
+
+  /*
+    Navigation offset:
+    Leaflet centrerer normalt positionen midt på skærmen.
+    I navigation skal bilen ligge lavere, så man kan se mere vej foran sig.
+  */
+  window.requestAnimationFrame(() => {
+    if (!state.map || !state.isNavigating) {
+      return;
+    }
+
+    state.map.panBy(
+      [0, 120],
+      {
+        animate: true,
+        duration: 0.25
+      }
+    );
+  });
+}
+
+function calculateGreenWaveSpeed(currentSpeedKmh) {
+  /*
+    Første stabile GreenWave-version:
+    - ingen live trafiklysdata endnu
+    - anbefaler jævn økonomisk fart
+    - senere kobles denne funktion til trafiklys langs ruten
+  */
+
+  if (currentSpeedKmh <= 10) {
+    return 45;
+  }
+
+  if (currentSpeedKmh < 35) {
+    return 40;
+  }
+
+  if (currentSpeedKmh <= 55) {
+    return currentSpeedKmh;
+  }
+
+  if (currentSpeedKmh <= 70) {
+    return 55;
+  }
+
+  return 60;
 }
 
 function estimateRemainingSeconds(distanceMeters, speedKmh) {
