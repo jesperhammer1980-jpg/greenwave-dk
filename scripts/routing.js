@@ -61,10 +61,14 @@ export async function calculateRoute() {
       state.destination.lng
     );
 
-    state.routeData = await fetchRoute(
+    const route = await fetchRoute(
       state.currentPosition,
       state.destination
     );
+
+    state.routeData = route;
+    state.routeSteps = route.steps;
+    state.currentStepIndex = 0;
 
     drawRoute(state.routeData.geometry);
 
@@ -183,7 +187,8 @@ export async function fetchRoute(from, to) {
     `https://router.project-osrm.org/route/v1/driving/` +
     `${from.lng},${from.lat};${to.lng},${to.lat}` +
     `?overview=full` +
-    `&geometries=geojson`;
+    `&geometries=geojson` +
+    `&steps=true`;
 
   const response = await fetch(url);
 
@@ -199,9 +204,54 @@ export async function fetchRoute(from, to) {
 
   const route = data.routes[0];
 
+  const steps = extractRouteSteps(route);
+
   return {
     geometry: route.geometry.coordinates,
     distance: route.distance,
-    duration: route.duration
+    duration: route.duration,
+    steps
   };
+}
+
+function extractRouteSteps(route) {
+  const steps = [];
+
+  const legs = Array.isArray(route.legs)
+    ? route.legs
+    : [];
+
+  legs.forEach(leg => {
+    const legSteps = Array.isArray(leg.steps)
+      ? leg.steps
+      : [];
+
+    legSteps.forEach(step => {
+      const maneuver = step.maneuver || {};
+
+      const location = Array.isArray(maneuver.location)
+        ? maneuver.location
+        : null;
+
+      if (!location) {
+        return;
+      }
+
+      steps.push({
+        distance: Number(step.distance || 0),
+        duration: Number(step.duration || 0),
+        name: step.name || "",
+        mode: step.mode || "driving",
+        geometry: step.geometry?.coordinates || [],
+        maneuverType: maneuver.type || "continue",
+        maneuverModifier: maneuver.modifier || "",
+        location: {
+          lng: Number(location[0]),
+          lat: Number(location[1])
+        }
+      });
+    });
+  });
+
+  return steps;
 }
