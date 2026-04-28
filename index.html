@@ -100,15 +100,28 @@
 
         <div id="navOverlay" class="nav-overlay hidden">
 
-          <div class="nav-top">
-            <div class="nav-top-actions">
+          <div class="turn-card">
+            <div class="turn-card-top">
+              <div id="turnIcon" class="turn-icon">↑</div>
+
+              <div class="turn-copy">
+                <div id="nextTurnDistance" class="turn-distance">—</div>
+                <div id="nextTurnInstruction" class="turn-instruction">
+                  Fortsæt ligeud
+                </div>
+                <div id="nextTurnRoad" class="turn-road">
+                  GreenWave navigation
+                </div>
+              </div>
+
               <button id="exitNavOverlayBtn" class="overlay-btn overlay-btn-danger">
                 Stop
               </button>
             </div>
 
-            <div id="navBannerMain">—</div>
-            <div id="navBannerSub">—</div>
+            <div class="turn-progress-wrap">
+              <div id="turnProgressBar" class="turn-progress-bar"></div>
+            </div>
           </div>
 
           <div class="speed-sign-stack">
@@ -286,7 +299,7 @@
 </div>
 
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
-<script type="module" src="./scripts/main.js?v=7"></script>
+<script type="module" src="./scripts/main.js?v=8"></script>
 
 </body>
 </html>
