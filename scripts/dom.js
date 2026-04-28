@@ -66,8 +66,11 @@ const elementIds = [
   "driveRemainingTime",
   "driveCurrentValue",
 
-  "navBannerMain",
-  "navBannerSub",
+  "turnIcon",
+  "nextTurnDistance",
+  "nextTurnInstruction",
+  "nextTurnRoad",
+  "turnProgressBar",
 
   "speedLimitSign",
   "speedLimitValue",
