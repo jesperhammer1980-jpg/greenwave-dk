@@ -19,6 +19,11 @@ import {
   getGreenWaveRecommendation
 } from "./greenwave.js";
 
+import {
+  getActiveStep,
+  getRouteBearingAtProgress
+} from "./route-progress.js";
+
 export async function startLiveNavigation() {
   if (!state.routeData || !state.destination) {
     return;
@@ -123,7 +128,6 @@ export async function stopLiveNavigation() {
 function initializeNavigationUi() {
   updateTurnCardFromStep(null, null);
   updateTurnProgress(0.12);
-
   updateSpeedSigns(0, 45);
 }
 
@@ -140,7 +144,13 @@ function handleNavigationPosition(position) {
   state.rawPosition = raw;
 
   const smooth = smoothPosition(raw);
-  const heading = getBestHeading(raw, smooth);
+
+  const active = getActiveStep(smooth);
+  const routeBearing =
+    getRouteBearingAtProgress(active?.progress);
+
+  const heading =
+    getStableNavigationHeading(raw, smooth, routeBearing);
 
   state.previousPosition = state.currentPosition;
   state.currentPosition = smooth;
@@ -150,10 +160,16 @@ function handleNavigationPosition(position) {
   updateUserMarker(smooth.lat, smooth.lng);
 
   updateNavigationStats(smooth);
-  updateRouteStepProgress(smooth);
+  updateTurnCardFromStep(
+    active?.step || null,
+    active?.distanceToStep ?? null
+  );
 
   followNavigationCamera(smooth);
-  setMapBearing(heading);
+
+  if (shouldRotateMap(raw, heading)) {
+    setMapBearing(heading);
+  }
 }
 
 function handleNavigationError(error) {
@@ -168,9 +184,7 @@ function handleNavigationError(error) {
 
 function smoothPosition(raw) {
   if (!state.smoothedPosition) {
-    return {
-      ...raw
-    };
+    return { ...raw };
   }
 
   const previous = state.smoothedPosition;
@@ -182,31 +196,24 @@ function smoothPosition(raw) {
     raw.lng
   );
 
-  /*
-    Ignorer meget små GPS-hop ved lav fart.
-  */
-  const speedKmh =
-    typeof raw.speed === "number" &&
-    Number.isFinite(raw.speed)
-      ? raw.speed * 3.6
-      : 0;
+  const speedKmh = getCurrentSpeedKmh(raw);
 
   if (distance < 2.5 && speedKmh < 10) {
     return previous;
   }
 
-  /*
-    Hvis GPS hopper voldsomt uden realistisk fart,
-    dæmp bevægelsen kraftigt.
-  */
-  let alpha = 0.35;
+  let alpha = 0.28;
 
   if (speedKmh > 25) {
+    alpha = 0.38;
+  }
+
+  if (speedKmh > 60) {
     alpha = 0.48;
   }
 
-  if (distance > 80 && speedKmh < 20) {
-    alpha = 0.18;
+  if (distance > 80 && speedKmh < 25) {
+    alpha = 0.12;
   }
 
   return {
@@ -216,25 +223,39 @@ function smoothPosition(raw) {
   };
 }
 
-function getBestHeading(raw, smooth) {
-  let heading = null;
+function getStableNavigationHeading(raw, smooth, routeBearing) {
+  const speedKmh = getCurrentSpeedKmh(raw);
+
+  /*
+    Vigtig ændring:
+    Rå GPS-heading på telefon kan være ustabil og give spin.
+    Ved navigation prioriterer vi rutens bearing, hvis den findes.
+  */
+
+  let targetHeading = null;
 
   if (
+    typeof routeBearing === "number" &&
+    Number.isFinite(routeBearing)
+  ) {
+    targetHeading = routeBearing;
+  } else if (
+    speedKmh > 12 &&
     typeof raw.heading === "number" &&
     Number.isFinite(raw.heading) &&
     raw.heading >= 0
   ) {
-    heading = raw.heading;
+    targetHeading = raw.heading;
   } else if (state.previousPosition) {
-    const distance = haversine(
+    const moved = haversine(
       state.previousPosition.lat,
       state.previousPosition.lng,
       smooth.lat,
       smooth.lng
     );
 
-    if (distance > 4) {
-      heading = calculateBearing(
+    if (moved > 8) {
+      targetHeading = calculateBearing(
         state.previousPosition.lat,
         state.previousPosition.lng,
         smooth.lat,
@@ -244,8 +265,8 @@ function getBestHeading(raw, smooth) {
   }
 
   if (
-    typeof heading !== "number" ||
-    !Number.isFinite(heading)
+    typeof targetHeading !== "number" ||
+    !Number.isFinite(targetHeading)
   ) {
     return state.smoothedHeading;
   }
@@ -254,14 +275,50 @@ function getBestHeading(raw, smooth) {
     typeof state.smoothedHeading !== "number" ||
     !Number.isFinite(state.smoothedHeading)
   ) {
-    state.smoothedHeading = heading;
-    return heading;
+    state.smoothedHeading = targetHeading;
+    return targetHeading;
   }
 
+  const alpha =
+    speedKmh > 70
+      ? 0.10
+      : speedKmh > 35
+        ? 0.13
+        : 0.08;
+
   state.smoothedHeading =
-    smoothAngle(state.smoothedHeading, heading, 0.22);
+    smoothAngleLimited(
+      state.smoothedHeading,
+      targetHeading,
+      alpha,
+      18
+    );
 
   return state.smoothedHeading;
+}
+
+function shouldRotateMap(raw, heading) {
+  const speedKmh = getCurrentSpeedKmh(raw);
+
+  if (speedKmh < 10) {
+    return false;
+  }
+
+  if (
+    typeof heading !== "number" ||
+    !Number.isFinite(heading)
+  ) {
+    return false;
+  }
+
+  if (
+    typeof raw.accuracy === "number" &&
+    raw.accuracy > 45
+  ) {
+    return false;
+  }
+
+  return true;
 }
 
 function calculateBearing(lat1, lng1, lat2, lng2) {
@@ -273,10 +330,12 @@ function calculateBearing(lat1, lng1, lat2, lng2) {
   const Δλ = toRad(lng2 - lng1);
 
   const y =
-    Math.sin(Δλ) * Math.cos(φ2);
+    Math.sin(Δλ) *
+    Math.cos(φ2);
 
   const x =
-    Math.cos(φ1) * Math.sin(φ2) -
+    Math.cos(φ1) *
+    Math.sin(φ2) -
     Math.sin(φ1) *
     Math.cos(φ2) *
     Math.cos(Δλ);
@@ -284,21 +343,36 @@ function calculateBearing(lat1, lng1, lat2, lng2) {
   return (toDeg(Math.atan2(y, x)) + 360) % 360;
 }
 
-function smoothAngle(current, target, alpha) {
-  let diff = ((target - current + 540) % 360) - 180;
+function smoothAngleLimited(current, target, alpha, maxStepDegrees) {
+  const diff =
+    ((target - current + 540) % 360) - 180;
 
-  return (current + diff * alpha + 360) % 360;
+  const limitedDiff =
+    Math.max(
+      -maxStepDegrees,
+      Math.min(maxStepDegrees, diff)
+    );
+
+  return (
+    current +
+    limitedDiff * alpha +
+    360
+  ) % 360;
 }
 
 function updateNavigationStats(current) {
-  const currentSpeedKmh = getCurrentSpeedKmh(current);
+  const currentSpeedKmh =
+    getCurrentSpeedKmh(current);
 
   if (els.driveCurrentValue) {
     els.driveCurrentValue.textContent =
       `${currentSpeedKmh} km/t`;
   }
 
-  updateRemainingTripStats(current, currentSpeedKmh);
+  updateRemainingTripStats(
+    current,
+    currentSpeedKmh
+  );
 
   const recommendation =
     getGreenWaveRecommendation(current);
@@ -370,7 +444,10 @@ function updateSpeedSigns(currentSpeedKmh, recommendedSpeedKmh) {
   const diff =
     currentSpeedKmh - referenceSpeed;
 
-  if (diff <= 4 && Math.abs(currentSpeedKmh - recommendedSpeedKmh) <= 7) {
+  if (
+    diff <= 4 &&
+    Math.abs(currentSpeedKmh - recommendedSpeedKmh) <= 7
+  ) {
     els.currentSpeedSign.classList.add("speed-ok");
     return;
   }
@@ -394,46 +471,6 @@ function getCurrentMaxSpeed() {
   return null;
 }
 
-function updateRouteStepProgress(current) {
-  const steps = Array.isArray(state.routeSteps)
-    ? state.routeSteps
-    : [];
-
-  if (!steps.length) {
-    updateTurnCardFromStep(null, null);
-    return;
-  }
-
-  let index = state.currentStepIndex || 0;
-
-  if (index >= steps.length) {
-    index = steps.length - 1;
-  }
-
-  let step = steps[index];
-
-  let distanceToStep =
-    distanceToStepManeuver(current, step);
-
-  while (
-    index < steps.length - 1 &&
-    Number.isFinite(distanceToStep) &&
-    distanceToStep < 25
-  ) {
-    index += 1;
-    step = steps[index];
-    distanceToStep =
-      distanceToStepManeuver(current, step);
-  }
-
-  state.currentStepIndex = index;
-
-  updateTurnCardFromStep(
-    step,
-    distanceToStep
-  );
-}
-
 function updateTurnCardFromStep(step, distanceToStep) {
   if (!step) {
     if (els.turnIcon) {
@@ -441,18 +478,15 @@ function updateTurnCardFromStep(step, distanceToStep) {
     }
 
     if (els.nextTurnDistance) {
-      els.nextTurnDistance.textContent =
-        "Følg ruten";
+      els.nextTurnDistance.textContent = "Følg ruten";
     }
 
     if (els.nextTurnInstruction) {
-      els.nextTurnInstruction.textContent =
-        "Fortsæt ligeud";
+      els.nextTurnInstruction.textContent = "Fortsæt ligeud";
     }
 
     if (els.nextTurnRoad) {
-      els.nextTurnRoad.textContent =
-        "GreenWave navigation";
+      els.nextTurnRoad.textContent = "GreenWave navigation";
     }
 
     updateTurnProgress(0.12);
@@ -485,19 +519,6 @@ function updateTurnCardFromStep(step, distanceToStep) {
   );
 }
 
-function distanceToStepManeuver(current, step) {
-  if (!current || !step?.location) {
-    return Infinity;
-  }
-
-  return haversine(
-    current.lat,
-    current.lng,
-    step.location.lat,
-    step.location.lng
-  );
-}
-
 function calculateStepProgress(step, distanceToStep) {
   if (
     !step ||
@@ -512,7 +533,10 @@ function calculateStepProgress(step, distanceToStep) {
     1 -
     Math.min(
       1,
-      Math.max(0, distanceToStep / step.distance)
+      Math.max(
+        0,
+        distanceToStep / step.distance
+      )
     );
 
   return Math.max(0.08, Math.min(1, done));
@@ -618,7 +642,7 @@ function getRoadName(step) {
     return step.name;
   }
 
-  if (step.maneuverType === "arrive") {
+  if (String(step.maneuverType || "").toLowerCase().includes("arrive")) {
     return "Destination";
   }
 
@@ -627,7 +651,7 @@ function getRoadName(step) {
 
 function getCurrentSpeedKmh(current) {
   if (
-    typeof current.speed === "number" &&
+    typeof current?.speed === "number" &&
     Number.isFinite(current.speed)
   ) {
     return Math.max(
@@ -647,7 +671,9 @@ function estimateRemainingSeconds(distanceMeters, speedKmh) {
   const fallbackSpeedKmh = 70;
 
   const safeSpeedKmh =
-    speedKmh > 5 ? speedKmh : fallbackSpeedKmh;
+    speedKmh > 5
+      ? speedKmh
+      : fallbackSpeedKmh;
 
   return Math.round(
     distanceMeters /
@@ -669,8 +695,11 @@ function formatDuration(seconds) {
     return `${minutes} min`;
   }
 
-  const hours = Math.floor(minutes / 60);
-  const restMinutes = minutes % 60;
+  const hours =
+    Math.floor(minutes / 60);
+
+  const restMinutes =
+    minutes % 60;
 
   if (restMinutes === 0) {
     return `${hours} t`;
