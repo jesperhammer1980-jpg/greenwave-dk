@@ -6,6 +6,13 @@ export const state = {
   map: null,
 
   currentPosition: null,
+  rawPosition: null,
+  smoothedPosition: null,
+  previousPosition: null,
+
+  currentHeading: null,
+  smoothedHeading: null,
+
   destination: null,
   selectedAutocompleteItem: null,
   autocompleteTimer: null,
@@ -25,6 +32,11 @@ export const state = {
   fuelListSort: "price",
 
   trafficSignals: [],
+
+  maxSpeedZones: [],
+  currentMaxSpeed: null,
+
+  wakeLock: null,
 
   watchId: null,
   isNavigating: false,
