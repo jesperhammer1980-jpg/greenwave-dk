@@ -9,14 +9,17 @@ import {
 
 import {
   updateUserMarker,
-  recenterMap
+  recenterMap,
+  followNavigationCamera,
+  setMapBearing,
+  resetMapBearing
 } from "./map.js";
 
 import {
   getGreenWaveRecommendation
 } from "./greenwave.js";
 
-export function startLiveNavigation() {
+export async function startLiveNavigation() {
   if (!state.routeData || !state.destination) {
     return;
   }
@@ -24,8 +27,21 @@ export function startLiveNavigation() {
   state.isNavigating = true;
   state.currentStepIndex = 0;
 
+  state.rawPosition = null;
+  state.previousPosition = null;
+  state.smoothedPosition = null;
+  state.currentHeading = null;
+  state.smoothedHeading = null;
+
   document.body.classList.add("navigation-active");
   els.navOverlay?.classList.remove("hidden");
+
+  await requestWakeLock();
+
+  document.addEventListener(
+    "visibilitychange",
+    handleVisibilityChange
+  );
 
   setTimeout(() => {
     state.map?.invalidateSize();
@@ -63,7 +79,7 @@ export function startLiveNavigation() {
   );
 }
 
-export function stopLiveNavigation() {
+export async function stopLiveNavigation() {
   state.isNavigating = false;
 
   if (state.watchId !== null) {
@@ -71,8 +87,17 @@ export function stopLiveNavigation() {
     state.watchId = null;
   }
 
+  document.removeEventListener(
+    "visibilitychange",
+    handleVisibilityChange
+  );
+
+  await releaseWakeLock();
+
   document.body.classList.remove("navigation-active");
   els.navOverlay?.classList.add("hidden");
+
+  resetMapBearing();
 
   setTimeout(() => {
     state.map?.invalidateSize();
@@ -98,24 +123,37 @@ export function stopLiveNavigation() {
 function initializeNavigationUi() {
   updateTurnCardFromStep(null, null);
   updateTurnProgress(0.12);
+
+  updateSpeedSigns(0, 45);
 }
 
 function handleNavigationPosition(position) {
-  const current = {
+  const raw = {
     lat: position.coords.latitude,
     lng: position.coords.longitude,
     speed: position.coords.speed,
     heading: position.coords.heading,
-    accuracy: position.coords.accuracy
+    accuracy: position.coords.accuracy,
+    timestamp: position.timestamp || Date.now()
   };
 
-  state.currentPosition = current;
+  state.rawPosition = raw;
 
-  updateUserMarker(current.lat, current.lng);
+  const smooth = smoothPosition(raw);
+  const heading = getBestHeading(raw, smooth);
 
-  updateNavigationStats(current);
-  updateRouteStepProgress(current);
-  followCurrentPosition(current);
+  state.previousPosition = state.currentPosition;
+  state.currentPosition = smooth;
+  state.smoothedPosition = smooth;
+  state.currentHeading = heading;
+
+  updateUserMarker(smooth.lat, smooth.lng);
+
+  updateNavigationStats(smooth);
+  updateRouteStepProgress(smooth);
+
+  followNavigationCamera(smooth);
+  setMapBearing(heading);
 }
 
 function handleNavigationError(error) {
@@ -128,16 +166,142 @@ function handleNavigationError(error) {
   );
 }
 
+function smoothPosition(raw) {
+  if (!state.smoothedPosition) {
+    return {
+      ...raw
+    };
+  }
+
+  const previous = state.smoothedPosition;
+
+  const distance = haversine(
+    previous.lat,
+    previous.lng,
+    raw.lat,
+    raw.lng
+  );
+
+  /*
+    Ignorer meget små GPS-hop ved lav fart.
+  */
+  const speedKmh =
+    typeof raw.speed === "number" &&
+    Number.isFinite(raw.speed)
+      ? raw.speed * 3.6
+      : 0;
+
+  if (distance < 2.5 && speedKmh < 10) {
+    return previous;
+  }
+
+  /*
+    Hvis GPS hopper voldsomt uden realistisk fart,
+    dæmp bevægelsen kraftigt.
+  */
+  let alpha = 0.35;
+
+  if (speedKmh > 25) {
+    alpha = 0.48;
+  }
+
+  if (distance > 80 && speedKmh < 20) {
+    alpha = 0.18;
+  }
+
+  return {
+    ...raw,
+    lat: previous.lat + (raw.lat - previous.lat) * alpha,
+    lng: previous.lng + (raw.lng - previous.lng) * alpha
+  };
+}
+
+function getBestHeading(raw, smooth) {
+  let heading = null;
+
+  if (
+    typeof raw.heading === "number" &&
+    Number.isFinite(raw.heading) &&
+    raw.heading >= 0
+  ) {
+    heading = raw.heading;
+  } else if (state.previousPosition) {
+    const distance = haversine(
+      state.previousPosition.lat,
+      state.previousPosition.lng,
+      smooth.lat,
+      smooth.lng
+    );
+
+    if (distance > 4) {
+      heading = calculateBearing(
+        state.previousPosition.lat,
+        state.previousPosition.lng,
+        smooth.lat,
+        smooth.lng
+      );
+    }
+  }
+
+  if (
+    typeof heading !== "number" ||
+    !Number.isFinite(heading)
+  ) {
+    return state.smoothedHeading;
+  }
+
+  if (
+    typeof state.smoothedHeading !== "number" ||
+    !Number.isFinite(state.smoothedHeading)
+  ) {
+    state.smoothedHeading = heading;
+    return heading;
+  }
+
+  state.smoothedHeading =
+    smoothAngle(state.smoothedHeading, heading, 0.22);
+
+  return state.smoothedHeading;
+}
+
+function calculateBearing(lat1, lng1, lat2, lng2) {
+  const toRad = value => value * Math.PI / 180;
+  const toDeg = value => value * 180 / Math.PI;
+
+  const φ1 = toRad(lat1);
+  const φ2 = toRad(lat2);
+  const Δλ = toRad(lng2 - lng1);
+
+  const y =
+    Math.sin(Δλ) * Math.cos(φ2);
+
+  const x =
+    Math.cos(φ1) * Math.sin(φ2) -
+    Math.sin(φ1) *
+    Math.cos(φ2) *
+    Math.cos(Δλ);
+
+  return (toDeg(Math.atan2(y, x)) + 360) % 360;
+}
+
+function smoothAngle(current, target, alpha) {
+  let diff = ((target - current + 540) % 360) - 180;
+
+  return (current + diff * alpha + 360) % 360;
+}
+
 function updateNavigationStats(current) {
   const currentSpeedKmh = getCurrentSpeedKmh(current);
 
   if (els.driveCurrentValue) {
-    els.driveCurrentValue.textContent = `${currentSpeedKmh} km/t`;
+    els.driveCurrentValue.textContent =
+      `${currentSpeedKmh} km/t`;
   }
 
   updateRemainingTripStats(current, currentSpeedKmh);
 
-  const recommendation = getGreenWaveRecommendation(current);
+  const recommendation =
+    getGreenWaveRecommendation(current);
 
   updateSpeedSigns(
     currentSpeedKmh,
@@ -173,16 +337,21 @@ function updateRemainingTripStats(current, speedKmh) {
 }
 
 function updateSpeedSigns(currentSpeedKmh, recommendedSpeedKmh) {
+  const maxSpeed = getCurrentMaxSpeed();
+
   if (els.speedLimitValue) {
-    els.speedLimitValue.textContent = "?";
+    els.speedLimitValue.textContent =
+      maxSpeed ? String(maxSpeed) : "?";
   }
 
   if (els.currentSpeedValue) {
-    els.currentSpeedValue.textContent = String(currentSpeedKmh);
+    els.currentSpeedValue.textContent =
+      String(currentSpeedKmh);
   }
 
   if (els.recommendedSpeedValue) {
-    els.recommendedSpeedValue.textContent = String(recommendedSpeedKmh);
+    els.recommendedSpeedValue.textContent =
+      String(recommendedSpeedKmh);
   }
 
   if (!els.currentSpeedSign) {
@@ -195,19 +364,34 @@ function updateSpeedSigns(currentSpeedKmh, recommendedSpeedKmh) {
     "speed-danger"
   );
 
-  const diff = currentSpeedKmh - recommendedSpeedKmh;
+  const referenceSpeed =
+    maxSpeed || recommendedSpeedKmh;
 
-  if (Math.abs(diff) <= 4) {
+  const diff =
+    currentSpeedKmh - referenceSpeed;
+
+  if (diff <= 4 && Math.abs(currentSpeedKmh - recommendedSpeedKmh) <= 7) {
     els.currentSpeedSign.classList.add("speed-ok");
     return;
   }
 
-  if (Math.abs(diff) <= 10) {
+  if (diff <= 10) {
     els.currentSpeedSign.classList.add("speed-warning");
     return;
   }
 
   els.currentSpeedSign.classList.add("speed-danger");
+}
+
+function getCurrentMaxSpeed() {
+  if (
+    typeof state.currentMaxSpeed === "number" &&
+    Number.isFinite(state.currentMaxSpeed)
+  ) {
+    return state.currentMaxSpeed;
+  }
+
+  return null;
 }
 
 function updateRouteStepProgress(current) {
@@ -227,6 +411,7 @@ function updateRouteStepProgress(current) {
   }
 
   let step = steps[index];
+
   let distanceToStep =
     distanceToStepManeuver(current, step);
 
@@ -256,15 +441,18 @@ function updateTurnCardFromStep(step, distanceToStep) {
     }
 
     if (els.nextTurnDistance) {
-      els.nextTurnDistance.textContent = "Følg ruten";
+      els.nextTurnDistance.textContent =
+        "Følg ruten";
     }
 
     if (els.nextTurnInstruction) {
-      els.nextTurnInstruction.textContent = "Fortsæt ligeud";
+      els.nextTurnInstruction.textContent =
+        "Fortsæt ligeud";
     }
 
     if (els.nextTurnRoad) {
-      els.nextTurnRoad.textContent = "GreenWave navigation";
+      els.nextTurnRoad.textContent =
+        "GreenWave navigation";
     }
 
     updateTurnProgress(0.12);
@@ -340,48 +528,89 @@ function updateTurnProgress(progress) {
 }
 
 function getTurnIcon(step) {
-  const type = step.maneuverType;
-  const modifier = step.maneuverModifier;
+  const type = String(step.maneuverType || "").toLowerCase();
+  const modifier = String(step.maneuverModifier || "").toLowerCase();
+  const message = String(step.message || "").toLowerCase();
 
-  if (type === "arrive") return "🏁";
-  if (type === "roundabout" || type === "rotary") return "↻";
-  if (modifier?.includes("left")) return "↰";
-  if (modifier?.includes("right")) return "↱";
-  if (modifier === "uturn") return "↶";
-  if (modifier === "straight") return "↑";
-  if (type === "depart") return "↑";
-  if (type === "merge") return "⇢";
-  if (type === "fork") return "↗";
-  if (type === "on ramp") return "↗";
-  if (type === "off ramp") return "↘";
+  if (type.includes("arrive")) return "🏁";
+
+  if (
+    type.includes("roundabout") ||
+    type.includes("rotary") ||
+    message.includes("rundkør") ||
+    message.includes("roundabout")
+  ) {
+    return "↻";
+  }
+
+  if (modifier.includes("left")) return "↰";
+  if (modifier.includes("right")) return "↱";
+  if (modifier.includes("uturn")) return "↶";
+  if (modifier.includes("straight")) return "↑";
+
+  if (type.includes("depart")) return "↑";
+  if (type.includes("merge")) return "⇢";
+  if (type.includes("fork")) return "↗";
+  if (type.includes("ramp")) return "↘";
 
   return "↑";
 }
 
 function getTurnInstruction(step) {
-  const type = step.maneuverType;
-  const modifier = step.maneuverModifier;
+  const type = String(step.maneuverType || "").toLowerCase();
+  const modifier = String(step.maneuverModifier || "").toLowerCase();
+  const message = String(step.message || "");
 
-  if (type === "arrive") return "Du er fremme";
-  if (type === "depart") return "Start og fortsæt";
-  if (type === "roundabout" || type === "rotary") return "Kør ind i rundkørslen";
-  if (type === "merge") return "Flet ind";
+  if (message && message.length < 80) {
+    return cleanInstruction(message);
+  }
 
-  if (type === "fork") {
-    if (modifier?.includes("left")) return "Hold til venstre";
-    if (modifier?.includes("right")) return "Hold til højre";
+  if (type.includes("arrive")) return "Du er fremme";
+  if (type.includes("depart")) return "Start og fortsæt";
+
+  if (
+    type.includes("roundabout") ||
+    type.includes("rotary")
+  ) {
+    return getRoundaboutInstruction(step);
+  }
+
+  if (type.includes("merge")) return "Flet ind";
+
+  if (type.includes("fork")) {
+    if (modifier.includes("left")) return "Hold til venstre";
+    if (modifier.includes("right")) return "Hold til højre";
     return "Hold retningen";
   }
 
-  if (type === "on ramp") return "Kør på rampen";
-  if (type === "off ramp") return "Tag afkørslen";
+  if (type.includes("on ramp")) return "Kør på rampen";
+  if (type.includes("off ramp")) return "Tag afkørslen";
 
-  if (modifier?.includes("left")) return "Drej til venstre";
-  if (modifier?.includes("right")) return "Drej til højre";
-  if (modifier === "uturn") return "Vend om";
-  if (modifier === "straight") return "Fortsæt ligeud";
+  if (modifier.includes("left")) return "Drej til venstre";
+  if (modifier.includes("right")) return "Drej til højre";
+  if (modifier.includes("uturn")) return "Vend om";
+  if (modifier.includes("straight")) return "Fortsæt ligeud";
 
   return "Fortsæt";
+}
+
+function getRoundaboutInstruction(step) {
+  const exit =
+    step.roundaboutExit ||
+    step.exitNumber ||
+    step.exit;
+
+  if (exit) {
+    return `Tag ${exit}. afkørsel`;
+  }
+
+  return "Kør gennem rundkørslen";
+}
+
+function cleanInstruction(value) {
+  return String(value)
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function getRoadName(step) {
@@ -396,35 +625,15 @@ function getRoadName(step) {
   return "Næste vej";
 }
 
-function followCurrentPosition(current) {
-  if (!state.map || !state.isNavigating) {
-    return;
-  }
-
-  const zoom = Math.max(state.map.getZoom(), 17);
-
-  /*
-    VIGTIG RETTELSE:
-    Tidligere brugte vi panBy() efter setView().
-    Det fik GPS-positionen til at se forkert ud i navigation.
-    Nu centreres kortet direkte på den faktiske position.
-  */
-  state.map.setView(
-    [current.lat, current.lng],
-    zoom,
-    {
-      animate: true,
-      duration: 0.35
-    }
-  );
-}
-
 function getCurrentSpeedKmh(current) {
   if (
     typeof current.speed === "number" &&
     Number.isFinite(current.speed)
   ) {
-    return Math.max(0, Math.round(current.speed * 3.6));
+    return Math.max(
+      0,
+      Math.round(current.speed * 3.6)
+    );
   }
 
   return 0;
@@ -436,11 +645,13 @@ function estimateRemainingSeconds(distanceMeters, speedKmh) {
   }
 
   const fallbackSpeedKmh = 70;
+
   const safeSpeedKmh =
     speedKmh > 5 ? speedKmh : fallbackSpeedKmh;
 
   return Math.round(
-    distanceMeters / (safeSpeedKmh * 1000 / 3600)
+    distanceMeters /
+    (safeSpeedKmh * 1000 / 3600)
   );
 }
 
@@ -449,7 +660,10 @@ function formatDuration(seconds) {
     return "—";
   }
 
-  const minutes = Math.max(1, Math.round(seconds / 60));
+  const minutes = Math.max(
+    1,
+    Math.round(seconds / 60)
+  );
 
   if (minutes < 60) {
     return `${minutes} min`;
@@ -463,4 +677,44 @@ function formatDuration(seconds) {
   }
 
   return `${hours} t ${restMinutes} min`;
+}
+
+async function requestWakeLock() {
+  try {
+    if (!("wakeLock" in navigator)) {
+      return;
+    }
+
+    state.wakeLock =
+      await navigator.wakeLock.request("screen");
+
+    state.wakeLock.addEventListener("release", () => {
+      state.wakeLock = null;
+    });
+  } catch (error) {
+    console.warn("Wake Lock ikke tilgængelig", error);
+    state.wakeLock = null;
+  }
+}
+
+async function releaseWakeLock() {
+  try {
+    if (state.wakeLock) {
+      await state.wakeLock.release();
+      state.wakeLock = null;
+    }
+  } catch (error) {
+    console.warn("Kunne ikke frigive Wake Lock", error);
+    state.wakeLock = null;
+  }
+}
+
+async function handleVisibilityChange() {
+  if (
+    document.visibilityState === "visible" &&
+    state.isNavigating &&
+    !state.wakeLock
+  ) {
+    await requestWakeLock();
+  }
 }
