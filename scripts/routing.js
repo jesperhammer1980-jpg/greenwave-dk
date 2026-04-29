@@ -25,6 +25,10 @@ import {
 } from "./greenwave.js";
 
 import {
+  prepareRouteSteps
+} from "./route-progress.js";
+
+import {
   saveHistory,
   renderHistory
 } from "./history.js";
@@ -75,6 +79,8 @@ export async function calculateRoute() {
     state.currentStepIndex = 0;
 
     drawRoute(state.routeData.geometry);
+
+    prepareRouteSteps();
 
     saveHistory(state.destination);
     renderHistory();
@@ -276,7 +282,10 @@ function extractOsrmRouteSteps(route) {
         location: {
           lng: Number(location[0]),
           lat: Number(location[1])
-        }
+        },
+        roundaboutExit:
+          maneuver.exit ||
+          null
       });
     });
   });
