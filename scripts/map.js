@@ -101,6 +101,55 @@ export function recenterMap() {
   }
 }
 
+export function followNavigationCamera(position) {
+  if (!state.map || !position) {
+    return;
+  }
+
+  const zoom = Math.max(state.map.getZoom(), 17);
+
+  state.map.setView(
+    [position.lat, position.lng],
+    zoom,
+    {
+      animate: true,
+      duration: 0.35
+    }
+  );
+}
+
+export function setMapBearing(headingDegrees) {
+  const inner = document.getElementById("map-rotation-inner");
+
+  if (!inner) {
+    return;
+  }
+
+  if (
+    typeof headingDegrees !== "number" ||
+    !Number.isFinite(headingDegrees)
+  ) {
+    inner.style.transform = "rotate(0deg)";
+    return;
+  }
+
+  const normalized =
+    ((headingDegrees % 360) + 360) % 360;
+
+  inner.style.transform =
+    `rotate(${-normalized}deg)`;
+}
+
+export function resetMapBearing() {
+  const inner = document.getElementById("map-rotation-inner");
+
+  if (!inner) {
+    return;
+  }
+
+  inner.style.transform = "rotate(0deg)";
+}
+
 export function clearMapRouteAndMarkers() {
   if (!state.map) {
     return;
