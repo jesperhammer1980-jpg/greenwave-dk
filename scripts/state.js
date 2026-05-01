@@ -41,6 +41,18 @@ export const state = {
   watchId: null,
   isNavigating: false,
 
+  navigationView: {
+    mode: "standard",
+    pseudo3d: true,
+    darkMode: true,
+    cinematicCamera: true,
+    adaptiveZoom: true,
+    motorwayMode: false,
+    nightMode: false,
+    lastZoom: 17,
+    lastBearing: 0
+  },
+
   settings: {
     language: "da",
     region: "dk",
