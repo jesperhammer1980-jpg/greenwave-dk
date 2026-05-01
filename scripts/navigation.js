@@ -12,7 +12,10 @@ import {
   recenterMap,
   followNavigationCamera,
   setMapBearing,
-  resetMapBearing
+  resetMapBearing,
+  enterNavigationView,
+  exitNavigationView,
+  setNavigationNightMode
 } from "./map.js";
 
 import {
@@ -38,8 +41,10 @@ export async function startLiveNavigation() {
   state.currentHeading = null;
   state.smoothedHeading = null;
 
-  document.body.classList.add("navigation-active");
+  enterNavigationView();
   els.navOverlay?.classList.remove("hidden");
+
+  updateNightMode();
 
   await requestWakeLock();
 
@@ -47,10 +52,6 @@ export async function startLiveNavigation() {
     "visibilitychange",
     handleVisibilityChange
   );
-
-  setTimeout(() => {
-    state.map?.invalidateSize();
-  }, 250);
 
   if (els.startNavBtn) {
     els.startNavBtn.disabled = true;
@@ -63,7 +64,7 @@ export async function startLiveNavigation() {
   setStatus(
     "GPS: live",
     "Navigation: live",
-    "Kort: følger position"
+    "Kort: cinematic"
   );
 
   initializeNavigationUi();
@@ -99,14 +100,10 @@ export async function stopLiveNavigation() {
 
   await releaseWakeLock();
 
-  document.body.classList.remove("navigation-active");
   els.navOverlay?.classList.add("hidden");
 
   resetMapBearing();
-
-  setTimeout(() => {
-    state.map?.invalidateSize();
-  }, 250);
+  exitNavigationView();
 
   if (els.startNavBtn) {
     els.startNavBtn.disabled = !state.routeData;
@@ -146,6 +143,7 @@ function handleNavigationPosition(position) {
   const smooth = smoothPosition(raw);
 
   const active = getActiveStep(smooth);
+
   const routeBearing =
     getRouteBearingAtProgress(active?.progress);
 
@@ -160,12 +158,16 @@ function handleNavigationPosition(position) {
   updateUserMarker(smooth.lat, smooth.lng);
 
   updateNavigationStats(smooth);
+
   updateTurnCardFromStep(
     active?.step || null,
     active?.distanceToStep ?? null
   );
 
-  followNavigationCamera(smooth);
+  followNavigationCamera(smooth, {
+    routeProgress: active?.progress || null,
+    nextStep: active?.step || null
+  });
 
   if (shouldRotateMap(raw, heading)) {
     setMapBearing(heading);
@@ -202,14 +204,14 @@ function smoothPosition(raw) {
     return previous;
   }
 
-  let alpha = 0.28;
+  let alpha = 0.30;
 
   if (speedKmh > 25) {
-    alpha = 0.38;
+    alpha = 0.42;
   }
 
   if (speedKmh > 60) {
-    alpha = 0.48;
+    alpha = 0.54;
   }
 
   if (distance > 80 && speedKmh < 25) {
@@ -226,12 +228,6 @@ function smoothPosition(raw) {
 function getStableNavigationHeading(raw, smooth, routeBearing) {
   const speedKmh = getCurrentSpeedKmh(raw);
 
-  /*
-    Vigtig ændring:
-    Rå GPS-heading på telefon kan være ustabil og give spin.
-    Ved navigation prioriterer vi rutens bearing, hvis den findes.
-  */
-
   let targetHeading = null;
 
   if (
@@ -240,7 +236,7 @@ function getStableNavigationHeading(raw, smooth, routeBearing) {
   ) {
     targetHeading = routeBearing;
   } else if (
-    speedKmh > 12 &&
+    speedKmh > 14 &&
     typeof raw.heading === "number" &&
     Number.isFinite(raw.heading) &&
     raw.heading >= 0
@@ -279,19 +275,30 @@ function getStableNavigationHeading(raw, smooth, routeBearing) {
     return targetHeading;
   }
 
+  /*
+    Hurtigere end tidligere, så kortet vender med kørselsretningen
+    hurtigere efter et sving, men stadig med max step for at undgå spin.
+  */
   const alpha =
-    speedKmh > 70
-      ? 0.10
-      : speedKmh > 35
-        ? 0.13
-        : 0.08;
+    speedKmh > 75
+      ? 0.20
+      : speedKmh > 40
+        ? 0.24
+        : 0.16;
+
+  const maxStep =
+    speedKmh > 75
+      ? 32
+      : speedKmh > 40
+        ? 38
+        : 26;
 
   state.smoothedHeading =
     smoothAngleLimited(
       state.smoothedHeading,
       targetHeading,
       alpha,
-      18
+      maxStep
     );
 
   return state.smoothedHeading;
@@ -300,7 +307,7 @@ function getStableNavigationHeading(raw, smooth, routeBearing) {
 function shouldRotateMap(raw, heading) {
   const speedKmh = getCurrentSpeedKmh(raw);
 
-  if (speedKmh < 10) {
+  if (speedKmh < 8) {
     return false;
   }
 
@@ -313,7 +320,7 @@ function shouldRotateMap(raw, heading) {
 
   if (
     typeof raw.accuracy === "number" &&
-    raw.accuracy > 45
+    raw.accuracy > 55
   ) {
     return false;
   }
@@ -706,6 +713,15 @@ function formatDuration(seconds) {
   }
 
   return `${hours} t ${restMinutes} min`;
+}
+
+function updateNightMode() {
+  const hour = new Date().getHours();
+
+  const isNight =
+    hour >= 20 || hour <= 6;
+
+  setNavigationNightMode(isNight);
 }
 
 async function requestWakeLock() {
