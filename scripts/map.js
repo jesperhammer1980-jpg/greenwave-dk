@@ -2,7 +2,9 @@ import { state } from "./state.js";
 
 export function initMap() {
   state.map = L.map("map", {
-    zoomControl: true
+    zoomControl: true,
+    inertia: true,
+    inertiaDeceleration: 2600
   }).setView([56.2, 9.5], 7);
 
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -27,9 +29,11 @@ export function drawRoute(geometry) {
   ]);
 
   state.routeLine = L.polyline(latlngs, {
-    color: "#5ea2ff",
-    weight: 6,
-    opacity: 0.9
+    color: "#62a8ff",
+    weight: 7,
+    opacity: 0.95,
+    lineCap: "round",
+    lineJoin: "round"
   }).addTo(state.map);
 
   state.map.fitBounds(state.routeLine.getBounds(), {
@@ -101,21 +105,88 @@ export function recenterMap() {
   }
 }
 
-export function followNavigationCamera(position) {
+export function enterNavigationView() {
+  document.body.classList.add("navigation-active");
+  document.body.classList.toggle(
+    "navigation-3d",
+    Boolean(state.navigationView?.pseudo3d)
+  );
+  document.body.classList.toggle(
+    "navigation-dark",
+    Boolean(state.navigationView?.darkMode)
+  );
+
+  setTimeout(() => {
+    state.map?.invalidateSize();
+  }, 250);
+}
+
+export function exitNavigationView() {
+  document.body.classList.remove(
+    "navigation-active",
+    "navigation-3d",
+    "navigation-dark",
+    "navigation-motorway",
+    "navigation-night"
+  );
+
+  resetMapBearing();
+
+  setTimeout(() => {
+    state.map?.invalidateSize();
+  }, 250);
+}
+
+export function followNavigationCamera(position, options = {}) {
   if (!state.map || !position) {
     return;
   }
 
-  const zoom = Math.max(state.map.getZoom(), 17);
+  const speedKmh =
+    typeof position.speed === "number" &&
+    Number.isFinite(position.speed)
+      ? position.speed * 3.6
+      : 0;
+
+  const zoom = getAdaptiveNavigationZoom(speedKmh, options);
+
+  state.navigationView.lastZoom = zoom;
 
   state.map.setView(
     [position.lat, position.lng],
     zoom,
     {
       animate: true,
-      duration: 0.35
+      duration: 0.32
     }
   );
+}
+
+function getAdaptiveNavigationZoom(speedKmh, options = {}) {
+  if (!state.navigationView?.adaptiveZoom) {
+    return Math.max(state.map?.getZoom?.() || 17, 17);
+  }
+
+  if (options.forceZoom) {
+    return options.forceZoom;
+  }
+
+  if (speedKmh >= 95) {
+    document.body.classList.add("navigation-motorway");
+    return 15.8;
+  }
+
+  document.body.classList.remove("navigation-motorway");
+
+  if (speedKmh >= 70) {
+    return 16.2;
+  }
+
+  if (speedKmh >= 40) {
+    return 16.7;
+  }
+
+  return 17.3;
 }
 
 export function setMapBearing(headingDegrees) {
@@ -129,15 +200,20 @@ export function setMapBearing(headingDegrees) {
     typeof headingDegrees !== "number" ||
     !Number.isFinite(headingDegrees)
   ) {
-    inner.style.transform = "rotate(0deg)";
+    inner.style.setProperty("--map-bearing", "0deg");
+    inner.style.transform = "";
     return;
   }
 
   const normalized =
     ((headingDegrees % 360) + 360) % 360;
 
-  inner.style.transform =
-    `rotate(${-normalized}deg)`;
+  state.navigationView.lastBearing = normalized;
+
+  inner.style.setProperty(
+    "--map-bearing",
+    `${-normalized}deg`
+  );
 }
 
 export function resetMapBearing() {
@@ -147,7 +223,17 @@ export function resetMapBearing() {
     return;
   }
 
-  inner.style.transform = "rotate(0deg)";
+  inner.style.setProperty("--map-bearing", "0deg");
+  inner.style.transform = "";
+}
+
+export function setNavigationNightMode(isNight) {
+  state.navigationView.nightMode = Boolean(isNight);
+
+  document.body.classList.toggle(
+    "navigation-night",
+    state.navigationView.nightMode
+  );
 }
 
 export function clearMapRouteAndMarkers() {
