@@ -362,18 +362,12 @@ button:disabled {
   box-shadow: 0 0 0 8px rgba(43,140,255,0.2);
 }
 
-/* =========================
-   NAVIGATION OVERLAY
-========================= */
-
 .nav-overlay {
   position: absolute;
   inset: 10px;
   z-index: 500;
   pointer-events: none;
 }
-
-/* Turn card */
 
 .turn-card {
   position: absolute;
@@ -458,8 +452,6 @@ button:disabled {
   padding: 0 14px;
 }
 
-/* Speed signs */
-
 .speed-sign-stack {
   position: absolute;
   left: 0;
@@ -533,8 +525,6 @@ button:disabled {
   box-shadow: 0 0 0 3px #1e6bff, 0 10px 28px rgba(0,0,0,0.36);
 }
 
-/* Bottom nav */
-
 .nav-bottom {
   position: absolute;
   left: 0;
@@ -571,10 +561,6 @@ button:disabled {
   font-size: 14px;
   margin-top: 2px;
 }
-
-/* =========================
-   SETTINGS / MODALS
-========================= */
 
 .settings-backdrop,
 .modal-backdrop {
@@ -807,10 +793,6 @@ button:disabled {
   color: rgba(255,255,255,0.7);
 }
 
-/* =========================
-   NAVIGATION UI 2.0
-========================= */
-
 .navigation-active {
   overflow: hidden;
 }
@@ -866,7 +848,7 @@ button:disabled {
   z-index: 1000;
 }
 
-/* Pseudo 3D mode */
+/* Pseudo 2.5D mode - mild tilt */
 
 .navigation-active.navigation-3d #map-rotation-wrap {
   perspective: 950px;
@@ -874,14 +856,17 @@ button:disabled {
 
 .navigation-active.navigation-3d #map-rotation-inner {
   transform:
-    rotateX(54deg)
+    rotateX(18deg)
     rotateZ(var(--map-bearing))
-    scale(1.22);
-  transform-origin: center 64%;
+    scale(1.08);
+  transform-origin: center center;
 }
 
 .navigation-active.navigation-3d #map {
-  filter: saturate(1.1) contrast(1.03);
+  filter:
+    saturate(1.02)
+    contrast(1.02)
+    brightness(0.9);
 }
 
 /* Dark navigation mode */
@@ -932,20 +917,14 @@ button:disabled {
   color: #b9d7ff;
 }
 
-/* Important: UI must never rotate */
+/* UI must never rotate */
 
 .navigation-active .nav-overlay,
 .navigation-active .turn-card,
 .navigation-active .speed-sign-stack,
-.navigation-active .nav-bottom,
-.navigation-active .fuel-price-marker,
-.navigation-active .fuel-price-label {
+.navigation-active .nav-bottom {
   transform: none !important;
 }
-
-/* =========================
-   MOBILE
-========================= */
 
 @media (max-width: 760px) {
   .hero {
