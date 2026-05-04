@@ -24,7 +24,9 @@ import {
 
 import {
   getActiveStep,
-  getRouteBearingAtProgress
+  getRouteBearingAtProgress,
+  getRemainingRouteDistance,
+  getRemainingRouteDuration
 } from "./route-progress.js";
 
 export async function startLiveNavigation() {
@@ -275,10 +277,6 @@ function getStableNavigationHeading(raw, smooth, routeBearing) {
     return targetHeading;
   }
 
-  /*
-    Hurtigere end tidligere, så kortet vender med kørselsretningen
-    hurtigere efter et sving, men stadig med max step for at undgå spin.
-  */
   const alpha =
     speedKmh > 75
       ? 0.20
@@ -391,29 +389,43 @@ function updateNavigationStats(current) {
 }
 
 function updateRemainingTripStats(current, speedKmh) {
-  if (!state.destination || !els.driveRemainingDistance) {
+  if (!els.driveRemainingDistance) {
     return;
   }
 
-  const remainingMeters = haversine(
-    current.lat,
-    current.lng,
-    state.destination.lat,
-    state.destination.lng
-  );
+  const remainingMeters =
+    getRemainingRouteDistance(current);
 
-  els.driveRemainingDistance.textContent =
-    formatDistance(remainingMeters);
+  const remainingSeconds =
+    getRemainingRouteDuration(
+      current,
+      speedKmh
+    );
+
+  if (Number.isFinite(remainingMeters)) {
+    els.driveRemainingDistance.textContent =
+      formatDistance(remainingMeters);
+  } else if (state.destination) {
+    const fallbackMeters = haversine(
+      current.lat,
+      current.lng,
+      state.destination.lat,
+      state.destination.lng
+    );
+
+    els.driveRemainingDistance.textContent =
+      formatDistance(fallbackMeters);
+  } else {
+    els.driveRemainingDistance.textContent = "—";
+  }
 
   if (els.driveRemainingTime) {
-    const estimatedSeconds =
-      estimateRemainingSeconds(
-        remainingMeters,
-        speedKmh
-      );
-
-    els.driveRemainingTime.textContent =
-      formatDuration(estimatedSeconds);
+    if (Number.isFinite(remainingSeconds)) {
+      els.driveRemainingTime.textContent =
+        formatDuration(remainingSeconds);
+    } else {
+      els.driveRemainingTime.textContent = "—";
+    }
   }
 }
 
@@ -529,11 +541,19 @@ function updateTurnCardFromStep(step, distanceToStep) {
 function calculateStepProgress(step, distanceToStep) {
   if (
     !step ||
-    !Number.isFinite(distanceToStep) ||
-    !Number.isFinite(step.distance) ||
-    step.distance <= 0
+    !Number.isFinite(distanceToStep)
   ) {
     return 0.18;
+  }
+
+  const stepDistance =
+    Number(step.distance || 0);
+
+  if (!Number.isFinite(stepDistance) || stepDistance <= 0) {
+    if (distanceToStep > 5000) return 0.08;
+    if (distanceToStep > 1000) return 0.22;
+    if (distanceToStep > 250) return 0.55;
+    return 0.82;
   }
 
   const done =
@@ -542,7 +562,7 @@ function calculateStepProgress(step, distanceToStep) {
       1,
       Math.max(
         0,
-        distanceToStep / step.distance
+        distanceToStep / stepDistance
       )
     );
 
@@ -668,24 +688,6 @@ function getCurrentSpeedKmh(current) {
   }
 
   return 0;
-}
-
-function estimateRemainingSeconds(distanceMeters, speedKmh) {
-  if (!Number.isFinite(distanceMeters)) {
-    return null;
-  }
-
-  const fallbackSpeedKmh = 70;
-
-  const safeSpeedKmh =
-    speedKmh > 5
-      ? speedKmh
-      : fallbackSpeedKmh;
-
-  return Math.round(
-    distanceMeters /
-    (safeSpeedKmh * 1000 / 3600)
-  );
 }
 
 function formatDuration(seconds) {
