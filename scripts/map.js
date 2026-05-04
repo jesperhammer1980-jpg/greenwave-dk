@@ -107,10 +107,12 @@ export function recenterMap() {
 
 export function enterNavigationView() {
   document.body.classList.add("navigation-active");
+
   document.body.classList.toggle(
     "navigation-3d",
     Boolean(state.navigationView?.pseudo3d)
   );
+
   document.body.classList.toggle(
     "navigation-dark",
     Boolean(state.navigationView?.darkMode)
@@ -142,6 +144,8 @@ export function followNavigationCamera(position, options = {}) {
     return;
   }
 
+  const now = Date.now();
+
   const speedKmh =
     typeof position.speed === "number" &&
     Number.isFinite(position.speed)
@@ -152,12 +156,43 @@ export function followNavigationCamera(position, options = {}) {
 
   state.navigationView.lastZoom = zoom;
 
+  /*
+    Recovery mode:
+    Når appen kommer tilbage fra baggrund, skal kortet ikke animere
+    gennem gamle positioner. Det skal hoppe direkte til første gode fix.
+  */
+  if (options.snap || state.isRecoveringPosition) {
+    state.map.setView(
+      [position.lat, position.lng],
+      zoom,
+      {
+        animate: false
+      }
+    );
+
+    state.lastCameraMoveAt = now;
+    return;
+  }
+
+  /*
+    Begræns hvor ofte kameraet animerer.
+    Det reducerer hakken på iPhone.
+  */
+  if (
+    state.lastCameraMoveAt &&
+    now - state.lastCameraMoveAt < 650
+  ) {
+    return;
+  }
+
+  state.lastCameraMoveAt = now;
+
   state.map.setView(
     [position.lat, position.lng],
     zoom,
     {
       animate: true,
-      duration: 0.32
+      duration: 0.55
     }
   );
 }
@@ -189,7 +224,7 @@ function getAdaptiveNavigationZoom(speedKmh, options = {}) {
   return 17.3;
 }
 
-export function setMapBearing(headingDegrees) {
+export function setMapBearing(headingDegrees, options = {}) {
   const inner = document.getElementById("map-rotation-inner");
 
   if (!inner) {
@@ -201,7 +236,6 @@ export function setMapBearing(headingDegrees) {
     !Number.isFinite(headingDegrees)
   ) {
     inner.style.setProperty("--map-bearing", "0deg");
-    inner.style.transform = "";
     return;
   }
 
@@ -214,6 +248,14 @@ export function setMapBearing(headingDegrees) {
     "--map-bearing",
     `${-normalized}deg`
   );
+
+  if (options.snap) {
+    inner.classList.add("bearing-snap");
+
+    window.setTimeout(() => {
+      inner.classList.remove("bearing-snap");
+    }, 100);
+  }
 }
 
 export function resetMapBearing() {
@@ -224,7 +266,6 @@ export function resetMapBearing() {
   }
 
   inner.style.setProperty("--map-bearing", "0deg");
-  inner.style.transform = "";
 }
 
 export function setNavigationNightMode(isNight) {
