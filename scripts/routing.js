@@ -25,6 +25,10 @@ import {
 } from "./greenwave.js";
 
 import {
+  loadMaxSpeedZones
+} from "./maxspeed.js";
+
+import {
   prepareRouteSteps
 } from "./route-progress.js";
 
@@ -77,6 +81,8 @@ export async function calculateRoute() {
     state.routeData = route;
     state.routeSteps = route.steps || [];
     state.currentStepIndex = 0;
+    state.maxSpeedZones = [];
+    state.currentMaxSpeed = null;
 
     drawRoute(state.routeData.geometry);
 
@@ -87,7 +93,8 @@ export async function calculateRoute() {
 
     await Promise.allSettled([
       loadFuelStations(state.routeData.geometry),
-      loadTrafficSignals(state.routeData.geometry)
+      loadTrafficSignals(state.routeData.geometry),
+      loadMaxSpeedZones()
     ]);
 
     computeRouteDistances();
