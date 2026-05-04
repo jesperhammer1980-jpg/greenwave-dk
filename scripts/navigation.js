@@ -41,11 +41,7 @@ export async function startLiveNavigation() {
   state.isNavigating = true;
   state.currentStepIndex = 0;
 
-  state.rawPosition = null;
-  state.previousPosition = null;
-  state.smoothedPosition = null;
-  state.currentHeading = null;
-  state.smoothedHeading = null;
+  resetNavigationPositionState();
 
   enterNavigationView();
   els.navOverlay?.classList.remove("hidden");
@@ -70,7 +66,7 @@ export async function startLiveNavigation() {
   setStatus(
     "GPS: live",
     "Navigation: live",
-    "Kort: cinematic"
+    "Kort: følger position"
   );
 
   initializeNavigationUi();
@@ -85,7 +81,7 @@ export async function startLiveNavigation() {
     handleNavigationError,
     {
       enableHighAccuracy: true,
-      maximumAge: 500,
+      maximumAge: 300,
       timeout: 15000
     }
   );
@@ -128,6 +124,18 @@ export async function stopLiveNavigation() {
   recenterMap();
 }
 
+function resetNavigationPositionState() {
+  state.rawPosition = null;
+  state.previousPosition = null;
+  state.smoothedPosition = null;
+  state.currentHeading = null;
+  state.smoothedHeading = null;
+  state.isRecoveringPosition = false;
+  state.lastVisibilityChangeAt = null;
+  state.lastGoodGpsAt = null;
+  state.lastCameraMoveAt = null;
+}
+
 function initializeNavigationUi() {
   updateTurnCardFromStep(null, null);
   updateTurnProgress(0.12);
@@ -144,9 +152,33 @@ function handleNavigationPosition(position) {
     timestamp: position.timestamp || Date.now()
   };
 
+  if (shouldIgnoreStalePosition(raw)) {
+    return;
+  }
+
+  const isGoodFix = isGoodGpsFix(raw);
+
+  if (state.isRecoveringPosition && !isGoodFix) {
+    setStatus(
+      "GPS: genfinder",
+      "Navigation: live",
+      "Kort: venter på præcis position"
+    );
+    return;
+  }
+
   state.rawPosition = raw;
 
-  const smooth = smoothPosition(raw);
+  const smooth = state.isRecoveringPosition
+    ? { ...raw }
+    : smoothPosition(raw);
+
+  if (state.isRecoveringPosition) {
+    state.smoothedPosition = smooth;
+    state.previousPosition = smooth;
+    state.currentPosition = smooth;
+    state.lastGoodGpsAt = Date.now();
+  }
 
   updateCurrentMaxSpeed(smooth);
 
@@ -162,6 +194,7 @@ function handleNavigationPosition(position) {
   state.currentPosition = smooth;
   state.smoothedPosition = smooth;
   state.currentHeading = heading;
+  state.lastGoodGpsAt = Date.now();
 
   updateUserMarker(smooth.lat, smooth.lng);
 
@@ -172,14 +205,46 @@ function handleNavigationPosition(position) {
     active?.distanceToStep ?? null
   );
 
+  const snapCamera = state.isRecoveringPosition;
+
   followNavigationCamera(smooth, {
     routeProgress: active?.progress || null,
-    nextStep: active?.step || null
+    nextStep: active?.step || null,
+    snap: snapCamera
   });
 
   if (shouldRotateMap(raw, heading)) {
-    setMapBearing(heading);
+    setMapBearing(heading, {
+      snap: snapCamera
+    });
   }
+
+  if (state.isRecoveringPosition) {
+    state.isRecoveringPosition = false;
+
+    setStatus(
+      "GPS: live",
+      "Navigation: live",
+      "Kort: følger position"
+    );
+  }
+}
+
+function shouldIgnoreStalePosition(raw) {
+  const age = Date.now() - raw.timestamp;
+
+  return age > 7000;
+}
+
+function isGoodGpsFix(raw) {
+  if (
+    typeof raw.accuracy === "number" &&
+    Number.isFinite(raw.accuracy)
+  ) {
+    return raw.accuracy <= 35;
+  }
+
+  return true;
 }
 
 function handleNavigationError(error) {
@@ -208,22 +273,25 @@ function smoothPosition(raw) {
 
   const speedKmh = getCurrentSpeedKmh(raw);
 
-  if (distance < 2.5 && speedKmh < 10) {
+  /*
+    Dæmp små GPS-hop mere aggressivt.
+  */
+  if (distance < 4 && speedKmh < 30) {
     return previous;
   }
 
-  let alpha = 0.30;
+  let alpha = 0.24;
 
   if (speedKmh > 25) {
-    alpha = 0.42;
+    alpha = 0.34;
   }
 
   if (speedKmh > 60) {
-    alpha = 0.54;
+    alpha = 0.44;
   }
 
   if (distance > 80 && speedKmh < 25) {
-    alpha = 0.12;
+    alpha = 0.10;
   }
 
   return {
@@ -258,7 +326,7 @@ function getStableNavigationHeading(raw, smooth, routeBearing) {
       smooth.lng
     );
 
-    if (moved > 8) {
+    if (moved > 10) {
       targetHeading = calculateBearing(
         state.previousPosition.lat,
         state.previousPosition.lng,
@@ -285,17 +353,17 @@ function getStableNavigationHeading(raw, smooth, routeBearing) {
 
   const alpha =
     speedKmh > 75
-      ? 0.20
+      ? 0.18
       : speedKmh > 40
-        ? 0.24
-        : 0.16;
+        ? 0.22
+        : 0.14;
 
   const maxStep =
     speedKmh > 75
-      ? 32
+      ? 26
       : speedKmh > 40
-        ? 38
-        : 26;
+        ? 30
+        : 20;
 
   state.smoothedHeading =
     smoothAngleLimited(
@@ -785,11 +853,31 @@ async function releaseWakeLock() {
 }
 
 async function handleVisibilityChange() {
-  if (
-    document.visibilityState === "visible" &&
-    state.isNavigating &&
-    !state.wakeLock
-  ) {
-    await requestWakeLock();
+  if (!state.isNavigating) {
+    return;
+  }
+
+  if (document.visibilityState === "hidden") {
+    state.isRecoveringPosition = true;
+    state.lastVisibilityChangeAt = Date.now();
+    return;
+  }
+
+  if (document.visibilityState === "visible") {
+    state.isRecoveringPosition = true;
+
+    state.smoothedPosition = null;
+    state.previousPosition = null;
+    state.lastCameraMoveAt = null;
+
+    setStatus(
+      "GPS: genfinder",
+      "Navigation: live",
+      "Kort: venter på position"
+    );
+
+    if (!state.wakeLock) {
+      await requestWakeLock();
+    }
   }
 }
