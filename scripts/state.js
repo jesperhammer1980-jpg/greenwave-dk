@@ -13,6 +13,11 @@ export const state = {
   currentHeading: null,
   smoothedHeading: null,
 
+  isRecoveringPosition: false,
+  lastVisibilityChangeAt: null,
+  lastGoodGpsAt: null,
+  lastCameraMoveAt: null,
+
   destination: null,
   selectedAutocompleteItem: null,
   autocompleteTimer: null,
