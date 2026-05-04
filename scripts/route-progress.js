@@ -61,9 +61,13 @@ export function getRouteProgress(position) {
     return null;
   }
 
+  const remainingDistance =
+    Math.max(0, cumulative - best.distanceAlongRoute);
+
   return {
     ...best,
-    totalRouteDistance: cumulative
+    totalRouteDistance: cumulative,
+    remainingDistance
   };
 }
 
@@ -78,28 +82,34 @@ export function prepareRouteSteps() {
     return;
   }
 
-  state.routeSteps = steps.map((step, index) => {
-    const stepPosition = step.location;
+  state.routeSteps = steps
+    .map((step, index) => {
+      const stepPosition = step.location;
 
-    const progress = stepPosition
-      ? getProgressForPoint(stepPosition)
-      : null;
+      const progress = stepPosition
+        ? getProgressForPoint(stepPosition)
+        : null;
 
-    return {
-      ...step,
-      stepIndex: index,
-      distanceAlongRoute:
-        progress?.distanceAlongRoute ?? 0,
-      distanceToRoute:
-        progress?.distanceToRoute ?? Infinity
-    };
-  }).sort((a, b) =>
-    a.distanceAlongRoute - b.distanceAlongRoute
-  );
+      return {
+        ...step,
+        stepIndex: index,
+        distanceAlongRoute:
+          progress?.distanceAlongRoute ?? 0,
+        distanceToRoute:
+          progress?.distanceToRoute ?? Infinity
+      };
+    })
+    .filter(step =>
+      Number.isFinite(step.distanceAlongRoute)
+    )
+    .sort((a, b) =>
+      a.distanceAlongRoute - b.distanceAlongRoute
+    );
 }
 
 export function getActiveStep(position) {
   const progress = getRouteProgress(position);
+
   const steps = Array.isArray(state.routeSteps)
     ? state.routeSteps
     : [];
@@ -117,13 +127,36 @@ export function getActiveStep(position) {
   const currentAlong =
     progress.distanceAlongRoute;
 
+  /*
+    VIGTIGT:
+    Step vælges ud fra distance langs ruten,
+    ikke luftlinje til manøvrepunkter.
+
+    Vi springer steps over, som allerede ligger bag bilen.
+  */
+
   let nextIndex = steps.findIndex(step =>
     Number.isFinite(step.distanceAlongRoute) &&
-    step.distanceAlongRoute > currentAlong + 20
+    step.distanceAlongRoute > currentAlong + 18
   );
 
   if (nextIndex === -1) {
     nextIndex = steps.length - 1;
+  }
+
+  /*
+    Undgå at vise meget lange "continue/follow road"-steps
+    som næste sving, hvis der findes et mere relevant sving kortere fremme.
+  */
+  const candidate =
+    findBetterUpcomingStep(
+      steps,
+      nextIndex,
+      currentAlong
+    );
+
+  if (candidate) {
+    nextIndex = candidate.index;
   }
 
   const nextStep = steps[nextIndex];
@@ -146,6 +179,67 @@ export function getActiveStep(position) {
   };
 }
 
+function findBetterUpcomingStep(
+  steps,
+  startIndex,
+  currentAlong
+) {
+  const maxLookAheadMeters = 6000;
+
+  for (
+    let i = startIndex;
+    i < Math.min(steps.length, startIndex + 8);
+    i++
+  ) {
+    const step = steps[i];
+
+    if (!step) {
+      continue;
+    }
+
+    const distance =
+      step.distanceAlongRoute - currentAlong;
+
+    if (distance < 0 || distance > maxLookAheadMeters) {
+      continue;
+    }
+
+    if (isMeaningfulTurn(step)) {
+      return {
+        index: i,
+        step
+      };
+    }
+  }
+
+  return null;
+}
+
+function isMeaningfulTurn(step) {
+  const type = String(step.maneuverType || "").toLowerCase();
+  const modifier = String(step.maneuverModifier || "").toLowerCase();
+  const message = String(step.message || "").toLowerCase();
+
+  if (type.includes("arrive")) return true;
+  if (type.includes("roundabout")) return true;
+  if (type.includes("rotary")) return true;
+  if (type.includes("turn")) return true;
+  if (type.includes("fork")) return true;
+  if (type.includes("ramp")) return true;
+  if (type.includes("merge")) return true;
+
+  if (modifier.includes("left")) return true;
+  if (modifier.includes("right")) return true;
+  if (modifier.includes("uturn")) return true;
+
+  if (message.includes("drej")) return true;
+  if (message.includes("rundkør")) return true;
+  if (message.includes("afkør")) return true;
+  if (message.includes("hold til")) return true;
+
+  return false;
+}
+
 export function getRouteBearingAtProgress(progress) {
   if (!progress?.segmentStart || !progress?.segmentEnd) {
     return null;
@@ -156,6 +250,61 @@ export function getRouteBearingAtProgress(progress) {
     progress.segmentStart[0],
     progress.segmentEnd[1],
     progress.segmentEnd[0]
+  );
+}
+
+export function getRemainingRouteDistance(position) {
+  const progress = getRouteProgress(position);
+
+  if (!progress) {
+    return null;
+  }
+
+  return progress.remainingDistance;
+}
+
+export function getRemainingRouteDuration(position, currentSpeedKmh = 0) {
+  const remainingDistance =
+    getRemainingRouteDistance(position);
+
+  if (!Number.isFinite(remainingDistance)) {
+    return null;
+  }
+
+  /*
+    Brug routeData.duration som baseline hvis muligt.
+    Ellers fallback til aktuel/forsigtig fart.
+  */
+
+  const totalDistance =
+    state.routeData?.distance;
+
+  const totalDuration =
+    state.routeData?.duration;
+
+  if (
+    Number.isFinite(totalDistance) &&
+    totalDistance > 0 &&
+    Number.isFinite(totalDuration) &&
+    totalDuration > 0
+  ) {
+    const ratio =
+      remainingDistance / totalDistance;
+
+    return Math.max(
+      60,
+      Math.round(totalDuration * ratio)
+    );
+  }
+
+  const fallbackSpeedKmh =
+    currentSpeedKmh > 10
+      ? currentSpeedKmh
+      : 70;
+
+  return Math.round(
+    remainingDistance /
+    (fallbackSpeedKmh * 1000 / 3600)
   );
 }
 
