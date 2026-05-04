@@ -23,6 +23,10 @@ import {
 } from "./greenwave.js";
 
 import {
+  updateCurrentMaxSpeed
+} from "./maxspeed.js";
+
+import {
   getActiveStep,
   getRouteBearingAtProgress,
   getRemainingRouteDistance,
@@ -143,6 +147,8 @@ function handleNavigationPosition(position) {
   state.rawPosition = raw;
 
   const smooth = smoothPosition(raw);
+
+  updateCurrentMaxSpeed(smooth);
 
   const active = getActiveStep(smooth);
 
@@ -382,10 +388,32 @@ function updateNavigationStats(current) {
   const recommendation =
     getGreenWaveRecommendation(current);
 
+  const recommendedSpeed =
+    limitRecommendedSpeed(
+      recommendation.speedKmh
+    );
+
   updateSpeedSigns(
     currentSpeedKmh,
-    recommendation.speedKmh
+    recommendedSpeed
   );
+}
+
+function limitRecommendedSpeed(speedKmh) {
+  if (
+    typeof speedKmh !== "number" ||
+    !Number.isFinite(speedKmh)
+  ) {
+    return 45;
+  }
+
+  const maxSpeed = getCurrentMaxSpeed();
+
+  if (!maxSpeed) {
+    return speedKmh;
+  }
+
+  return Math.min(speedKmh, maxSpeed);
 }
 
 function updateRemainingTripStats(current, speedKmh) {
