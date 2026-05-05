@@ -1,8 +1,8 @@
 import { state } from "./state.js";
 
 import {
-  haversine,
-  projectPointToSegment
+  formatDistance,
+  haversine
 } from "./utils.js";
 
 export async function loadTrafficSignals(geometry) {
@@ -20,7 +20,7 @@ export async function loadTrafficSignals(geometry) {
         node(around:1200,${point.lat},${point.lng})["highway"="traffic_signals"];
       `).join("")}
     );
-    out tags;
+    out;
   `;
 
   try {
@@ -43,20 +43,152 @@ export async function loadTrafficSignals(geometry) {
 
     state.trafficSignals = dedupeSignals(
       (data.elements || [])
-        .map(normalizeSignal)
-        .filter(Boolean)
+        .filter(item =>
+          typeof item.lat === "number" &&
+          typeof item.lon === "number"
+        )
+        .map(item => ({
+          id: item.id,
+          lat: item.lat,
+          lng: item.lon
+        }))
     );
-
-    computeSignalRouteDistances();
   } catch (error) {
-    console.error("Trafiklys fejl", error);
+    console.warn("Kunne ikke hente trafiklys", error);
     state.trafficSignals = [];
   }
 }
 
+export function getGreenWaveRecommendation(current) {
+  const currentMaxSpeed = getCurrentMaxSpeed();
+  const nextSignal = findNextTrafficSignal(current);
+
+  /*
+    VIGTIG NY LOGIK:
+    Hvis der ikke er trafiklys forude, skal anbefalet hastighed IKKE følge
+    aktuel hastighed og IKKE automatisk ligge 5 km/t under fartgrænsen.
+    Den skal stå fast på maxhastighed, hvis den kendes.
+  */
+
+  if (!nextSignal) {
+    const speedKmh =
+      currentMaxSpeed ||
+      getFallbackCruiseSpeed();
+
+    return {
+      speedKmh,
+      distanceToSignal: null,
+      message: currentMaxSpeed
+        ? `Ingen trafiklys forude · hold ${currentMaxSpeed} km/t`
+        : `Ingen trafiklys forude · hold jævn fart`
+    };
+  }
+
+  /*
+    GreenWave er kun aktiv, når der faktisk er et trafiklys forude.
+  */
+
+  const distance = nextSignal.distance;
+
+  const recommended =
+    calculateSignalAwareSpeed(
+      distance,
+      currentMaxSpeed
+    );
+
+  return {
+    speedKmh: recommended,
+    distanceToSignal: distance,
+    message:
+      `Trafiklys om ${formatDistance(distance)} · anbefalet ${recommended} km/t`
+  };
+}
+
+function calculateSignalAwareSpeed(distanceMeters, maxSpeed) {
+  const legalMax =
+    maxSpeed ||
+    getFallbackCruiseSpeed();
+
+  /*
+    Tæt på lyskryds:
+    anbefal roligere fart.
+  */
+  if (distanceMeters < 80) {
+    return Math.min(legalMax, 30);
+  }
+
+  if (distanceMeters < 180) {
+    return Math.min(legalMax, 40);
+  }
+
+  if (distanceMeters < 350) {
+    return Math.min(legalMax, 50);
+  }
+
+  /*
+    Længere væk:
+    brug maxhastighed som udgangspunkt.
+    Ikke max - 5.
+  */
+  return legalMax;
+}
+
+function findNextTrafficSignal(current) {
+  if (!current || !Array.isArray(state.trafficSignals)) {
+    return null;
+  }
+
+  if (!state.trafficSignals.length) {
+    return null;
+  }
+
+  const candidates = state.trafficSignals
+    .map(signal => ({
+      ...signal,
+      distance: haversine(
+        current.lat,
+        current.lng,
+        signal.lat,
+        signal.lng
+      )
+    }))
+    .filter(signal =>
+      Number.isFinite(signal.distance) &&
+      signal.distance > 25 &&
+      signal.distance < 1200
+    )
+    .sort((a, b) => a.distance - b.distance);
+
+  return candidates[0] || null;
+}
+
+function getCurrentMaxSpeed() {
+  if (
+    typeof state.currentMaxSpeed === "number" &&
+    Number.isFinite(state.currentMaxSpeed)
+  ) {
+    return state.currentMaxSpeed;
+  }
+
+  return null;
+}
+
+function getFallbackCruiseSpeed() {
+  /*
+    Fallback bruges kun, når maxspeed er ukendt.
+    Den følger ikke aktuel hastighed.
+  */
+
+  if (state.settings?.region === "us") {
+    return 55;
+  }
+
+  return 80;
+}
+
 function sampleRoutePoints(geometry) {
   const points = [];
-  const maxSamples = 24;
+  const maxSamples = 18;
 
   if (!Array.isArray(geometry) || !geometry.length) {
     return points;
@@ -82,7 +214,8 @@ function sampleRoutePoints(geometry) {
   const seen = new Set();
 
   return points.filter(point => {
-    const key = `${point.lat.toFixed(3)},${point.lng.toFixed(3)}`;
+    const key =
+      `${point.lat.toFixed(3)},${point.lng.toFixed(3)}`;
 
     if (seen.has(key)) {
       return false;
@@ -93,29 +226,11 @@ function sampleRoutePoints(geometry) {
   });
 }
 
-function normalizeSignal(element) {
-  if (
-    typeof element.lat !== "number" ||
-    typeof element.lon !== "number"
-  ) {
-    return null;
-  }
-
-  return {
-    id: `${element.type}-${element.id}`,
-    lat: element.lat,
-    lng: element.lon,
-    tags: element.tags || {},
-    distanceAlongRoute: Infinity,
-    distanceToRoute: Infinity
-  };
-}
-
 function dedupeSignals(signals) {
-  const result = [];
+  const out = [];
 
   signals.forEach(signal => {
-    const exists = result.some(existing =>
+    const duplicate = out.some(existing =>
       haversine(
         signal.lat,
         signal.lng,
@@ -124,227 +239,10 @@ function dedupeSignals(signals) {
       ) < 25
     );
 
-    if (!exists) {
-      result.push(signal);
+    if (!duplicate) {
+      out.push(signal);
     }
   });
 
-  return result;
-}
-
-function computeSignalRouteDistances() {
-  if (!state.routeData?.geometry?.length) {
-    return;
-  }
-
-  const route = state.routeData.geometry;
-  let cumulative = 0;
-  const segments = [];
-
-  for (let i = 1; i < route.length; i++) {
-    const start = route[i - 1];
-    const end = route[i];
-
-    const length = haversine(
-      start[1],
-      start[0],
-      end[1],
-      end[0]
-    );
-
-    segments.push({
-      start,
-      end,
-      startMeters: cumulative,
-      length
-    });
-
-    cumulative += length;
-  }
-
-  state.trafficSignals.forEach(signal => {
-    let bestDistanceToRoute = Infinity;
-    let bestAlong = Infinity;
-
-    segments.forEach(segment => {
-      const projected = projectPointToSegment(
-        signal.lat,
-        signal.lng,
-        segment.start[1],
-        segment.start[0],
-        segment.end[1],
-        segment.end[0]
-      );
-
-      if (projected.distanceMeters < bestDistanceToRoute) {
-        bestDistanceToRoute = projected.distanceMeters;
-        bestAlong =
-          segment.startMeters +
-          segment.length * projected.t;
-      }
-    });
-
-    signal.distanceToRoute = bestDistanceToRoute;
-    signal.distanceAlongRoute = bestAlong;
-  });
-
-  state.trafficSignals.sort(
-    (a, b) => a.distanceAlongRoute - b.distanceAlongRoute
-  );
-}
-
-export function getNextTrafficSignal(currentPosition) {
-  if (
-    !currentPosition ||
-    !state.routeData?.geometry?.length ||
-    !Array.isArray(state.trafficSignals)
-  ) {
-    return null;
-  }
-
-  const currentAlong = getCurrentDistanceAlongRoute(currentPosition);
-
-  if (!Number.isFinite(currentAlong)) {
-    return null;
-  }
-
-  return state.trafficSignals.find(signal =>
-    signal.distanceAlongRoute > currentAlong + 40 &&
-    signal.distanceToRoute <= 80
-  ) || null;
-}
-
-export function getGreenWaveRecommendation(currentPosition) {
-  const nextSignal = getNextTrafficSignal(currentPosition);
-
-  if (!nextSignal) {
-    return {
-      speedKmh: getFallbackSpeed(currentPosition?.speed),
-      distanceToSignal: null,
-      confidence: "low",
-      message: "Ingen trafiklys fundet tæt på ruten"
-    };
-  }
-
-  const currentAlong = getCurrentDistanceAlongRoute(currentPosition);
-  const distanceToSignal =
-    nextSignal.distanceAlongRoute - currentAlong;
-
-  const speedKmh = calculateRecommendedSpeed(distanceToSignal);
-
-  return {
-    speedKmh,
-    distanceToSignal,
-    confidence: "estimated",
-    message: "Estimeret grøn bølge uden live signaldata"
-  };
-}
-
-function getCurrentDistanceAlongRoute(currentPosition) {
-  const route = state.routeData?.geometry;
-
-  if (!route?.length) {
-    return Infinity;
-  }
-
-  let cumulative = 0;
-  let bestDistanceToRoute = Infinity;
-  let bestAlong = Infinity;
-
-  for (let i = 1; i < route.length; i++) {
-    const start = route[i - 1];
-    const end = route[i];
-
-    const segmentLength = haversine(
-      start[1],
-      start[0],
-      end[1],
-      end[0]
-    );
-
-    const projected = projectPointToSegment(
-      currentPosition.lat,
-      currentPosition.lng,
-      start[1],
-      start[0],
-      end[1],
-      end[0]
-    );
-
-    if (projected.distanceMeters < bestDistanceToRoute) {
-      bestDistanceToRoute = projected.distanceMeters;
-      bestAlong =
-        cumulative +
-        segmentLength * projected.t;
-    }
-
-    cumulative += segmentLength;
-  }
-
-  return bestAlong;
-}
-
-function calculateRecommendedSpeed(distanceToSignalMeters) {
-  /*
-    Første GreenWave-logik:
-    Da vi ikke har live signalfaser, antager vi typiske by-cyklusser.
-    Målet er jævn fart og mindre stop-start.
-  */
-
-  if (!Number.isFinite(distanceToSignalMeters)) {
-    return 45;
-  }
-
-  const minSpeed = 30;
-  const maxSpeed = 60;
-
-  const cycleSeconds = 80;
-  const preferredArrivalWindowSeconds = 45;
-
-  const rawSpeedKmh =
-    distanceToSignalMeters /
-    preferredArrivalWindowSeconds *
-    3.6;
-
-  let speed = Math.round(rawSpeedKmh / 5) * 5;
-
-  if (speed < minSpeed) {
-    speed = minSpeed;
-  }
-
-  if (speed > maxSpeed) {
-    speed = maxSpeed;
-  }
-
-  if (distanceToSignalMeters < 120) {
-    speed = 30;
-  }
-
-  if (distanceToSignalMeters > 900) {
-    speed = 50;
-  }
-
-  return speed;
-}
-
-function getFallbackSpeed(speedMetersPerSecond) {
-  const currentSpeedKmh =
-    typeof speedMetersPerSecond === "number" &&
-    Number.isFinite(speedMetersPerSecond)
-      ? Math.round(speedMetersPerSecond * 3.6)
-      : 0;
-
-  if (currentSpeedKmh <= 10) {
-    return 45;
-  }
-
-  if (currentSpeedKmh < 35) {
-    return 40;
-  }
-
-  if (currentSpeedKmh <= 55) {
-    return currentSpeedKmh;
-  }
-
-  return 55;
+  return out;
 }
