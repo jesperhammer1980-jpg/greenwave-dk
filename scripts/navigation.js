@@ -139,7 +139,7 @@ function resetNavigationPositionState() {
 function initializeNavigationUi() {
   updateTurnCardFromStep(null, null);
   updateTurnProgress(0.12);
-  updateSpeedSigns(0, 45);
+  updateSpeedSigns(0, null);
 }
 
 function handleNavigationPosition(position) {
@@ -273,9 +273,6 @@ function smoothPosition(raw) {
 
   const speedKmh = getCurrentSpeedKmh(raw);
 
-  /*
-    Dæmp små GPS-hop mere aggressivt.
-  */
   if (distance < 4 && speedKmh < 30) {
     return previous;
   }
@@ -456,32 +453,10 @@ function updateNavigationStats(current) {
   const recommendation =
     getGreenWaveRecommendation(current);
 
-  const recommendedSpeed =
-    limitRecommendedSpeed(
-      recommendation.speedKmh
-    );
-
   updateSpeedSigns(
     currentSpeedKmh,
-    recommendedSpeed
+    recommendation.speedKmh
   );
-}
-
-function limitRecommendedSpeed(speedKmh) {
-  if (
-    typeof speedKmh !== "number" ||
-    !Number.isFinite(speedKmh)
-  ) {
-    return 45;
-  }
-
-  const maxSpeed = getCurrentMaxSpeed();
-
-  if (!maxSpeed) {
-    return speedKmh;
-  }
-
-  return Math.min(speedKmh, maxSpeed);
 }
 
 function updateRemainingTripStats(current, speedKmh) {
@@ -540,7 +515,9 @@ function updateSpeedSigns(currentSpeedKmh, recommendedSpeedKmh) {
 
   if (els.recommendedSpeedValue) {
     els.recommendedSpeedValue.textContent =
-      String(recommendedSpeedKmh);
+      Number.isFinite(recommendedSpeedKmh)
+        ? String(recommendedSpeedKmh)
+        : "?";
   }
 
   if (!els.currentSpeedSign) {
@@ -553,6 +530,11 @@ function updateSpeedSigns(currentSpeedKmh, recommendedSpeedKmh) {
     "speed-danger"
   );
 
+  if (!Number.isFinite(recommendedSpeedKmh) && !maxSpeed) {
+    els.currentSpeedSign.classList.add("speed-warning");
+    return;
+  }
+
   const referenceSpeed =
     maxSpeed || recommendedSpeedKmh;
 
@@ -561,7 +543,10 @@ function updateSpeedSigns(currentSpeedKmh, recommendedSpeedKmh) {
 
   if (
     diff <= 4 &&
-    Math.abs(currentSpeedKmh - recommendedSpeedKmh) <= 7
+    (
+      !Number.isFinite(recommendedSpeedKmh) ||
+      Math.abs(currentSpeedKmh - recommendedSpeedKmh) <= 7
+    )
   ) {
     els.currentSpeedSign.classList.add("speed-ok");
     return;
