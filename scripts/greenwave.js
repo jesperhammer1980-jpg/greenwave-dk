@@ -60,41 +60,41 @@ export async function loadTrafficSignals(geometry) {
 }
 
 export function getGreenWaveRecommendation(current) {
-  const currentMaxSpeed = getCurrentMaxSpeed();
-  const nextSignal = findNextTrafficSignal(current);
+  const maxSpeed = getCurrentMaxSpeed();
 
   /*
-    VIGTIG NY LOGIK:
-    Hvis der ikke er trafiklys forude, skal anbefalet hastighed IKKE følge
-    aktuel hastighed og IKKE automatisk ligge 5 km/t under fartgrænsen.
-    Den skal stå fast på maxhastighed, hvis den kendes.
+    SIKKERHEDSREGEL:
+    Hvis maxhastighed er ukendt, må appen ikke gætte.
+    Derfor vises anbefalet hastighed som ?.
   */
-
-  if (!nextSignal) {
-    const speedKmh =
-      currentMaxSpeed ||
-      getFallbackCruiseSpeed();
-
+  if (!maxSpeed) {
     return {
-      speedKmh,
+      speedKmh: null,
       distanceToSignal: null,
-      message: currentMaxSpeed
-        ? `Ingen trafiklys forude · hold ${currentMaxSpeed} km/t`
-        : `Ingen trafiklys forude · hold jævn fart`
+      message: "Ukendt hastighedsgrænse"
     };
   }
 
+  const nextSignal = findNextTrafficSignal(current);
+
   /*
-    GreenWave er kun aktiv, når der faktisk er et trafiklys forude.
+    Hvis der ikke er trafiklys forude:
+    anbefalet hastighed = maxhastighed.
+    Ikke aktuel hastighed.
+    Ikke max - 5.
   */
+  if (!nextSignal) {
+    return {
+      speedKmh: maxSpeed,
+      distanceToSignal: null,
+      message: `Ingen trafiklys forude · hold ${maxSpeed} km/t`
+    };
+  }
 
   const distance = nextSignal.distance;
 
   const recommended =
-    calculateSignalAwareSpeed(
-      distance,
-      currentMaxSpeed
-    );
+    calculateSignalAwareSpeed(distance, maxSpeed);
 
   return {
     speedKmh: recommended,
@@ -105,32 +105,23 @@ export function getGreenWaveRecommendation(current) {
 }
 
 function calculateSignalAwareSpeed(distanceMeters, maxSpeed) {
-  const legalMax =
-    maxSpeed ||
-    getFallbackCruiseSpeed();
+  if (!maxSpeed) {
+    return null;
+  }
 
-  /*
-    Tæt på lyskryds:
-    anbefal roligere fart.
-  */
   if (distanceMeters < 80) {
-    return Math.min(legalMax, 30);
+    return Math.min(maxSpeed, 30);
   }
 
   if (distanceMeters < 180) {
-    return Math.min(legalMax, 40);
+    return Math.min(maxSpeed, 40);
   }
 
   if (distanceMeters < 350) {
-    return Math.min(legalMax, 50);
+    return Math.min(maxSpeed, 50);
   }
 
-  /*
-    Længere væk:
-    brug maxhastighed som udgangspunkt.
-    Ikke max - 5.
-  */
-  return legalMax;
+  return maxSpeed;
 }
 
 function findNextTrafficSignal(current) {
@@ -171,19 +162,6 @@ function getCurrentMaxSpeed() {
   }
 
   return null;
-}
-
-function getFallbackCruiseSpeed() {
-  /*
-    Fallback bruges kun, når maxspeed er ukendt.
-    Den følger ikke aktuel hastighed.
-  */
-
-  if (state.settings?.region === "us") {
-    return 55;
-  }
-
-  return 80;
 }
 
 function sampleRoutePoints(geometry) {
