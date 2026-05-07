@@ -21,9 +21,12 @@ import {
   estimateUsFuelPrice
 } from "./usa-fuel-estimates.js";
 
+const FRESH_PRICE_HOURS = 2;
+const OLD_PRICE_HOURS = 6;
+
 export async function loadFuelPrices() {
   try {
-    const response = await fetch(FUEL_DATA_URL, {
+    const response = await fetch(`${FUEL_DATA_URL}?t=${Date.now()}`, {
       cache: "no-store"
     });
 
@@ -75,6 +78,8 @@ function normalizeFuelPrices(rawStations) {
             return;
           }
 
+          const updatedAt = data.updatedAt || station.updatedAt || null;
+
           out.push({
             name: station.name || "Ukendt station",
             brand: station.brand || "",
@@ -87,11 +92,10 @@ function normalizeFuelPrices(rawStations) {
             price: data.price,
             currency: data.currency || "DKK",
             unit: data.unit || "liter",
-            source: data.source || "fuel-prices.json",
-            updatedAt: data.updatedAt || null,
-            dataAgeLabel: data.updatedAt
-              ? `Opdateret: ${formatDateTime(data.updatedAt)}`
-              : null
+            source: data.source || station.source || "fuel-prices.json",
+            updatedAt,
+            fetchedAt: data.fetchedAt || station.fetchedAt || null,
+            dataAgeLabel: getPriceAgeLabel(updatedAt)
           });
         }
       );
@@ -100,6 +104,8 @@ function normalizeFuelPrices(rawStations) {
     }
 
     if (typeof station.price === "number") {
+      const updatedAt = station.updatedAt || null;
+
       out.push({
         name: station.name || "Ukendt station",
         brand: station.brand || "",
@@ -113,10 +119,9 @@ function normalizeFuelPrices(rawStations) {
         currency: station.currency || "DKK",
         unit: station.unit || "liter",
         source: station.source || "fuel-prices.json",
-        updatedAt: station.updatedAt || null,
-        dataAgeLabel: station.updatedAt
-          ? `Opdateret: ${formatDateTime(station.updatedAt)}`
-          : null
+        updatedAt,
+        fetchedAt: station.fetchedAt || null,
+        dataAgeLabel: getPriceAgeLabel(updatedAt)
       });
     }
   });
@@ -262,7 +267,9 @@ function normalizeOsmStation(element) {
     source: "OSM",
     matchMode: null,
     updatedAt: null,
+    fetchedAt: null,
     dataAgeLabel: null,
+    priceFreshness: "unknown",
     stateCode: null,
     distanceAlongRoute: Infinity,
     distanceToRoute: Infinity
@@ -331,6 +338,8 @@ export function applyPricesToStations() {
     const realMatch = findFuelPrice(station);
 
     if (realMatch) {
+      const freshness = getPriceFreshness(realMatch.updatedAt);
+
       return {
         ...station,
         price: realMatch.price,
@@ -339,13 +348,11 @@ export function applyPricesToStations() {
         source: realMatch.source,
         matchMode: realMatch.matchMode,
         updatedAt: realMatch.updatedAt || null,
+        fetchedAt: realMatch.fetchedAt || null,
         dataAgeLabel:
           realMatch.dataAgeLabel ||
-          (
-            realMatch.updatedAt
-              ? `Opdateret: ${formatDateTime(realMatch.updatedAt)}`
-              : "Prisdata fra lokal fil"
-          ),
+          getPriceAgeLabel(realMatch.updatedAt),
+        priceFreshness: freshness,
         stateCode: realMatch.stateCode || null
       };
     }
@@ -365,7 +372,9 @@ export function applyPricesToStations() {
         matchMode: estimate.matchMode,
         stateCode: estimate.stateCode,
         dataAgeLabel: estimate.dataAgeLabel,
-        updatedAt: estimate.updatedAt
+        updatedAt: estimate.updatedAt,
+        fetchedAt: estimate.fetchedAt || null,
+        priceFreshness: getPriceFreshness(estimate.updatedAt)
       };
     }
 
@@ -377,7 +386,9 @@ export function applyPricesToStations() {
       source: "OSM",
       matchMode: null,
       updatedAt: null,
+      fetchedAt: null,
       dataAgeLabel: null,
+      priceFreshness: "unknown",
       stateCode: null
     };
   });
@@ -606,12 +617,8 @@ export function updateFuelBox() {
         ? `<div class="fuel-meta">Stat: ${escapeHtml(best.stateCode)}</div>`
         : ""
     }
-    ${
-      best.dataAgeLabel
-        ? `<div class="fuel-meta">${escapeHtml(best.dataAgeLabel)}</div>`
-        : ""
-    }
-    <a class="fuel-link" href="${buildGoogleMapsLink(best)}" target="_blank" rel="noopener noreferrer">
+    ${renderPriceStatus(best)}
+    <a class="fuel-list-map-link google-maps-btn" href="${buildGoogleMapsLink(best)}" target="_blank" rel="noopener noreferrer">
       Åbn via Google Maps
     </a>
   `;
@@ -676,19 +683,19 @@ export function renderFuelList() {
           <strong>${escapeHtml(station.source || "OSM")}</strong>
         </div>
 
-        <div class="fuel-list-meta">
+        <div class="fuel-list-meta ${getPriceMetaClass(station)}">
           Prisstatus<br>
           <strong>${escapeHtml(station.dataAgeLabel || "—")}</strong>
         </div>
 
         <div class="fuel-list-meta">
-          Stat / marked<br>
+          Marked<br>
           <strong>${escapeHtml(station.stateCode || state.settings.region.toUpperCase())}</strong>
         </div>
       </div>
 
       <div class="fuel-list-actions">
-        <a class="fuel-list-map-link" href="${buildGoogleMapsLink(station)}" target="_blank" rel="noopener noreferrer">
+        <a class="fuel-list-map-link google-maps-btn" href="${buildGoogleMapsLink(station)}" target="_blank" rel="noopener noreferrer">
           Åbn via Google Maps
         </a>
       </div>
@@ -697,66 +704,7 @@ export function renderFuelList() {
 }
 
 export function openFuelHistory() {
-  if (!els.fuelHistoryContent) {
-    return;
-  }
-
-  const history = state.fuelPriceOverrides
-    .filter(item => item.fuelType === state.settings.fuelType)
-    .filter(item => item.updatedAt)
-    .slice()
-    .sort((a, b) =>
-      String(b.updatedAt).localeCompare(String(a.updatedAt))
-    )
-    .slice(0, 30);
-
-  if (!history.length) {
-    els.fuelHistoryContent.innerHTML = `
-      <div class="fuel-list-empty">
-        Prishistorik kommer, når der er gemt flere prisopdateringer over tid.
-      </div>
-    `;
-  } else {
-    els.fuelHistoryContent.innerHTML = history.map(item => `
-      <article class="fuel-list-item">
-        <div class="fuel-list-item-top">
-          <div>
-            <div class="fuel-list-name">${escapeHtml(item.name)}</div>
-            <div class="fuel-list-brand">${escapeHtml(item.brand || item.city || "Ukendt")}</div>
-          </div>
-
-          <div class="fuel-list-price">
-            ${formatPrice(item.price)}
-          </div>
-        </div>
-
-        <div class="fuel-list-meta-grid">
-          <div class="fuel-list-meta">
-            Brændstof<br>
-            <strong>${escapeHtml(item.fuelType)}</strong>
-          </div>
-
-          <div class="fuel-list-meta">
-            Opdateret<br>
-            <strong>${escapeHtml(formatDateTime(item.updatedAt))}</strong>
-          </div>
-
-          <div class="fuel-list-meta">
-            Kilde<br>
-            <strong>${escapeHtml(item.source || "fuel-prices.json")}</strong>
-          </div>
-
-          <div class="fuel-list-meta">
-            Land<br>
-            <strong>${escapeHtml(item.country || "DK")}</strong>
-          </div>
-        </div>
-      </article>
-    `).join("");
-  }
-
-  els.fuelHistoryModal?.classList.remove("hidden");
-  els.fuelHistoryBackdrop?.classList.remove("hidden");
+  return;
 }
 
 export function closeFuelHistory() {
@@ -771,10 +719,11 @@ export function updateFuelMarkers() {
     return;
   }
 
-  const stations = getStationsInRange();
+  const stations = getStationsInRange()
+    .filter(station => typeof station.price === "number")
+    .slice(0, 5);
 
   const bestPriced = stations
-    .filter(station => typeof station.price === "number")
     .slice()
     .sort((a, b) =>
       a.price - b.price ||
@@ -790,8 +739,8 @@ export function updateFuelMarkers() {
     const icon = L.divIcon({
       className: "fuel-price-marker",
       html: `
-        <div class="fuel-price-label ${isBest ? "best" : ""} ${typeof station.price !== "number" ? "no-price" : ""}">
-          ${typeof station.price === "number" ? formatPriceShort(station.price) : "—"}
+        <div class="fuel-price-label ${isBest ? "best" : ""} ${getFuelMarkerClass(station)}">
+          ${formatPriceShort(station.price)}
         </div>
       `,
       iconSize: [74, 34],
@@ -805,13 +754,13 @@ export function updateFuelMarkers() {
       .addTo(state.map)
       .bindPopup(`
         <strong>${escapeHtml(station.name)}</strong><br>
-        ${typeof station.price === "number" ? formatPrice(station.price) : "Pris mangler"}<br>
+        ${formatPrice(station.price)}<br>
         Langs ruten: ${formatDistance(station.distanceAlongRoute)}<br>
         Fra rute: ${formatDistance(station.distanceToRoute)}<br>
         Kilde: ${escapeHtml(station.source || "OSM")}<br>
-        ${station.stateCode ? `Stat: ${escapeHtml(station.stateCode)}<br>` : ""}
+        ${station.stateCode ? `Marked: ${escapeHtml(station.stateCode)}<br>` : ""}
         ${station.dataAgeLabel ? `${escapeHtml(station.dataAgeLabel)}<br>` : ""}
-        <a href="${buildGoogleMapsLink(station)}" target="_blank" rel="noopener noreferrer">
+        <a class="fuel-list-map-link google-maps-btn" href="${buildGoogleMapsLink(station)}" target="_blank" rel="noopener noreferrer">
           Åbn via Google Maps
         </a>
       `);
@@ -831,6 +780,103 @@ export function clearFuelMarkers() {
   });
 
   state.fuelMarkers = [];
+}
+
+function renderPriceStatus(station) {
+  if (!station.dataAgeLabel) {
+    return "";
+  }
+
+  const cls = getPriceMetaClass(station);
+
+  return `
+    <div class="fuel-meta ${cls}">
+      ${escapeHtml(station.dataAgeLabel)}
+    </div>
+  `;
+}
+
+function getFuelMarkerClass(station) {
+  if (station.priceFreshness === "fresh") return "fresh";
+  if (station.priceFreshness === "warning") return "warning";
+  if (station.priceFreshness === "old") return "old";
+  return "";
+}
+
+function getPriceMetaClass(station) {
+  if (station.priceFreshness === "fresh") return "price-fresh";
+  if (station.priceFreshness === "warning") return "price-warning";
+  if (station.priceFreshness === "old") return "price-old";
+  return "";
+}
+
+function getPriceFreshness(value) {
+  const ageHours = getAgeHours(value);
+
+  if (!Number.isFinite(ageHours)) {
+    return "unknown";
+  }
+
+  if (ageHours <= FRESH_PRICE_HOURS) {
+    return "fresh";
+  }
+
+  if (ageHours <= OLD_PRICE_HOURS) {
+    return "warning";
+  }
+
+  return "old";
+}
+
+function getPriceAgeLabel(value) {
+  if (!value) {
+    return null;
+  }
+
+  const ageHours = getAgeHours(value);
+  const formatted = formatDateTime(value);
+
+  if (!Number.isFinite(ageHours)) {
+    return `Opdateret: ${formatted}`;
+  }
+
+  const ageText = formatAge(ageHours);
+
+  if (ageHours <= FRESH_PRICE_HOURS) {
+    return `Pris opdateret: ${formatted} · ${ageText} gammel`;
+  }
+
+  if (ageHours <= OLD_PRICE_HOURS) {
+    return `⚠ Pris opdateret: ${formatted} · ${ageText} gammel`;
+  }
+
+  return `⛔ Gammel pris: ${formatted} · ${ageText} gammel`;
+}
+
+function getAgeHours(value) {
+  const time = new Date(value).getTime();
+
+  if (!Number.isFinite(time)) {
+    return Infinity;
+  }
+
+  return (Date.now() - time) / 36e5;
+}
+
+function formatAge(ageHours) {
+  const totalMinutes = Math.max(0, Math.round(ageHours * 60));
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+
+  if (hours <= 0) {
+    return `${minutes} min`;
+  }
+
+  if (minutes === 0) {
+    return `${hours} t`;
+  }
+
+  return `${hours} t ${minutes} min`;
 }
 
 function formatDateTime(value) {
