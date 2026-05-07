@@ -4,22 +4,30 @@ const elementIds = [
   "destinationInput",
   "autocompleteBox",
   "autocompleteList",
+  "autocompleteResults",
 
   "calcRouteBtn",
   "startNavBtn",
   "stopNavBtn",
+
   "recenterBtn",
+  "centerBtn",
 
   "historyToggleBtn",
+  "historyBtn",
+
   "historyBox",
   "historyList",
 
   "openSettingsBtn",
+  "settingsBtn",
+
   "closeSettingsBtn",
   "saveSettingsBtn",
 
   "settingsBackdrop",
   "settingsPanel",
+  "settingsBody",
 
   "languageDa",
   "languageEn",
@@ -38,11 +46,17 @@ const elementIds = [
   "navStatusChip",
   "mapModeLabel",
 
+  "gpsStatus",
+  "navStatus",
+  "mapStatus",
+
   "fuelDisclaimer",
   "fuelContent",
+  "fuelBox",
 
   "openFuelListBtn",
   "openFuelHistoryBtn",
+  "fuelHistoryBtn",
 
   "fuelListBackdrop",
   "fuelListModal",
@@ -60,7 +74,9 @@ const elementIds = [
   "fuelHistoryContent",
 
   "navOverlay",
+
   "exitNavOverlayBtn",
+  "overlayStopBtn",
 
   "driveRemainingDistance",
   "driveRemainingTime",
@@ -74,8 +90,10 @@ const elementIds = [
 
   "speedLimitSign",
   "speedLimitValue",
+
   "currentSpeedSign",
   "currentSpeedValue",
+
   "recommendedSpeedSign",
   "recommendedSpeedValue"
 ];
@@ -84,4 +102,21 @@ export function cacheDom() {
   elementIds.forEach(id => {
     els[id] = document.getElementById(id);
   });
+
+  /* Compatibility aliases */
+
+  els.recenterBtn =
+    els.recenterBtn || els.centerBtn;
+
+  els.historyToggleBtn =
+    els.historyToggleBtn || els.historyBtn;
+
+  els.openSettingsBtn =
+    els.openSettingsBtn || els.settingsBtn;
+
+  els.openFuelHistoryBtn =
+    els.openFuelHistoryBtn || els.fuelHistoryBtn;
+
+  els.exitNavOverlayBtn =
+    els.exitNavOverlayBtn || els.overlayStopBtn;
 }
