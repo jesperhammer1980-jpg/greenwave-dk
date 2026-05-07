@@ -232,7 +232,6 @@ function handleNavigationPosition(position) {
 
 function shouldIgnoreStalePosition(raw) {
   const age = Date.now() - raw.timestamp;
-
   return age > 7000;
 }
 
@@ -606,7 +605,7 @@ function updateTurnCardFromStep(step, distanceToStep) {
 
   if (els.nextTurnInstruction) {
     els.nextTurnInstruction.textContent =
-      getTurnInstruction(step);
+      getShortTurnInstruction(step);
   }
 
   if (els.nextTurnRoad) {
@@ -688,21 +687,23 @@ function getTurnIcon(step) {
   return "↑";
 }
 
-function getTurnInstruction(step) {
+/*
+  VIGTIGT:
+  Hovedteksten må IKKE indeholde vejnavn.
+  Vejnavn vises kun i den grå linje under.
+*/
+function getShortTurnInstruction(step) {
   const type = String(step.maneuverType || "").toLowerCase();
   const modifier = String(step.maneuverModifier || "").toLowerCase();
   const message = String(step.message || "");
 
-  if (message && message.length < 80) {
-    return cleanInstruction(message);
-  }
-
   if (type.includes("arrive")) return "Du er fremme";
-  if (type.includes("depart")) return "Start og fortsæt";
+  if (type.includes("depart")) return "Start";
 
   if (
     type.includes("roundabout") ||
-    type.includes("rotary")
+    type.includes("rotary") ||
+    message.toLowerCase().includes("rundkør")
   ) {
     return getRoundaboutInstruction(step);
   }
@@ -723,7 +724,29 @@ function getTurnInstruction(step) {
   if (modifier.includes("uturn")) return "Vend om";
   if (modifier.includes("straight")) return "Fortsæt ligeud";
 
+  const cleaned = cleanInstruction(message);
+
+  if (cleaned) {
+    return removeRoadNameFromInstruction(cleaned);
+  }
+
   return "Fortsæt";
+}
+
+function removeRoadNameFromInstruction(value) {
+  let text = String(value)
+    .replace(/\s+/g, " ")
+    .trim();
+
+  text = text.replace(/^drej til venstre ad .+$/i, "Drej til venstre");
+  text = text.replace(/^drej til højre ad .+$/i, "Drej til højre");
+  text = text.replace(/^fortsæt ad .+$/i, "Fortsæt ligeud");
+  text = text.replace(/^følg .+$/i, "Følg vejen");
+  text = text.replace(/^hold til venstre ad .+$/i, "Hold til venstre");
+  text = text.replace(/^hold til højre ad .+$/i, "Hold til højre");
+  text = text.replace(/^tag afkørslen mod .+$/i, "Tag afkørslen");
+
+  return text;
 }
 
 function getRoundaboutInstruction(step) {
@@ -750,11 +773,20 @@ function getRoadName(step) {
     return step.name;
   }
 
+  const message = String(step.message || "");
+
+  const roadFromAd =
+    message.match(/\bad\s+(.+)$/i)?.[1];
+
+  if (roadFromAd) {
+    return roadFromAd.trim();
+  }
+
   if (String(step.maneuverType || "").toLowerCase().includes("arrive")) {
     return "Destination";
   }
 
-  return "Næste vej";
+  return "";
 }
 
 function getCurrentSpeedKmh(current) {
