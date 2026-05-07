@@ -2,121 +2,45 @@
 <html lang="da">
 <head>
   <meta charset="UTF-8" />
-
-  <meta
-    name="viewport"
-    content="width=device-width, initial-scale=1, viewport-fit=cover"
-  />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 
   <title>GreenWave</title>
 
-  <!-- LEAFLET -->
-
-  <link
-    rel="stylesheet"
-    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-  />
-
-  <!-- APP CSS -->
-
-  <link
-    rel="stylesheet"
-    href="styles/base.css?v=4"
-  />
-
-  <link
-    rel="stylesheet"
-    href="styles/navigation.css?v=4"
-  />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="styles/base.css?v=5" />
+  <link rel="stylesheet" href="styles/navigation.css?v=5" />
 </head>
 
 <body>
-
   <div class="app-grid">
-
-    <!-- LEFT COLUMN -->
-
     <aside class="left-column">
-
-      <!-- HERO -->
-
       <section class="hero">
-
         <h1>GreenWave</h1>
-
-        <p
-          class="muted"
-          style="margin-top:12px;"
-        >
-          Intelligent navigation med GreenWave,
-          live hastighedsanbefalinger og
-          brændstofpriser langs ruten.
+        <p class="muted" style="margin-top:12px;">
+          Intelligent navigation med GreenWave, live hastighedsanbefalinger og brændstofpriser langs ruten.
         </p>
-
       </section>
 
-      <!-- ROUTE PANEL -->
-
       <section class="panel">
-
-        <!-- STATUS -->
-
-        <div
-          class="status-grid"
-          style="margin-bottom:18px;"
-        >
-
+        <div class="status-grid" style="margin-bottom:18px;">
           <div class="status-item">
-            <span class="status-label">
-              GPS
-            </span>
-
-            <strong
-              id="gpsStatus"
-              class="status-value"
-            >
-              klar
-            </strong>
+            <span class="status-label">GPS</span>
+            <strong id="gpsStatus" class="status-value">klar</strong>
           </div>
 
           <div class="status-item">
-            <span class="status-label">
-              Navigation
-            </span>
-
-            <strong
-              id="navStatus"
-              class="status-value"
-            >
-              inaktiv
-            </strong>
+            <span class="status-label">Navigation</span>
+            <strong id="navStatus" class="status-value">inaktiv</strong>
           </div>
 
           <div class="status-item">
-            <span class="status-label">
-              Kort
-            </span>
-
-            <strong
-              id="mapStatus"
-              class="status-value"
-            >
-              klar
-            </strong>
+            <span class="status-label">Kort</span>
+            <strong id="mapStatus" class="status-value">klar</strong>
           </div>
-
         </div>
 
-        <!-- SEARCH -->
-
         <div class="search-wrap">
-
-          <label
-            class="label"
-            for="destinationInput"
-          >
-            Destination
-          </label>
+          <label class="label" for="destinationInput">Destination</label>
 
           <input
             id="destinationInput"
@@ -125,486 +49,173 @@
             placeholder="Indtast adresse..."
           />
 
-          <div
-            id="autocompleteBox"
-            class="autocomplete-box hidden"
-          ></div>
-
-          <div
-            id="autocompleteResults"
-            class="autocomplete-results"
-          ></div>
-
+          <div id="autocompleteBox" class="autocomplete-box hidden"></div>
+          <div id="autocompleteResults" class="autocomplete-results"></div>
         </div>
 
-        <!-- BUTTONS -->
-
-        <div
-          class="button-row"
-          style="margin-top:16px;"
-        >
-
-          <button id="calcRouteBtn">
-            Beregn rute
-          </button>
-
-          <button
-            id="startNavBtn"
-            disabled
-          >
-            Start navigation
-          </button>
-
+        <div class="button-row" style="margin-top:16px;">
+          <button id="calcRouteBtn">Beregn rute</button>
+          <button id="startNavBtn" disabled>Start navigation</button>
         </div>
 
-        <div
-          class="button-row"
-          style="margin-top:10px;"
-        >
-
-          <button
-            id="stopNavBtn"
-            disabled
-          >
-            Stop navigation
-          </button>
-
-          <button id="centerBtn">
-            Centrér
-          </button>
-
+        <div class="button-row" style="margin-top:10px;">
+          <button id="stopNavBtn" disabled>Stop navigation</button>
+          <button id="centerBtn">Centrér</button>
         </div>
 
-        <div
-          class="button-row"
-          style="margin-top:10px;"
-        >
-
-          <button id="historyBtn">
-            Historik
-          </button>
-
-          <button id="settingsBtn">
-            Settings
-          </button>
-
+        <div class="button-row single" style="margin-top:10px;">
+          <button id="settingsBtn">Settings</button>
         </div>
 
-        <!-- HISTORY -->
+        <button id="historyBtn" class="hidden" type="button">Historik</button>
 
         <div class="history-box">
-
-          <div class="history-title">
-            Seneste destinationer
-          </div>
-
-          <div
-            id="historyList"
-            class="history-list"
-          ></div>
-
+          <div class="history-title">Seneste destinationer</div>
+          <div id="historyList" class="history-list"></div>
         </div>
-
       </section>
 
-      <!-- FUEL PANEL -->
-
       <section class="panel">
+        <h3>Billigste tank</h3>
 
-        <div
-          style="
-            display:flex;
-            justify-content:space-between;
-            align-items:center;
-            margin-bottom:14px;
-            gap:12px;
-          "
-        >
-
-          <div>
-
-            <h3>
-              Billigste tank
-            </h3>
-
-            <div
-              id="fuelDisclaimer"
-              class="fuel-disclaimer"
-              style="margin-top:10px;"
-            >
-              Prisposter: —
-            </div>
-
-          </div>
-
+        <div id="fuelDisclaimer" class="fuel-disclaimer" style="margin-top:10px;">
+          Prisposter: —
         </div>
 
         <div id="fuelContent">
           Beregn en rute først.
         </div>
 
-        <div
-          id="fuelBox"
-          class="hidden"
-        ></div>
+        <div id="fuelBox" class="hidden"></div>
 
-        <!-- FUEL BUTTONS -->
-
-        <div
-          class="button-row single"
-          style="margin-top:16px;"
-        >
-
-          <button
-            id="openFuelListBtn"
-            disabled
-          >
-            Se billigste på ruten
-          </button>
-
+        <div class="button-row single" style="margin-top:16px;">
+          <button id="openFuelListBtn" disabled>Se billigste på ruten</button>
         </div>
 
-        <div
-          class="button-row single"
-          style="margin-top:10px;"
-        >
-
-          <button id="fuelHistoryBtn">
-            Se prishistorik
-          </button>
-
+        <div class="button-row single" style="margin-top:10px;">
+          <button id="fuelHistoryBtn">Se prishistorik</button>
         </div>
-
       </section>
-
     </aside>
 
-    <!-- CENTER -->
-
     <main class="center-column">
-
       <section class="map-panel">
-
-        <!-- MAP -->
-
         <div id="map-rotation-wrap">
-
           <div id="map-rotation-inner">
-
             <div id="map"></div>
-
           </div>
-
         </div>
 
-        <!-- NAVIGATION OVERLAY -->
-
-        <div
-          id="navOverlay"
-          class="nav-overlay hidden"
-        >
-
-          <!-- TURN CARD -->
+        <div id="navOverlay" class="nav-overlay hidden">
+          <button id="overlayStopBtn" class="overlay-btn nav-floating-stop">
+            Stop
+          </button>
 
           <div class="turn-card">
-
             <div class="turn-card-top">
-
-              <div
-                id="turnIcon"
-                class="turn-icon"
-              >
-                ↑
-              </div>
+              <div id="turnIcon" class="turn-icon">↑</div>
 
               <div class="turn-copy">
-
-                <div
-                  id="nextTurnDistance"
-                  class="turn-distance"
-                >
-                  —
-                </div>
-
-                <div
-                  id="nextTurnInstruction"
-                  class="turn-instruction"
-                >
-                  Fortsæt ligeud
-                </div>
-
-                <div
-                  id="nextTurnRoad"
-                  class="turn-road"
-                >
-                  GreenWave navigation
-                </div>
-
+                <div id="nextTurnDistance" class="turn-distance">—</div>
+                <div id="nextTurnInstruction" class="turn-instruction">Fortsæt ligeud</div>
+                <div id="nextTurnRoad" class="turn-road">GreenWave navigation</div>
               </div>
-
-              <button
-                id="overlayStopBtn"
-                class="overlay-btn"
-              >
-                Stop
-              </button>
-
             </div>
 
             <div class="turn-progress-wrap">
-
-              <div
-                id="turnProgressBar"
-                class="turn-progress-bar"
-                style="width:12%;"
-              ></div>
-
+              <div id="turnProgressBar" class="turn-progress-bar" style="width:12%;"></div>
             </div>
-
           </div>
-
-          <!-- SPEED SIGNS -->
 
           <div class="speed-sign-stack">
-
-            <!-- MAX -->
-
             <div class="speed-sign-block">
-
-              <div class="speed-sign-label">
-                Max
+              <div class="speed-sign-label">Max</div>
+              <div class="speed-sign speed-sign-limit">
+                <span id="speedLimitValue">?</span>
               </div>
-
-              <div
-                class="speed-sign speed-sign-limit"
-              >
-                <span id="speedLimitValue">
-                  ?
-                </span>
-              </div>
-
             </div>
 
-            <!-- CURRENT -->
-
             <div class="speed-sign-block">
-
-              <div class="speed-sign-label">
-                Aktuel
+              <div class="speed-sign-label">Aktuel</div>
+              <div id="currentSpeedSign" class="speed-sign speed-sign-current">
+                <span id="currentSpeedValue">0</span>
               </div>
-
-              <div
-                id="currentSpeedSign"
-                class="speed-sign speed-sign-current"
-              >
-                <span id="currentSpeedValue">
-                  0
-                </span>
-              </div>
-
             </div>
 
-            <!-- RECOMMENDED -->
-
             <div class="speed-sign-block">
-
-              <div class="speed-sign-label">
-                GreenWave
+              <div class="speed-sign-label">GreenWave</div>
+              <div class="speed-sign speed-sign-recommended">
+                <span id="recommendedSpeedValue">?</span>
               </div>
-
-              <div
-                class="speed-sign speed-sign-recommended"
-              >
-                <span id="recommendedSpeedValue">
-                  ?
-                </span>
-              </div>
-
             </div>
-
           </div>
-
-          <!-- BOTTOM BAR -->
 
           <div class="nav-bottom">
-
             <div class="nav-bottom-main">
-
               <div class="nav-meta">
-
-                <span>
-                  Afstand
-                </span>
-
-                <strong
-                  id="driveRemainingDistance"
-                >
-                  —
-                </strong>
-
+                <span>Afstand</span>
+                <strong id="driveRemainingDistance">—</strong>
               </div>
 
               <div class="nav-meta">
-
-                <span>
-                  Tid
-                </span>
-
-                <strong
-                  id="driveRemainingTime"
-                >
-                  —
-                </strong>
-
+                <span>Tid</span>
+                <strong id="driveRemainingTime">—</strong>
               </div>
 
               <div class="nav-meta">
-
-                <span>
-                  Fart
-                </span>
-
-                <strong
-                  id="driveCurrentValue"
-                >
-                  0 km/t
-                </strong>
-
+                <span>Fart</span>
+                <strong id="driveCurrentValue">0 km/t</strong>
               </div>
-
             </div>
-
           </div>
-
         </div>
-
       </section>
-
     </main>
-
   </div>
 
-  <!-- SETTINGS MODAL -->
+  <div id="settingsBackdrop" class="settings-backdrop hidden"></div>
 
-  <div
-    id="settingsBackdrop"
-    class="settings-backdrop hidden"
-  ></div>
-
-  <div
-    id="settingsPanel"
-    class="settings-panel hidden"
-  >
-
+  <div id="settingsPanel" class="settings-panel hidden">
     <div class="settings-header">
-
       <h2>Settings</h2>
-
-      <button id="closeSettingsBtn">
-        Luk
-      </button>
-
+      <button id="closeSettingsBtn">Luk</button>
     </div>
 
-    <div
-      id="settingsBody"
-      class="settings-body"
-    ></div>
+    <div id="settingsBody" class="settings-body"></div>
 
     <div class="settings-footer">
-
-      <button id="saveSettingsBtn">
-        Gem settings
-      </button>
-
+      <button id="saveSettingsBtn">Gem settings</button>
     </div>
-
   </div>
 
-  <!-- FUEL LIST MODAL -->
+  <div id="fuelListBackdrop" class="modal-backdrop hidden"></div>
 
-  <div
-    id="fuelListBackdrop"
-    class="modal-backdrop hidden"
-  ></div>
-
-  <div
-    id="fuelListModal"
-    class="fuel-list-modal hidden"
-  >
-
+  <div id="fuelListModal" class="fuel-list-modal hidden">
     <div class="fuel-list-header">
-
-      <h2>
-        Tankstationer på ruten
-      </h2>
-
-      <button id="closeFuelListBtn">
-        Luk
-      </button>
-
+      <h2>Tankstationer på ruten</h2>
+      <button id="closeFuelListBtn">Luk</button>
     </div>
 
     <div class="fuel-list-controls">
-
-      <button id="sortFuelByPriceBtn">
-        Billigst
-      </button>
-
-      <button id="sortFuelByDetourBtn">
-        Mindst omvej
-      </button>
-
+      <button id="sortFuelByPriceBtn">Billigst</button>
+      <button id="sortFuelByDetourBtn">Mindst omvej</button>
     </div>
 
-    <div
-      id="fuelListContent"
-      class="fuel-list-content"
-    ></div>
-
+    <div id="fuelListContent" class="fuel-list-content"></div>
   </div>
 
-  <!-- FUEL HISTORY MODAL -->
+  <div id="fuelHistoryBackdrop" class="modal-backdrop hidden"></div>
 
-  <div
-    id="fuelHistoryBackdrop"
-    class="modal-backdrop hidden"
-  ></div>
-
-  <div
-    id="fuelHistoryModal"
-    class="fuel-list-modal hidden"
-  >
-
+  <div id="fuelHistoryModal" class="fuel-list-modal hidden">
     <div class="fuel-list-header">
-
-      <h2>
-        Prishistorik
-      </h2>
-
-      <button id="closeFuelHistoryBtn">
-        Luk
-      </button>
-
+      <h2>Prishistorik</h2>
+      <button id="closeFuelHistoryBtn">Luk</button>
     </div>
 
-    <div
-      id="fuelHistoryContent"
-      class="fuel-list-content"
-    ></div>
-
+    <div id="fuelHistoryContent" class="fuel-list-content"></div>
   </div>
-
-  <!-- LEAFLET -->
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-
-  <!-- APP -->
-
-  <script
-    type="module"
-    src="scripts/main.js?v=29"
-  ></script>
-
+  <script type="module" src="scripts/main.js?v=30"></script>
 </body>
 </html>
