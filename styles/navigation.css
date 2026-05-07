@@ -84,16 +84,39 @@
   transform: none !important;
 }
 
-/* TURN CARD - CLEAN VERSION */
+/* FLOATING STOP */
+
+.navigation-active .nav-floating-stop {
+  position: absolute !important;
+  top: calc(env(safe-area-inset-top) + 30px) !important;
+  right: 18px !important;
+  z-index: 1400 !important;
+  width: 106px !important;
+  min-width: 106px !important;
+  height: 56px !important;
+  min-height: 56px !important;
+  border-radius: 999px !important;
+  background: linear-gradient(180deg, #e94646, #8f1818) !important;
+  border: 2px solid rgba(255, 88, 88, 0.95) !important;
+  color: #ffffff !important;
+  font-size: 20px !important;
+  font-weight: 950 !important;
+  box-shadow:
+    0 12px 30px rgba(0,0,0,0.48),
+    inset 0 1px 0 rgba(255,255,255,0.2) !important;
+  pointer-events: auto !important;
+}
+
+/* TURN CARD */
 
 .navigation-active .turn-card {
   position: absolute !important;
-  top: calc(env(safe-area-inset-top) + 28px) !important;
+  top: calc(env(safe-area-inset-top) + 30px) !important;
   left: 48px !important;
-  right: 48px !important;
+  right: 138px !important;
   z-index: 1200 !important;
   overflow: hidden !important;
-  border-radius: 28px !important;
+  border-radius: 26px !important;
   background: rgba(5, 9, 15, 0.94) !important;
   border: 1px solid rgba(255,255,255,0.16) !important;
   backdrop-filter: blur(22px) !important;
@@ -107,7 +130,7 @@
 
 .navigation-active .turn-card-top {
   display: grid !important;
-  grid-template-columns: 76px minmax(0, 1fr) 116px !important;
+  grid-template-columns: 76px minmax(0, 1fr) !important;
   gap: 18px !important;
   align-items: center !important;
   padding: 18px 20px 16px 20px !important;
@@ -174,26 +197,6 @@
   border-radius: 999px !important;
   background: linear-gradient(90deg, #00c853, #69ff9f) !important;
   transition: width 0.35s ease !important;
-}
-
-/* STOP BUTTON */
-
-.navigation-active .overlay-btn,
-.navigation-active .turn-card .overlay-btn {
-  width: 112px !important;
-  min-width: 112px !important;
-  height: 58px !important;
-  min-height: 58px !important;
-  border-radius: 999px !important;
-  background: linear-gradient(180deg, #e53d3d, #8d1717) !important;
-  border: 2px solid rgba(255, 78, 78, 0.95) !important;
-  color: #ffffff !important;
-  font-size: 20px !important;
-  font-weight: 950 !important;
-  box-shadow:
-    0 10px 26px rgba(0,0,0,0.45),
-    inset 0 1px 0 rgba(255,255,255,0.18) !important;
-  pointer-events: auto !important;
 }
 
 /* SPEED SIGNS */
@@ -341,24 +344,34 @@
 /* MOBILE */
 
 @media (max-width: 760px) {
+  .navigation-active .nav-floating-stop {
+    top: calc(env(safe-area-inset-top) + 30px) !important;
+    right: 14px !important;
+    width: 96px !important;
+    min-width: 96px !important;
+    height: 54px !important;
+    min-height: 54px !important;
+    font-size: 18px !important;
+  }
+
   .navigation-active .turn-card {
     top: calc(env(safe-area-inset-top) + 30px) !important;
-    left: 48px !important;
-    right: 16px !important;
+    left: 44px !important;
+    right: 124px !important;
     border-radius: 24px !important;
   }
 
   .navigation-active .turn-card-top {
-    grid-template-columns: 68px minmax(0, 1fr) 104px !important;
+    grid-template-columns: 64px minmax(0, 1fr) !important;
     gap: 14px !important;
     padding: 16px 16px 14px 16px !important;
   }
 
   .navigation-active .turn-icon {
-    width: 68px !important;
-    height: 68px !important;
+    width: 64px !important;
+    height: 64px !important;
     border-radius: 20px !important;
-    font-size: 40px !important;
+    font-size: 38px !important;
   }
 
   .navigation-active .turn-distance {
@@ -366,7 +379,7 @@
   }
 
   .navigation-active .turn-instruction {
-    font-size: 25px !important;
+    font-size: 24px !important;
     line-height: 1.05 !important;
     max-height: 82px !important;
   }
@@ -375,16 +388,8 @@
     font-size: 15px !important;
   }
 
-  .navigation-active .overlay-btn {
-    width: 104px !important;
-    min-width: 104px !important;
-    height: 54px !important;
-    min-height: 54px !important;
-    font-size: 19px !important;
-  }
-
   .navigation-active .speed-sign-stack {
-    top: calc(env(safe-area-inset-top) + 218px) !important;
+    top: calc(env(safe-area-inset-top) + 214px) !important;
     left: 12px !important;
     gap: 13px !important;
   }
@@ -425,29 +430,29 @@
 }
 
 @media (max-width: 390px) {
+  .navigation-active .nav-floating-stop {
+    width: 88px !important;
+    min-width: 88px !important;
+    font-size: 17px !important;
+  }
+
   .navigation-active .turn-card {
-    left: 44px !important;
-    right: 12px !important;
+    left: 40px !important;
+    right: 110px !important;
   }
 
   .navigation-active .turn-card-top {
-    grid-template-columns: 60px minmax(0, 1fr) 92px !important;
+    grid-template-columns: 56px minmax(0, 1fr) !important;
     gap: 12px !important;
   }
 
   .navigation-active .turn-icon {
-    width: 60px !important;
-    height: 60px !important;
-    font-size: 36px !important;
+    width: 56px !important;
+    height: 56px !important;
+    font-size: 34px !important;
   }
 
   .navigation-active .turn-instruction {
-    font-size: 22px !important;
-  }
-
-  .navigation-active .overlay-btn {
-    width: 92px !important;
-    min-width: 92px !important;
-    font-size: 17px !important;
+    font-size: 21px !important;
   }
 }
