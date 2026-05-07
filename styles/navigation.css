@@ -3,10 +3,6 @@
    styles/navigation.css
 ========================= */
 
-/* =========================
-   NAVIGATION FULLSCREEN
-========================= */
-
 .navigation-active {
   overflow: hidden;
 }
@@ -32,35 +28,26 @@
   overflow: hidden !important;
 }
 
-/* =========================
-   MAP LAYER
-========================= */
+/* MAP */
 
 .navigation-active #map-rotation-wrap {
   position: fixed !important;
   inset: 0 !important;
-
   width: 100vw !important;
   height: 100vh !important;
   min-height: 100vh !important;
-
   overflow: hidden !important;
-
   background: #07101b !important;
 }
 
 .navigation-active #map-rotation-inner {
   position: absolute !important;
-
   left: -70vw !important;
   top: -70vh !important;
-
   width: 240vw !important;
   height: 240vh !important;
-
   transform-origin: center center !important;
   transform: rotateZ(var(--map-bearing, 0deg)) !important;
-
   transition: transform 0.5s linear !important;
   will-change: transform !important;
 }
@@ -72,224 +59,153 @@
 .navigation-active #map {
   width: 100% !important;
   height: 100% !important;
-
-  filter:
-    saturate(0.88)
-    contrast(1.05)
-    brightness(0.78) !important;
+  filter: saturate(0.9) contrast(1.06) brightness(0.78) !important;
 }
 
-/* Midlertidigt: 2.5D er dæmpet/slået praktisk fra for stabilitet */
 .navigation-active.navigation-3d #map-rotation-inner {
-  transform:
-    rotateZ(var(--map-bearing, 0deg)) !important;
-}
-
-.navigation-active.navigation-3d #map {
-  filter:
-    saturate(0.9)
-    contrast(1.06)
-    brightness(0.76) !important;
+  transform: rotateZ(var(--map-bearing, 0deg)) !important;
 }
 
 .navigation-night #map {
-  filter:
-    saturate(0.72)
-    contrast(1.08)
-    brightness(0.58) !important;
+  filter: saturate(0.72) contrast(1.08) brightness(0.58) !important;
 }
 
-/* =========================
-   OVERLAY
-========================= */
+/* OVERLAY */
 
 .navigation-active .nav-overlay {
   position: fixed !important;
-
   inset:
     calc(env(safe-area-inset-top) + 10px)
     10px
     calc(env(safe-area-inset-bottom) + 10px)
     10px !important;
-
   z-index: 1000 !important;
-
   pointer-events: none !important;
-
   transform: none !important;
 }
 
-/* =========================
-   TURN CARD
-========================= */
+/* TURN CARD - CLEAN VERSION */
 
 .navigation-active .turn-card {
   position: absolute !important;
-
-  top: calc(env(safe-area-inset-top) + 34px) !important;
-  left: 132px !important;
-  right: 10px !important;
-
+  top: calc(env(safe-area-inset-top) + 28px) !important;
+  left: 48px !important;
+  right: 48px !important;
   z-index: 1200 !important;
-
   overflow: hidden !important;
-
-  border-radius: 24px !important;
-
+  border-radius: 28px !important;
   background: rgba(5, 9, 15, 0.94) !important;
-
   border: 1px solid rgba(255,255,255,0.16) !important;
-
-  backdrop-filter: blur(20px) !important;
-  -webkit-backdrop-filter: blur(20px) !important;
-
+  backdrop-filter: blur(22px) !important;
+  -webkit-backdrop-filter: blur(22px) !important;
   box-shadow:
     0 20px 60px rgba(0,0,0,0.52),
     0 0 0 1px rgba(255,255,255,0.04) !important;
-
   pointer-events: auto !important;
-
   transform: none !important;
 }
 
 .navigation-active .turn-card-top {
   display: grid !important;
-  grid-template-columns: 64px 1fr auto !important;
-
-  gap: 14px !important;
-
+  grid-template-columns: 76px minmax(0, 1fr) 116px !important;
+  gap: 18px !important;
   align-items: center !important;
-
-  padding: 14px !important;
+  padding: 18px 20px 16px 20px !important;
 }
 
 .navigation-active .turn-icon {
-  width: 64px !important;
-  height: 64px !important;
-
+  width: 76px !important;
+  height: 76px !important;
   display: grid !important;
   place-items: center !important;
-
-  border-radius: 18px !important;
-
-  background:
-    linear-gradient(
-      180deg,
-      #1f8bff,
-      #0f57d9
-    ) !important;
-
+  border-radius: 22px !important;
+  background: linear-gradient(180deg, #2b91ff, #0f57d9) !important;
   color: #ffffff !important;
-
-  font-size: 38px !important;
+  font-size: 44px !important;
   font-weight: 950 !important;
-
   box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.22),
-    0 10px 26px rgba(17,102,255,0.38) !important;
+    inset 0 1px 0 rgba(255,255,255,0.24),
+    0 12px 28px rgba(17,102,255,0.38) !important;
 }
 
 .navigation-active .turn-copy {
   min-width: 0 !important;
+  overflow: hidden !important;
 }
 
 .navigation-active .turn-distance {
-  margin-bottom: 4px !important;
-
+  margin-bottom: 6px !important;
   color: #8dc4ff !important;
-
-  font-size: 15px !important;
-  font-weight: 900 !important;
+  font-size: 17px !important;
+  font-weight: 950 !important;
+  line-height: 1 !important;
 }
 
 .navigation-active .turn-instruction {
   color: #ffffff !important;
-
-  font-size: 24px !important;
+  font-size: 28px !important;
   font-weight: 950 !important;
-
-  line-height: 1.08 !important;
-  letter-spacing: -0.4px !important;
+  line-height: 1.06 !important;
+  letter-spacing: -0.7px !important;
+  max-height: 92px !important;
+  overflow: hidden !important;
 }
 
 .navigation-active .turn-road {
-  margin-top: 4px !important;
-
-  color: rgba(255,255,255,0.68) !important;
-
-  font-size: 15px !important;
+  margin-top: 8px !important;
+  color: rgba(255,255,255,0.62) !important;
+  font-size: 17px !important;
   font-weight: 650 !important;
-
   white-space: nowrap !important;
   overflow: hidden !important;
   text-overflow: ellipsis !important;
 }
 
 .navigation-active .turn-progress-wrap {
-  height: 6px !important;
-
-  background: rgba(255,255,255,0.09) !important;
+  height: 7px !important;
+  margin: 0 20px 18px 20px !important;
+  border-radius: 999px !important;
+  background: rgba(255,255,255,0.1) !important;
+  overflow: hidden !important;
 }
 
 .navigation-active .turn-progress-bar {
   height: 100% !important;
-
   border-radius: 999px !important;
-
-  background:
-    linear-gradient(
-      90deg,
-      #00c853,
-      #69ff9f
-    ) !important;
-
+  background: linear-gradient(90deg, #00c853, #69ff9f) !important;
   transition: width 0.35s ease !important;
 }
 
-/* =========================
-   STOP BUTTON
-========================= */
+/* STOP BUTTON */
 
 .navigation-active .overlay-btn,
 .navigation-active .turn-card .overlay-btn {
-  min-width: 92px !important;
-  min-height: 52px !important;
-
+  width: 112px !important;
+  min-width: 112px !important;
+  height: 58px !important;
+  min-height: 58px !important;
   border-radius: 999px !important;
-
-  background: rgba(130, 24, 24, 0.94) !important;
-
+  background: linear-gradient(180deg, #e53d3d, #8d1717) !important;
   border: 2px solid rgba(255, 78, 78, 0.95) !important;
-
   color: #ffffff !important;
-
-  font-size: 18px !important;
+  font-size: 20px !important;
   font-weight: 950 !important;
-
   box-shadow:
     0 10px 26px rgba(0,0,0,0.45),
-    0 0 0 1px rgba(255,255,255,0.08) !important;
-
+    inset 0 1px 0 rgba(255,255,255,0.18) !important;
   pointer-events: auto !important;
 }
 
-/* =========================
-   SPEED SIGNS
-========================= */
+/* SPEED SIGNS */
 
 .navigation-active .speed-sign-stack {
   position: absolute !important;
-
   top: calc(env(safe-area-inset-top) + 210px) !important;
   left: 14px !important;
-
   display: grid !important;
   gap: 14px !important;
-
   z-index: 1250 !important;
-
   pointer-events: none !important;
-
   transform: none !important;
 }
 
@@ -301,57 +217,39 @@
 
 .navigation-active .speed-sign-label {
   padding: 5px 11px !important;
-
   border-radius: 999px !important;
-
   background: rgba(5, 9, 15, 0.92) !important;
-
   border: 1px solid rgba(255,255,255,0.22) !important;
-
   color: #ffffff !important;
-
   font-size: 13px !important;
   font-weight: 950 !important;
   line-height: 1 !important;
-
-  box-shadow:
-    0 6px 16px rgba(0,0,0,0.32) !important;
+  box-shadow: 0 6px 16px rgba(0,0,0,0.32) !important;
 }
 
 .navigation-active .speed-sign {
   width: 82px !important;
   height: 82px !important;
-
   display: grid !important;
   place-items: center !important;
-
   font-size: 32px !important;
   font-weight: 950 !important;
   line-height: 1 !important;
-
-  box-shadow:
-    0 14px 32px rgba(0,0,0,0.42) !important;
-
+  box-shadow: 0 14px 32px rgba(0,0,0,0.42) !important;
   transform: none !important;
 }
 
 .navigation-active .speed-sign-limit {
   border-radius: 50% !important;
-
   background: #ffffff !important;
-
   color: #111111 !important;
-
   border: 8px solid #e02020 !important;
 }
 
 .navigation-active .speed-sign-current {
   border-radius: 50% !important;
-
   background: #ffffff !important;
-
   color: #111111 !important;
-
   border: 8px solid #ffffff !important;
 }
 
@@ -369,55 +267,38 @@
 
 .navigation-active .speed-sign-recommended {
   border-radius: 50% !important;
-
   background: #1e6bff !important;
-
   color: #ffffff !important;
-
   border: 7px solid #ffffff !important;
-
   box-shadow:
     0 0 0 3px #1e6bff,
     0 14px 32px rgba(0,0,0,0.42) !important;
 }
 
-/* =========================
-   BOTTOM NAVIGATION BAR
-========================= */
+/* BOTTOM BAR */
 
 .navigation-active .nav-bottom {
   position: absolute !important;
-
-  left: 14px !important;
-  right: 14px !important;
-  bottom: calc(env(safe-area-inset-bottom) + 16px) !important;
-
+  left: 20px !important;
+  right: 20px !important;
+  bottom: calc(env(safe-area-inset-bottom) + 18px) !important;
   z-index: 1200 !important;
-
-  border-radius: 22px !important;
-
+  border-radius: 26px !important;
   background: rgba(5, 9, 15, 0.94) !important;
-
   border: 1px solid rgba(255,255,255,0.14) !important;
-
   backdrop-filter: blur(18px) !important;
   -webkit-backdrop-filter: blur(18px) !important;
-
-  padding: 14px 12px !important;
-
+  padding: 16px 14px !important;
   pointer-events: auto !important;
-
   box-shadow:
     0 -10px 34px rgba(0,0,0,0.38),
     0 0 0 1px rgba(255,255,255,0.04) !important;
-
   transform: none !important;
 }
 
 .navigation-active .nav-bottom-main {
   display: grid !important;
   grid-template-columns: repeat(3, 1fr) !important;
-
   gap: 8px !important;
 }
 
@@ -427,129 +308,94 @@
 
 .navigation-active .nav-meta span {
   display: block !important;
-
-  margin-bottom: 4px !important;
-
+  margin-bottom: 5px !important;
   color: rgba(255,255,255,0.62) !important;
-
-  font-size: 13px !important;
-  font-weight: 700 !important;
+  font-size: 14px !important;
+  font-weight: 750 !important;
 }
 
 .navigation-active .nav-meta strong {
   display: block !important;
-
   color: #ffffff !important;
-
-  font-size: 20px !important;
+  font-size: 22px !important;
   font-weight: 950 !important;
 }
 
-/* =========================
-   FUEL MARKERS IN NAVIGATION
-========================= */
-
-/*
-  Leaflet-markers ligger i kortlaget.
-  Når kortet roteres, roterer de med.
-  Derfor skjules brændstof/pris-markers i navigation-mode.
-  De vises stadig uden for live navigation.
-*/
+/* FUEL MARKERS */
 
 .navigation-active .fuel-price-marker,
 .navigation-active .fuel-price-label {
   display: none !important;
 }
 
-/* =========================
-   MOTORWAY MODE
-========================= */
+/* MOTORWAY */
 
 .navigation-active.navigation-motorway .turn-card {
   border-color: rgba(98,168,255,0.4) !important;
 }
 
 .navigation-active.navigation-motorway .turn-icon {
-  background:
-    linear-gradient(
-      180deg,
-      #1769ff,
-      #0048c9
-    ) !important;
+  background: linear-gradient(180deg, #1769ff, #0048c9) !important;
 }
 
-.navigation-active.navigation-motorway .turn-distance {
-  color: #b9d7ff !important;
-}
-
-/* =========================
-   MOBILE
-========================= */
+/* MOBILE */
 
 @media (max-width: 760px) {
-
   .navigation-active .turn-card {
-    top: calc(env(safe-area-inset-top) + 28px) !important;
-    left: 118px !important;
-    right: 10px !important;
-
-    border-radius: 20px !important;
+    top: calc(env(safe-area-inset-top) + 30px) !important;
+    left: 48px !important;
+    right: 16px !important;
+    border-radius: 24px !important;
   }
 
   .navigation-active .turn-card-top {
-    grid-template-columns: 58px 1fr auto !important;
-
-    gap: 12px !important;
-
-    padding: 14px !important;
+    grid-template-columns: 68px minmax(0, 1fr) 104px !important;
+    gap: 14px !important;
+    padding: 16px 16px 14px 16px !important;
   }
 
   .navigation-active .turn-icon {
-    width: 58px !important;
-    height: 58px !important;
-
-    border-radius: 16px !important;
-
-    font-size: 34px !important;
+    width: 68px !important;
+    height: 68px !important;
+    border-radius: 20px !important;
+    font-size: 40px !important;
   }
 
   .navigation-active .turn-distance {
-    font-size: 13px !important;
+    font-size: 16px !important;
   }
 
   .navigation-active .turn-instruction {
-    font-size: 22px !important;
+    font-size: 25px !important;
+    line-height: 1.05 !important;
+    max-height: 82px !important;
   }
 
   .navigation-active .turn-road {
-    font-size: 13px !important;
+    font-size: 15px !important;
   }
 
   .navigation-active .overlay-btn {
-    min-width: 84px !important;
-    min-height: 48px !important;
-
-    font-size: 17px !important;
+    width: 104px !important;
+    min-width: 104px !important;
+    height: 54px !important;
+    min-height: 54px !important;
+    font-size: 19px !important;
   }
 
   .navigation-active .speed-sign-stack {
-    top: calc(env(safe-area-inset-top) + 206px) !important;
+    top: calc(env(safe-area-inset-top) + 218px) !important;
     left: 12px !important;
-
     gap: 13px !important;
   }
 
   .navigation-active .speed-sign {
     width: 76px !important;
     height: 76px !important;
-
     font-size: 30px !important;
   }
 
-  .navigation-active .speed-sign-limit {
-    border-width: 7px !important;
-  }
-
+  .navigation-active .speed-sign-limit,
   .navigation-active .speed-sign-current {
     border-width: 7px !important;
   }
@@ -563,18 +409,45 @@
   }
 
   .navigation-active .nav-bottom {
-    left: 12px !important;
-    right: 12px !important;
-    bottom: calc(env(safe-area-inset-bottom) + 12px) !important;
-
-    padding: 13px 10px !important;
+    left: 18px !important;
+    right: 18px !important;
+    bottom: calc(env(safe-area-inset-bottom) + 14px) !important;
+    padding: 15px 10px !important;
   }
 
   .navigation-active .nav-meta span {
-    font-size: 12px !important;
+    font-size: 13px !important;
   }
 
   .navigation-active .nav-meta strong {
-    font-size: 18px !important;
+    font-size: 20px !important;
+  }
+}
+
+@media (max-width: 390px) {
+  .navigation-active .turn-card {
+    left: 44px !important;
+    right: 12px !important;
+  }
+
+  .navigation-active .turn-card-top {
+    grid-template-columns: 60px minmax(0, 1fr) 92px !important;
+    gap: 12px !important;
+  }
+
+  .navigation-active .turn-icon {
+    width: 60px !important;
+    height: 60px !important;
+    font-size: 36px !important;
+  }
+
+  .navigation-active .turn-instruction {
+    font-size: 22px !important;
+  }
+
+  .navigation-active .overlay-btn {
+    width: 92px !important;
+    min-width: 92px !important;
+    font-size: 17px !important;
   }
 }
