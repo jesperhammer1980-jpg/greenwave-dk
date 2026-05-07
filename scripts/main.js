@@ -1,10 +1,24 @@
 import { state } from "./state.js";
 import { els, cacheDom } from "./dom.js";
-import { loadSettings, applySettingsToUI, saveSettingsFromControls, openSettings, closeSettings } from "./settings.js";
+import {
+  loadSettings,
+  applySettingsToUI,
+  saveSettingsFromControls,
+  openSettings,
+  closeSettings
+} from "./settings.js";
 import { initMap, recenterMap } from "./map.js";
 import { runAutocomplete, hideAutocomplete } from "./autocomplete.js";
 import { calculateRoute } from "./routing.js";
-import { loadFuelPrices, updateFuelBox, openFuelList, closeFuelList, renderFuelList, openFuelHistory, closeFuelHistory } from "./fuel.js";
+import {
+  loadFuelPrices,
+  updateFuelBox,
+  openFuelList,
+  closeFuelList,
+  renderFuelList,
+  openFuelHistory,
+  closeFuelHistory
+} from "./fuel.js";
 import { renderHistory } from "./history.js";
 import { startLiveNavigation, stopLiveNavigation } from "./navigation.js";
 import { setStatus } from "./utils.js";
@@ -26,48 +40,109 @@ async function init() {
   updateFuelBox();
 }
 
+function byId(id) {
+  return document.getElementById(id);
+}
+
 function bindEvents() {
-  els.destinationInput?.addEventListener("input", () => {
+  const destinationInput =
+    els.destinationInput || byId("destinationInput");
+
+  const calcRouteBtn =
+    els.calcRouteBtn || byId("calcRouteBtn");
+
+  const startNavBtn =
+    els.startNavBtn || byId("startNavBtn");
+
+  const stopNavBtn =
+    els.stopNavBtn || byId("stopNavBtn");
+
+  const centerBtn =
+    els.recenterBtn || els.centerBtn || byId("centerBtn");
+
+  const historyBtn =
+    els.historyToggleBtn || els.historyBtn || byId("historyBtn");
+
+  const settingsBtn =
+    els.openSettingsBtn || els.settingsBtn || byId("settingsBtn");
+
+  const closeSettingsBtn =
+    els.closeSettingsBtn || byId("closeSettingsBtn");
+
+  const settingsBackdrop =
+    els.settingsBackdrop || byId("settingsBackdrop");
+
+  const saveSettingsBtn =
+    els.saveSettingsBtn || byId("saveSettingsBtn");
+
+  const openFuelListBtn =
+    els.openFuelListBtn || byId("openFuelListBtn");
+
+  const closeFuelListBtn =
+    els.closeFuelListBtn || byId("closeFuelListBtn");
+
+  const fuelListBackdrop =
+    els.fuelListBackdrop || byId("fuelListBackdrop");
+
+  const sortFuelByPriceBtn =
+    els.sortFuelByPriceBtn || byId("sortFuelByPriceBtn");
+
+  const sortFuelByDetourBtn =
+    els.sortFuelByDetourBtn || byId("sortFuelByDetourBtn");
+
+  const openFuelHistoryBtn =
+    els.openFuelHistoryBtn || els.fuelHistoryBtn || byId("fuelHistoryBtn");
+
+  const closeFuelHistoryBtn =
+    els.closeFuelHistoryBtn || byId("closeFuelHistoryBtn");
+
+  const fuelHistoryBackdrop =
+    els.fuelHistoryBackdrop || byId("fuelHistoryBackdrop");
+
+  const overlayStopBtn =
+    els.exitNavOverlayBtn || els.overlayStopBtn || byId("overlayStopBtn");
+
+  destinationInput?.addEventListener("input", () => {
     state.selectedAutocompleteItem = null;
 
     clearTimeout(state.autocompleteTimer);
     state.autocompleteTimer = setTimeout(runAutocomplete, 250);
   });
 
-  els.calcRouteBtn?.addEventListener("click", calculateRoute);
-  els.startNavBtn?.addEventListener("click", startLiveNavigation);
-  els.stopNavBtn?.addEventListener("click", stopLiveNavigation);
-  els.recenterBtn?.addEventListener("click", recenterMap);
+  calcRouteBtn?.addEventListener("click", calculateRoute);
+  startNavBtn?.addEventListener("click", startLiveNavigation);
+  stopNavBtn?.addEventListener("click", stopLiveNavigation);
+  overlayStopBtn?.addEventListener("click", stopLiveNavigation);
 
-  els.historyToggleBtn?.addEventListener("click", () => {
+  centerBtn?.addEventListener("click", recenterMap);
+
+  historyBtn?.addEventListener("click", () => {
     els.historyBox?.classList.toggle("hidden");
     hideAutocomplete();
   });
 
-  els.openSettingsBtn?.addEventListener("click", openSettings);
-  els.closeSettingsBtn?.addEventListener("click", closeSettings);
-  els.settingsBackdrop?.addEventListener("click", closeSettings);
-  els.saveSettingsBtn?.addEventListener("click", saveSettingsFromControls);
+  settingsBtn?.addEventListener("click", openSettings);
+  closeSettingsBtn?.addEventListener("click", closeSettings);
+  settingsBackdrop?.addEventListener("click", closeSettings);
+  saveSettingsBtn?.addEventListener("click", saveSettingsFromControls);
 
-  els.openFuelListBtn?.addEventListener("click", openFuelList);
-  els.closeFuelListBtn?.addEventListener("click", closeFuelList);
-  els.fuelListBackdrop?.addEventListener("click", closeFuelList);
+  openFuelListBtn?.addEventListener("click", openFuelList);
+  closeFuelListBtn?.addEventListener("click", closeFuelList);
+  fuelListBackdrop?.addEventListener("click", closeFuelList);
 
-  els.sortFuelByPriceBtn?.addEventListener("click", () => {
+  sortFuelByPriceBtn?.addEventListener("click", () => {
     state.fuelListSort = "price";
     renderFuelList();
   });
 
-  els.sortFuelByDetourBtn?.addEventListener("click", () => {
+  sortFuelByDetourBtn?.addEventListener("click", () => {
     state.fuelListSort = "detour";
     renderFuelList();
   });
 
-  els.openFuelHistoryBtn?.addEventListener("click", openFuelHistory);
-  els.closeFuelHistoryBtn?.addEventListener("click", closeFuelHistory);
-  els.fuelHistoryBackdrop?.addEventListener("click", closeFuelHistory);
-
-  els.exitNavOverlayBtn?.addEventListener("click", stopLiveNavigation);
+  openFuelHistoryBtn?.addEventListener("click", openFuelHistory);
+  closeFuelHistoryBtn?.addEventListener("click", closeFuelHistory);
+  fuelHistoryBackdrop?.addEventListener("click", closeFuelHistory);
 
   document.addEventListener("click", event => {
     if (!event.target.closest(".search-wrap")) {
