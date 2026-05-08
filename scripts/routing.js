@@ -78,30 +78,10 @@ export async function calculateRoute() {
       state.destination
     );
 
-    state.routeData = route;
-    state.routeSteps = route.steps || [];
-    state.currentStepIndex = 0;
-    state.maxSpeedZones = [];
-    state.currentMaxSpeed = null;
-
-    drawRoute(state.routeData.geometry);
-
-    prepareRouteSteps();
-
-    saveHistory(state.destination);
-    renderHistory();
-
-    await Promise.allSettled([
-      loadFuelStations(state.routeData.geometry),
-      loadTrafficSignals(state.routeData.geometry),
-      loadMaxSpeedZones()
-    ]);
-
-    computeRouteDistances();
-    applyPricesToStations();
-
-    updateFuelBox();
-    updateFuelMarkers();
+    await applyNewRoute(route, {
+      saveToHistory: true,
+      refreshFuel: true
+    });
 
     setRouteReady(true);
 
@@ -129,6 +109,88 @@ export async function calculateRoute() {
     );
   } finally {
     setRouteBusy(false);
+  }
+}
+
+export async function recalculateRouteFromCurrentPosition(position) {
+  if (!position || !state.destination) {
+    throw new Error("Mangler aktuel position eller destination");
+  }
+
+  const from = {
+    lat: position.lat,
+    lng: position.lng
+  };
+
+  const route = await fetchBestRoute(
+    from,
+    state.destination
+  );
+
+  state.currentPosition = {
+    ...state.currentPosition,
+    lat: from.lat,
+    lng: from.lng
+  };
+
+  updateUserMarker(
+    from.lat,
+    from.lng
+  );
+
+  updateDestinationMarker(
+    state.destination.lat,
+    state.destination.lng
+  );
+
+  await applyNewRoute(route, {
+    saveToHistory: false,
+    refreshFuel: true
+  });
+
+  return route;
+}
+
+async function applyNewRoute(route, options = {}) {
+  const {
+    saveToHistory = false,
+    refreshFuel = true
+  } = options;
+
+  state.routeData = route;
+  state.routeSteps = route.steps || [];
+  state.currentStepIndex = 0;
+
+  state.maxSpeedZones = [];
+  state.currentMaxSpeed = null;
+  state.trafficSignals = [];
+
+  drawRoute(state.routeData.geometry);
+
+  prepareRouteSteps();
+
+  if (saveToHistory && state.destination) {
+    saveHistory(state.destination);
+    renderHistory();
+  }
+
+  if (refreshFuel) {
+    await Promise.allSettled([
+      loadFuelStations(state.routeData.geometry),
+      loadTrafficSignals(state.routeData.geometry),
+      loadMaxSpeedZones()
+    ]);
+
+    computeRouteDistances();
+    applyPricesToStations();
+
+    updateFuelBox();
+    updateFuelMarkers();
+  } else {
+    await Promise.allSettled([
+      loadTrafficSignals(state.routeData.geometry),
+      loadMaxSpeedZones()
+    ]);
   }
 }
 
