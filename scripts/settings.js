@@ -1,5 +1,6 @@
 import { state, SETTINGS_KEY } from "./state.js";
 import { els } from "./dom.js";
+
 import {
   applyPricesToStations,
   updateFuelBox,
@@ -40,7 +41,18 @@ export function applySettingsToUI() {
   setChecked("settingsRouteFast", state.settings.routeMode === "fast");
   setChecked("settingsRouteEco", state.settings.routeMode === "eco");
 
+  setChecked(
+    "settingsEcoScoreEnabled",
+    state.settings.ecoScoreEnabled !== false
+  );
+
+  setChecked(
+    "settingsAutoRerouteEnabled",
+    state.settings.autoRerouteEnabled !== false
+  );
+
   setValue("settingsFuelType", state.settings.fuelType || "benzin95");
+
   setValue(
     "settingsSearchRadius",
     String(state.settings.searchRadiusBase || 100000)
@@ -63,6 +75,12 @@ export function saveSettingsFromControls() {
   state.settings.searchRadiusBase = Number(
     getEl("settingsSearchRadius")?.value || 100000
   );
+
+  state.settings.ecoScoreEnabled =
+    getEl("settingsEcoScoreEnabled")?.checked !== false;
+
+  state.settings.autoRerouteEnabled =
+    getEl("settingsAutoRerouteEnabled")?.checked !== false;
 
   saveSettings();
   closeSettings();
@@ -140,6 +158,47 @@ function renderSettingsBody() {
     </div>
 
     <div class="settings-section">
+      <h3>Navigation</h3>
+
+      <label class="settings-option">
+        <input id="settingsAutoRerouteEnabled" type="checkbox">
+        <span>Genberegn automatisk rute, hvis jeg kører forkert</span>
+      </label>
+
+      <p class="settings-note">
+        Appen forsøger at genberegne ruten, hvis du er tydeligt væk fra ruten i flere sekunder.
+      </p>
+    </div>
+
+    <div class="settings-section">
+      <h3>EcoScore</h3>
+
+      <label class="settings-option">
+        <input id="settingsEcoScoreEnabled" type="checkbox">
+        <span>Vis EcoScore under navigation</span>
+      </label>
+
+      <div class="eco-guide">
+        <div class="eco-guide-title">
+          Sådan får du høj EcoScore
+        </div>
+
+        <ul>
+          <li>Hold en jævn hastighed.</li>
+          <li>Undgå hårde accelerationer.</li>
+          <li>Brems tidligt og roligt.</li>
+          <li>Hold dig under fartgrænsen.</li>
+          <li>Følg GreenWave-hastigheden, når den vises.</li>
+          <li>Undgå unødvendige stop og hurtige fartskift.</li>
+        </ul>
+
+        <p class="settings-note">
+          Høj score betyder typisk roligere kørsel, lavere forbrug og mindre slid.
+        </p>
+      </div>
+    </div>
+
+    <div class="settings-section">
       <h3>Brændstof</h3>
 
       <label class="label" for="settingsFuelType">
@@ -186,8 +245,17 @@ function refreshDynamicSettingRefs() {
   els.settingsRouteFast = document.getElementById("settingsRouteFast");
   els.settingsRouteEco = document.getElementById("settingsRouteEco");
 
-  els.settingsFuelType = document.getElementById("settingsFuelType");
-  els.settingsSearchRadius = document.getElementById("settingsSearchRadius");
+  els.settingsEcoScoreEnabled =
+    document.getElementById("settingsEcoScoreEnabled");
+
+  els.settingsAutoRerouteEnabled =
+    document.getElementById("settingsAutoRerouteEnabled");
+
+  els.settingsFuelType =
+    document.getElementById("settingsFuelType");
+
+  els.settingsSearchRadius =
+    document.getElementById("settingsSearchRadius");
 }
 
 function getEl(id) {
