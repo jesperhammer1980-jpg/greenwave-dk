@@ -17,12 +17,12 @@
 
   <link
     rel="stylesheet"
-    href="styles/base.css?v=8"
+    href="styles/base.css?v=9"
   />
 
   <link
     rel="stylesheet"
-    href="styles/navigation.css?v=8"
+    href="styles/navigation.css?v=9"
   />
 </head>
 
@@ -189,6 +189,13 @@
             Stop
           </button>
 
+          <div
+            id="ecoScoreBadge"
+            class="eco-score-badge"
+          >
+            Eco 100
+          </div>
+
           <div class="turn-card">
             <div class="turn-card-top">
               <div
@@ -268,13 +275,13 @@
               </div>
 
               <div class="nav-meta">
-                <span>Tid</span>
-                <strong id="driveRemainingTime">—</strong>
+                <span>ETA</span>
+                <strong id="driveEtaValue">—</strong>
               </div>
 
               <div class="nav-meta">
-                <span>Fart</span>
-                <strong id="driveCurrentValue">0 km/t</strong>
+                <span>Tid</span>
+                <strong id="driveRemainingTime">—</strong>
               </div>
             </div>
           </div>
@@ -372,7 +379,7 @@
 
   <script
     type="module"
-    src="scripts/main.js?v=37"
+    src="scripts/main.js?v=38"
   ></script>
 </body>
 </html>
