@@ -489,53 +489,6 @@ button:disabled {
   letter-spacing: -0.2px;
 }
 
-/* OLD FUEL LABEL SUPPORT */
-
-.fuel-price-marker {
-  position: relative;
-  transform: none !important;
-}
-
-.fuel-price-label {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 64px;
-  padding: 8px 10px;
-  border-radius: 999px;
-  background: rgba(8,14,22,0.94);
-  border: 1px solid rgba(255,255,255,0.12);
-  color: #ffffff;
-  font-size: 14px;
-  font-weight: 900;
-  line-height: 1;
-  white-space: nowrap;
-  box-shadow: 0 8px 22px rgba(0,0,0,0.34);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  transform: none !important;
-}
-
-.fuel-price-label.best {
-  background: rgba(0,160,80,0.96);
-}
-
-.fuel-price-label.no-price {
-  background: rgba(80,90,105,0.92);
-}
-
-.fuel-price-label.old {
-  background: rgba(92,22,22,0.92);
-}
-
-.fuel-price-label.warning {
-  background: rgba(92,60,18,0.92);
-}
-
-.fuel-price-label.fresh {
-  background: rgba(12,68,34,0.92);
-}
-
 /* AUTOCOMPLETE */
 
 .search-wrap {
@@ -812,6 +765,37 @@ button:disabled {
   line-height: 1.35;
 }
 
+.eco-guide {
+  padding: 14px;
+  border-radius: 16px;
+  background:
+    linear-gradient(
+      180deg,
+      rgba(0,200,83,0.10),
+      rgba(47,140,255,0.07)
+    );
+  border: 1px solid rgba(0,200,83,0.22);
+}
+
+.eco-guide-title {
+  color: #baffd2;
+  font-size: 15px;
+  font-weight: 950;
+  margin-bottom: 8px;
+}
+
+.eco-guide ul {
+  margin: 0 0 10px 18px;
+  padding: 0;
+  color: rgba(255,255,255,0.84);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.eco-guide li {
+  margin-bottom: 5px;
+}
+
 .fuel-list-controls {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -946,11 +930,6 @@ button:disabled {
 
   .fuel-overview-price {
     font-size: 14px;
-  }
-
-  .fuel-price-label {
-    min-width: 58px;
-    font-size: 13px;
   }
 
   .settings-panel,
