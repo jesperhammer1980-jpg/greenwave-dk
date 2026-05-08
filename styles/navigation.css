@@ -166,18 +166,18 @@
 
 .navigation-active .turn-instruction {
   color: #ffffff !important;
-  font-size: 28px !important;
+  font-size: 26px !important;
   font-weight: 950 !important;
-  line-height: 1.06 !important;
-  letter-spacing: -0.7px !important;
-  max-height: 92px !important;
+  line-height: 1.05 !important;
+  letter-spacing: -0.6px !important;
+  max-height: 64px !important;
   overflow: hidden !important;
 }
 
 .navigation-active .turn-road {
   margin-top: 8px !important;
   color: rgba(255,255,255,0.62) !important;
-  font-size: 17px !important;
+  font-size: 16px !important;
   font-weight: 650 !important;
   white-space: nowrap !important;
   overflow: hidden !important;
@@ -203,7 +203,7 @@
 
 .navigation-active .speed-sign-stack {
   position: absolute !important;
-  top: calc(env(safe-area-inset-top) + 210px) !important;
+  top: calc(env(safe-area-inset-top) + 214px) !important;
   left: 14px !important;
   display: grid !important;
   gap: 14px !important;
@@ -324,7 +324,9 @@
   font-weight: 950 !important;
 }
 
-/* FUEL MARKERS */
+/* FUEL MARKERS
+   De fjernes under navigation, og fuel.js opretter dem ikke længere.
+*/
 
 .navigation-active .fuel-price-marker,
 .navigation-active .fuel-price-label {
@@ -362,30 +364,30 @@
   }
 
   .navigation-active .turn-card-top {
-    grid-template-columns: 64px minmax(0, 1fr) !important;
-    gap: 14px !important;
-    padding: 16px 16px 14px 16px !important;
+    grid-template-columns: 58px minmax(0, 1fr) !important;
+    gap: 12px !important;
+    padding: 15px 15px 13px 15px !important;
   }
 
   .navigation-active .turn-icon {
-    width: 64px !important;
-    height: 64px !important;
-    border-radius: 20px !important;
-    font-size: 38px !important;
+    width: 58px !important;
+    height: 58px !important;
+    border-radius: 18px !important;
+    font-size: 34px !important;
   }
 
   .navigation-active .turn-distance {
-    font-size: 16px !important;
+    font-size: 15px !important;
   }
 
   .navigation-active .turn-instruction {
-    font-size: 24px !important;
-    line-height: 1.05 !important;
-    max-height: 82px !important;
+    font-size: 22px !important;
+    line-height: 1.04 !important;
+    max-height: 48px !important;
   }
 
   .navigation-active .turn-road {
-    font-size: 15px !important;
+    font-size: 14px !important;
   }
 
   .navigation-active .speed-sign-stack {
@@ -442,17 +444,18 @@
   }
 
   .navigation-active .turn-card-top {
-    grid-template-columns: 56px minmax(0, 1fr) !important;
-    gap: 12px !important;
+    grid-template-columns: 52px minmax(0, 1fr) !important;
+    gap: 11px !important;
   }
 
   .navigation-active .turn-icon {
-    width: 56px !important;
-    height: 56px !important;
-    font-size: 34px !important;
+    width: 52px !important;
+    height: 52px !important;
+    font-size: 31px !important;
   }
 
   .navigation-active .turn-instruction {
-    font-size: 21px !important;
+    font-size: 20px !important;
+    max-height: 44px !important;
   }
 }
