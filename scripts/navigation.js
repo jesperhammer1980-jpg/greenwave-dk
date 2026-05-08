@@ -42,6 +42,8 @@ export async function startLiveNavigation() {
   state.currentStepIndex = 0;
 
   resetNavigationPositionState();
+  resetRerouteState();
+  resetEcoScore();
 
   enterNavigationView();
   els.navOverlay?.classList.remove("hidden");
@@ -107,6 +109,8 @@ export async function stopLiveNavigation() {
   resetMapBearing();
   exitNavigationView();
 
+  resetRerouteState();
+
   if (els.startNavBtn) {
     els.startNavBtn.disabled = !state.routeData;
   }
@@ -136,13 +140,44 @@ function resetNavigationPositionState() {
   state.lastCameraMoveAt = null;
 }
 
+function resetRerouteState() {
+  if (!state.reroute) {
+    return;
+  }
+
+  state.reroute.isRerouting = false;
+  state.reroute.offRouteSince = null;
+  state.reroute.lastRerouteAt = null;
+}
+
+function resetEcoScore() {
+  state.ecoScore = {
+    value: 100,
+    samples: 0,
+    lastSpeedKmh: null,
+    lastTimestamp: null,
+    hardAccelerationCount: 0,
+    hardBrakeCount: 0,
+    speedingCount: 0,
+    greenWaveMissCount: 0,
+    smoothDrivingBonus: 0
+  };
+
+  updateEcoScoreBadge();
+}
+
 function initializeNavigationUi() {
   updateTurnCardFromStep(null, null);
   updateTurnProgress(0.12);
   updateSpeedSigns(0, null);
+  updateEcoScoreBadge();
+
+  if (els.driveEtaValue) {
+    els.driveEtaValue.textContent = "—";
+  }
 }
 
-function handleNavigationPosition(position) {
+async function handleNavigationPosition(position) {
   const raw = {
     lat: position.coords.latitude,
     lng: position.coords.longitude,
@@ -204,6 +239,10 @@ function handleNavigationPosition(position) {
     active?.step || null,
     active?.distanceToStep ?? null
   );
+
+  updateEcoScore(smooth);
+
+  await maybeAutoReroute(smooth);
 
   const snapCamera = state.isRecoveringPosition;
 
@@ -439,11 +478,6 @@ function updateNavigationStats(current) {
   const currentSpeedKmh =
     getCurrentSpeedKmh(current);
 
-  if (els.driveCurrentValue) {
-    els.driveCurrentValue.textContent =
-      `${currentSpeedKmh} km/t`;
-  }
-
   updateRemainingTripStats(
     current,
     currentSpeedKmh
@@ -495,6 +529,15 @@ function updateRemainingTripStats(current, speedKmh) {
         formatDuration(remainingSeconds);
     } else {
       els.driveRemainingTime.textContent = "—";
+    }
+  }
+
+  if (els.driveEtaValue) {
+    if (Number.isFinite(remainingSeconds)) {
+      els.driveEtaValue.textContent =
+        formatEta(remainingSeconds);
+    } else {
+      els.driveEtaValue.textContent = "—";
     }
   }
 }
@@ -687,11 +730,6 @@ function getTurnIcon(step) {
   return "↑";
 }
 
-/*
-  VIGTIGT:
-  Hovedteksten må IKKE indeholde vejnavn.
-  Vejnavn vises kun i den grå linje under.
-*/
 function getShortTurnInstruction(step) {
   const type = String(step.maneuverType || "").toLowerCase();
   const modifier = String(step.maneuverModifier || "").toLowerCase();
@@ -789,6 +827,296 @@ function getRoadName(step) {
   return "";
 }
 
+function updateEcoScore(current) {
+  if (!state.settings?.ecoScoreEnabled) {
+    return;
+  }
+
+  const score = state.ecoScore;
+
+  if (!score) {
+    return;
+  }
+
+  const now = current.timestamp || Date.now();
+  const speedKmh = getCurrentSpeedKmh(current);
+  const maxSpeed = getCurrentMaxSpeed();
+
+  if (
+    typeof score.lastSpeedKmh === "number" &&
+    Number.isFinite(score.lastSpeedKmh) &&
+    typeof score.lastTimestamp === "number" &&
+    Number.isFinite(score.lastTimestamp)
+  ) {
+    const deltaSeconds =
+      Math.max(0.5, (now - score.lastTimestamp) / 1000);
+
+    const deltaSpeed =
+      speedKmh - score.lastSpeedKmh;
+
+    const accelerationKmhPerSecond =
+      deltaSpeed / deltaSeconds;
+
+    if (accelerationKmhPerSecond > 8) {
+      score.hardAccelerationCount += 1;
+    }
+
+    if (accelerationKmhPerSecond < -10) {
+      score.hardBrakeCount += 1;
+    }
+
+    if (
+      maxSpeed &&
+      speedKmh > maxSpeed + 4
+    ) {
+      score.speedingCount += 1;
+    }
+
+    const recommendation =
+      getGreenWaveRecommendation(current);
+
+    if (
+      Number.isFinite(recommendation.speedKmh) &&
+      Math.abs(speedKmh - recommendation.speedKmh) > 14 &&
+      speedKmh > 20
+    ) {
+      score.greenWaveMissCount += 1;
+    }
+
+    if (
+      Math.abs(deltaSpeed) <= 3 &&
+      speedKmh > 15
+    ) {
+      score.smoothDrivingBonus += 0.15;
+    }
+  }
+
+  score.samples += 1;
+  score.lastSpeedKmh = speedKmh;
+  score.lastTimestamp = now;
+
+  const penalty =
+    score.hardAccelerationCount * 4 +
+    score.hardBrakeCount * 5 +
+    score.speedingCount * 3 +
+    score.greenWaveMissCount * 2;
+
+  const bonus =
+    Math.min(8, score.smoothDrivingBonus);
+
+  score.value =
+    Math.max(
+      0,
+      Math.min(
+        100,
+        Math.round(100 - penalty + bonus)
+      )
+    );
+
+  updateEcoScoreBadge();
+}
+
+function updateEcoScoreBadge() {
+  if (!els.ecoScoreBadge) {
+    return;
+  }
+
+  const value =
+    Number.isFinite(state.ecoScore?.value)
+      ? state.ecoScore.value
+      : 100;
+
+  els.ecoScoreBadge.textContent =
+    `Eco ${value}`;
+
+  els.ecoScoreBadge.classList.remove(
+    "eco-ok",
+    "eco-mid",
+    "eco-low"
+  );
+
+  if (value >= 80) {
+    els.ecoScoreBadge.classList.add("eco-ok");
+  } else if (value >= 55) {
+    els.ecoScoreBadge.classList.add("eco-mid");
+  } else {
+    els.ecoScoreBadge.classList.add("eco-low");
+  }
+}
+
+async function maybeAutoReroute(current) {
+  if (!state.settings?.autoRerouteEnabled) {
+    return;
+  }
+
+  if (!state.reroute || state.reroute.isRerouting) {
+    return;
+  }
+
+  if (!state.routeData?.geometry?.length || !state.destination) {
+    return;
+  }
+
+  const distanceToRoute =
+    getDistanceToRouteMeters(current);
+
+  if (!Number.isFinite(distanceToRoute)) {
+    return;
+  }
+
+  const now = Date.now();
+
+  const limit =
+    state.reroute.offRouteDistanceLimitMeters || 70;
+
+  const delay =
+    state.reroute.offRouteDelayMs || 8000;
+
+  const cooldown =
+    state.reroute.rerouteCooldownMs || 25000;
+
+  if (distanceToRoute <= limit) {
+    state.reroute.offRouteSince = null;
+    return;
+  }
+
+  if (!state.reroute.offRouteSince) {
+    state.reroute.offRouteSince = now;
+    return;
+  }
+
+  const hasBeenOffRouteLongEnough =
+    now - state.reroute.offRouteSince >= delay;
+
+  const cooldownPassed =
+    !state.reroute.lastRerouteAt ||
+    now - state.reroute.lastRerouteAt >= cooldown;
+
+  if (!hasBeenOffRouteLongEnough || !cooldownPassed) {
+    return;
+  }
+
+  await triggerReroute(current);
+}
+
+async function triggerReroute(current) {
+  try {
+    state.reroute.isRerouting = true;
+    state.reroute.lastRerouteAt = Date.now();
+
+    setStatus(
+      "GPS: live",
+      "Navigation: genberegner",
+      "Kort: ny rute"
+    );
+
+    const routing =
+      await import("./routing.js");
+
+    if (typeof routing.recalculateRouteFromCurrentPosition !== "function") {
+      throw new Error("Reroute-funktion mangler i routing.js");
+    }
+
+    await routing.recalculateRouteFromCurrentPosition(current);
+
+    state.currentStepIndex = 0;
+    state.reroute.offRouteSince = null;
+
+    setStatus(
+      "GPS: live",
+      "Navigation: live",
+      "Kort: ny rute klar"
+    );
+  } catch (error) {
+    console.error("Auto-reroute fejl", error);
+
+    setStatus(
+      "GPS: live",
+      "Navigation: reroute fejl",
+      "Kort: fortsætter"
+    );
+  } finally {
+    state.reroute.isRerouting = false;
+  }
+}
+
+function getDistanceToRouteMeters(position) {
+  const geometry = state.routeData?.geometry;
+
+  if (!position || !Array.isArray(geometry) || geometry.length < 2) {
+    return Infinity;
+  }
+
+  let best = Infinity;
+
+  for (let i = 1; i < geometry.length; i++) {
+    const start = geometry[i - 1];
+    const end = geometry[i];
+
+    const distance =
+      distancePointToSegmentApproxMeters(
+        position.lat,
+        position.lng,
+        start[1],
+        start[0],
+        end[1],
+        end[0]
+      );
+
+    if (distance < best) {
+      best = distance;
+    }
+  }
+
+  return best;
+}
+
+function distancePointToSegmentApproxMeters(
+  lat,
+  lng,
+  lat1,
+  lng1,
+  lat2,
+  lng2
+) {
+  const metersPerDegreeLat = 111320;
+  const metersPerDegreeLng =
+    111320 * Math.cos(lat * Math.PI / 180);
+
+  const px = lng * metersPerDegreeLng;
+  const py = lat * metersPerDegreeLat;
+
+  const ax = lng1 * metersPerDegreeLng;
+  const ay = lat1 * metersPerDegreeLat;
+
+  const bx = lng2 * metersPerDegreeLng;
+  const by = lat2 * metersPerDegreeLat;
+
+  const dx = bx - ax;
+  const dy = by - ay;
+
+  const lengthSquared =
+    dx * dx + dy * dy;
+
+  if (lengthSquared === 0) {
+    return Math.hypot(px - ax, py - ay);
+  }
+
+  let t =
+    ((px - ax) * dx + (py - ay) * dy) /
+    lengthSquared;
+
+  t = Math.max(0, Math.min(1, t));
+
+  const projectedX = ax + t * dx;
+  const projectedY = ay + t * dy;
+
+  return Math.hypot(
+    px - projectedX,
+    py - projectedY
+  );
+}
+
 function getCurrentSpeedKmh(current) {
   if (
     typeof current?.speed === "number" &&
@@ -828,6 +1156,21 @@ function formatDuration(seconds) {
   }
 
   return `${hours} t ${restMinutes} min`;
+}
+
+function formatEta(secondsFromNow) {
+  if (!Number.isFinite(secondsFromNow)) {
+    return "—";
+  }
+
+  const eta = new Date(
+    Date.now() + secondsFromNow * 1000
+  );
+
+  return eta.toLocaleTimeString("da-DK", {
+    hour: "2-digit",
+    minute: "2-digit"
+  });
 }
 
 function updateNightMode() {
