@@ -46,6 +46,27 @@ export const state = {
   watchId: null,
   isNavigating: false,
 
+  reroute: {
+    isRerouting: false,
+    offRouteSince: null,
+    lastRerouteAt: null,
+    offRouteDistanceLimitMeters: 70,
+    offRouteDelayMs: 8000,
+    rerouteCooldownMs: 25000
+  },
+
+  ecoScore: {
+    value: 100,
+    samples: 0,
+    lastSpeedKmh: null,
+    lastTimestamp: null,
+    hardAccelerationCount: 0,
+    hardBrakeCount: 0,
+    speedingCount: 0,
+    greenWaveMissCount: 0,
+    smoothDrivingBonus: 0
+  },
+
   navigationView: {
     mode: "standard",
     pseudo3d: true,
@@ -63,6 +84,8 @@ export const state = {
     region: "dk",
     routeMode: "fast",
     fuelType: "benzin95",
-    searchRadiusBase: 100000
+    searchRadiusBase: 100000,
+    ecoScoreEnabled: true,
+    autoRerouteEnabled: true
   }
 };
