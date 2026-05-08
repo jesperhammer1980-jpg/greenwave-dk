@@ -8,7 +8,6 @@ import {
   extractCity,
   formatDistance,
   formatPrice,
-  formatPriceShort,
   haversine,
   normalizeBrand,
   normalizeText,
@@ -78,7 +77,10 @@ function normalizeFuelPrices(rawStations) {
             return;
           }
 
-          const updatedAt = data.updatedAt || station.updatedAt || null;
+          const updatedAt =
+            data.updatedAt ||
+            station.updatedAt ||
+            null;
 
           out.push({
             name: station.name || "Ukendt station",
@@ -92,10 +94,17 @@ function normalizeFuelPrices(rawStations) {
             price: data.price,
             currency: data.currency || "DKK",
             unit: data.unit || "liter",
-            source: data.source || station.source || "fuel-prices.json",
+            source:
+              data.source ||
+              station.source ||
+              "fuel-prices.json",
             updatedAt,
-            fetchedAt: data.fetchedAt || station.fetchedAt || null,
-            dataAgeLabel: getPriceAgeLabel(updatedAt)
+            fetchedAt:
+              data.fetchedAt ||
+              station.fetchedAt ||
+              null,
+            dataAgeLabel: getPriceAgeLabel(updatedAt),
+            priceFreshness: getPriceFreshness(updatedAt)
           });
         }
       );
@@ -104,7 +113,9 @@ function normalizeFuelPrices(rawStations) {
     }
 
     if (typeof station.price === "number") {
-      const updatedAt = station.updatedAt || null;
+      const updatedAt =
+        station.updatedAt ||
+        null;
 
       out.push({
         name: station.name || "Ukendt station",
@@ -114,14 +125,17 @@ function normalizeFuelPrices(rawStations) {
         lat: numberOrNull(station.lat),
         lng: numberOrNull(station.lng),
         country,
-        fuelType: station.fuelType || state.settings.fuelType,
+        fuelType:
+          station.fuelType ||
+          state.settings.fuelType,
         price: station.price,
         currency: station.currency || "DKK",
         unit: station.unit || "liter",
         source: station.source || "fuel-prices.json",
         updatedAt,
         fetchedAt: station.fetchedAt || null,
-        dataAgeLabel: getPriceAgeLabel(updatedAt)
+        dataAgeLabel: getPriceAgeLabel(updatedAt),
+        priceFreshness: getPriceFreshness(updatedAt)
       });
     }
   });
@@ -187,7 +201,8 @@ function sampleRoutePoints(geometry) {
 
   for (let i = 0; i < maxSamples; i++) {
     const index = Math.round(
-      (geometry.length - 1) * (i / (maxSamples - 1))
+      (geometry.length - 1) *
+      (i / (maxSamples - 1))
     );
 
     const point = geometry[index];
@@ -260,7 +275,9 @@ function normalizeOsmStation(element) {
     name,
     brand,
     address,
-    city: tags["addr:city"] || extractCity(address),
+    city:
+      tags["addr:city"] ||
+      extractCity(address),
     price: null,
     currency: null,
     unit: null,
@@ -321,7 +338,9 @@ export function computeRouteDistances() {
       );
 
       if (projected.distanceMeters < bestDistanceToRoute) {
-        bestDistanceToRoute = projected.distanceMeters;
+        bestDistanceToRoute =
+          projected.distanceMeters;
+
         bestAlong =
           segment.startMeters +
           segment.length * projected.t;
@@ -338,8 +357,6 @@ export function applyPricesToStations() {
     const realMatch = findFuelPrice(station);
 
     if (realMatch) {
-      const freshness = getPriceFreshness(realMatch.updatedAt);
-
       return {
         ...station,
         price: realMatch.price,
@@ -352,7 +369,9 @@ export function applyPricesToStations() {
         dataAgeLabel:
           realMatch.dataAgeLabel ||
           getPriceAgeLabel(realMatch.updatedAt),
-        priceFreshness: freshness,
+        priceFreshness:
+          realMatch.priceFreshness ||
+          getPriceFreshness(realMatch.updatedAt),
         stateCode: realMatch.stateCode || null
       };
     }
@@ -374,7 +393,8 @@ export function applyPricesToStations() {
         dataAgeLabel: estimate.dataAgeLabel,
         updatedAt: estimate.updatedAt,
         fetchedAt: estimate.fetchedAt || null,
-        priceFreshness: getPriceFreshness(estimate.updatedAt)
+        priceFreshness:
+          getPriceFreshness(estimate.updatedAt)
       };
     }
 
@@ -476,7 +496,10 @@ function findFuelPrice(station) {
         ) {
           score += 25;
         } else {
-          score += sharedWordScore(stationName, itemName);
+          score += sharedWordScore(
+            stationName,
+            itemName
+          );
         }
       }
 
@@ -487,7 +510,10 @@ function findFuelPrice(station) {
       };
     })
     .filter(item => item.score >= 45)
-    .sort((a, b) => b.score - a.score || a.price - b.price);
+    .sort((a, b) =>
+      b.score - a.score ||
+      a.price - b.price
+    );
 
   if (scored.length) {
     return scored[0];
@@ -522,15 +548,22 @@ function isCompatiblePrice(item) {
 }
 
 function getRouteLimitMeters() {
-  return Number(state.settings.searchRadiusBase || 100000);
+  return Number(
+    state.settings.searchRadiusBase ||
+    100000
+  );
 }
 
 export function getStationsInRange() {
   const limit = getRouteLimitMeters();
 
   const stations = state.osmFuelStations
-    .filter(station => station.distanceAlongRoute <= limit)
-    .filter(station => station.distanceToRoute <= 2500);
+    .filter(station =>
+      station.distanceAlongRoute <= limit
+    )
+    .filter(station =>
+      station.distanceToRoute <= 2500
+    );
 
   const withPrice = stations.filter(
     station => typeof station.price === "number"
@@ -571,11 +604,13 @@ export function updateFuelBox() {
   }
 
   if (!state.routeData) {
-    els.fuelContent.innerHTML = "Beregn en rute først.";
+    els.fuelContent.innerHTML =
+      "Beregn en rute først.";
     return;
   }
 
   const stations = getStationsInRange();
+
   const priced = stations.filter(
     station => typeof station.price === "number"
   );
@@ -608,17 +643,26 @@ export function updateFuelBox() {
   els.fuelContent.innerHTML = `
     <div class="fuel-name">${escapeHtml(best.name)}</div>
     <div class="fuel-price">${formatPrice(best.price)}</div>
+
     <div class="fuel-meta">Langs ruten: ${formatDistance(best.distanceAlongRoute)}</div>
     <div class="fuel-meta">Fra rute: ${formatDistance(best.distanceToRoute)}</div>
     <div class="fuel-meta">Match: ${escapeHtml(best.matchMode || "prisdata")}</div>
     <div class="fuel-meta">Kilde: ${escapeHtml(best.source || "OSM")}</div>
+
     ${
       best.stateCode
-        ? `<div class="fuel-meta">Stat: ${escapeHtml(best.stateCode)}</div>`
+        ? `<div class="fuel-meta">Marked: ${escapeHtml(best.stateCode)}</div>`
         : ""
     }
+
     ${renderPriceStatus(best)}
-    <a class="fuel-list-map-link google-maps-btn" href="${buildGoogleMapsLink(best)}" target="_blank" rel="noopener noreferrer">
+
+    <a
+      class="fuel-list-map-link google-maps-btn"
+      href="${buildGoogleMapsLink(best)}"
+      target="_blank"
+      rel="noopener noreferrer"
+    >
       Åbn via Google Maps
     </a>
   `;
@@ -658,7 +702,11 @@ export function renderFuelList() {
         </div>
 
         <div class="fuel-list-price">
-          ${typeof station.price === "number" ? formatPrice(station.price) : "Pris mangler"}
+          ${
+            typeof station.price === "number"
+              ? formatPrice(station.price)
+              : "Pris mangler"
+          }
         </div>
       </div>
 
@@ -695,7 +743,12 @@ export function renderFuelList() {
       </div>
 
       <div class="fuel-list-actions">
-        <a class="fuel-list-map-link google-maps-btn" href="${buildGoogleMapsLink(station)}" target="_blank" rel="noopener noreferrer">
+        <a
+          class="fuel-list-map-link google-maps-btn"
+          href="${buildGoogleMapsLink(station)}"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
           Åbn via Google Maps
         </a>
       </div>
@@ -703,6 +756,11 @@ export function renderFuelList() {
   `).join("");
 }
 
+/*
+  Prishistorik er bevidst slået fra.
+  Knappen er fjernet fra index.html, men funktionerne bevares tomme
+  så gamle imports/event bindings ikke fejler.
+*/
 export function openFuelHistory() {
   return;
 }
@@ -712,61 +770,20 @@ export function closeFuelHistory() {
   els.fuelHistoryBackdrop?.classList.add("hidden");
 }
 
+/*
+  VIGTIGT:
+  Fuel price markers er bevidst fjernet fra kortet.
+
+  Årsag:
+  - de lå ikke korrekt på kortet
+  - de kunne ende i vandet
+  - de roterede med kortet i navigation
+  - de skabte forvirring
+
+  Priser skal vises i boksen og listen, ikke som map-markers.
+*/
 export function updateFuelMarkers() {
   clearFuelMarkers();
-
-  if (!state.map) {
-    return;
-  }
-
-  const stations = getStationsInRange()
-    .filter(station => typeof station.price === "number")
-    .slice(0, 5);
-
-  const bestPriced = stations
-    .slice()
-    .sort((a, b) =>
-      a.price - b.price ||
-      a.distanceToRoute - b.distanceToRoute ||
-      a.distanceAlongRoute - b.distanceAlongRoute
-    )[0];
-
-  stations.forEach(station => {
-    const isBest =
-      bestPriced &&
-      station.id === bestPriced.id;
-
-    const icon = L.divIcon({
-      className: "fuel-price-marker",
-      html: `
-        <div class="fuel-price-label ${isBest ? "best" : ""} ${getFuelMarkerClass(station)}">
-          ${formatPriceShort(station.price)}
-        </div>
-      `,
-      iconSize: [74, 34],
-      iconAnchor: [37, 17]
-    });
-
-    const marker = L.marker(
-      [station.lat, station.lng],
-      { icon }
-    )
-      .addTo(state.map)
-      .bindPopup(`
-        <strong>${escapeHtml(station.name)}</strong><br>
-        ${formatPrice(station.price)}<br>
-        Langs ruten: ${formatDistance(station.distanceAlongRoute)}<br>
-        Fra rute: ${formatDistance(station.distanceToRoute)}<br>
-        Kilde: ${escapeHtml(station.source || "OSM")}<br>
-        ${station.stateCode ? `Marked: ${escapeHtml(station.stateCode)}<br>` : ""}
-        ${station.dataAgeLabel ? `${escapeHtml(station.dataAgeLabel)}<br>` : ""}
-        <a class="fuel-list-map-link google-maps-btn" href="${buildGoogleMapsLink(station)}" target="_blank" rel="noopener noreferrer">
-          Åbn via Google Maps
-        </a>
-      `);
-
-    state.fuelMarkers.push(marker);
-  });
 }
 
 export function clearFuelMarkers() {
@@ -796,17 +813,19 @@ function renderPriceStatus(station) {
   `;
 }
 
-function getFuelMarkerClass(station) {
-  if (station.priceFreshness === "fresh") return "fresh";
-  if (station.priceFreshness === "warning") return "warning";
-  if (station.priceFreshness === "old") return "old";
-  return "";
-}
-
 function getPriceMetaClass(station) {
-  if (station.priceFreshness === "fresh") return "price-fresh";
-  if (station.priceFreshness === "warning") return "price-warning";
-  if (station.priceFreshness === "old") return "price-old";
+  if (station.priceFreshness === "fresh") {
+    return "price-fresh";
+  }
+
+  if (station.priceFreshness === "warning") {
+    return "price-warning";
+  }
+
+  if (station.priceFreshness === "old") {
+    return "price-old";
+  }
+
   return "";
 }
 
@@ -864,7 +883,9 @@ function getAgeHours(value) {
 }
 
 function formatAge(ageHours) {
-  const totalMinutes = Math.max(0, Math.round(ageHours * 60));
+  const totalMinutes =
+    Math.max(0, Math.round(ageHours * 60));
+
   const hours = Math.floor(totalMinutes / 60);
   const minutes = totalMinutes % 60;
 
