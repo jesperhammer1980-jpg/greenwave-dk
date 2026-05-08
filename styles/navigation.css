@@ -107,6 +107,76 @@
   pointer-events: auto !important;
 }
 
+/* ECO SCORE BADGE */
+
+.navigation-active .eco-score-badge {
+  position: absolute !important;
+  top: calc(env(safe-area-inset-top) + 98px) !important;
+  right: 18px !important;
+  z-index: 1400 !important;
+
+  min-width: 106px !important;
+  height: 56px !important;
+
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+
+  padding: 0 14px !important;
+
+  border-radius: 999px !important;
+
+  background:
+    linear-gradient(
+      180deg,
+      rgba(0, 200, 83, 0.98),
+      rgba(0, 120, 48, 0.98)
+    ) !important;
+
+  border: 2px solid rgba(178,255,205,0.72) !important;
+
+  color: #ffffff !important;
+
+  font-size: 20px !important;
+  font-weight: 950 !important;
+  letter-spacing: -0.4px !important;
+
+  box-shadow:
+    0 12px 30px rgba(0,0,0,0.42),
+    inset 0 1px 0 rgba(255,255,255,0.22) !important;
+
+  pointer-events: none !important;
+}
+
+.navigation-active .eco-score-badge.eco-ok {
+  background:
+    linear-gradient(
+      180deg,
+      rgba(0, 200, 83, 0.98),
+      rgba(0, 120, 48, 0.98)
+    ) !important;
+}
+
+.navigation-active .eco-score-badge.eco-mid {
+  background:
+    linear-gradient(
+      180deg,
+      rgba(255, 152, 0, 0.98),
+      rgba(165, 92, 0, 0.98)
+    ) !important;
+  border-color: rgba(255,219,150,0.75) !important;
+}
+
+.navigation-active .eco-score-badge.eco-low {
+  background:
+    linear-gradient(
+      180deg,
+      rgba(255, 59, 48, 0.98),
+      rgba(150, 28, 24, 0.98)
+    ) !important;
+  border-color: rgba(255,150,145,0.78) !important;
+}
+
 /* TURN CARD */
 
 .navigation-active .turn-card {
@@ -324,12 +394,12 @@
   font-weight: 950 !important;
 }
 
-/* FUEL MARKERS
-   De fjernes under navigation, og fuel.js opretter dem ikke længere.
-*/
+/* FUEL MARKERS */
 
 .navigation-active .fuel-price-marker,
-.navigation-active .fuel-price-label {
+.navigation-active .fuel-price-label,
+.navigation-active .fuel-overview-marker,
+.navigation-active .fuel-overview-pin {
   display: none !important;
 }
 
@@ -353,6 +423,14 @@
     min-width: 96px !important;
     height: 54px !important;
     min-height: 54px !important;
+    font-size: 18px !important;
+  }
+
+  .navigation-active .eco-score-badge {
+    top: calc(env(safe-area-inset-top) + 96px) !important;
+    right: 14px !important;
+    min-width: 96px !important;
+    height: 54px !important;
     font-size: 18px !important;
   }
 
@@ -434,6 +512,11 @@
 @media (max-width: 390px) {
   .navigation-active .nav-floating-stop {
     width: 88px !important;
+    min-width: 88px !important;
+    font-size: 17px !important;
+  }
+
+  .navigation-active .eco-score-badge {
     min-width: 88px !important;
     font-size: 17px !important;
   }
