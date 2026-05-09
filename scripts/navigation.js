@@ -152,7 +152,7 @@ function resetRerouteState() {
 
 function resetEcoScore() {
   state.ecoScore = {
-    value: 100,
+    value: 75,
     samples: 0,
     lastSpeedKmh: null,
     lastTimestamp: null,
@@ -524,21 +524,17 @@ function updateRemainingTripStats(current, speedKmh) {
   }
 
   if (els.driveRemainingTime) {
-    if (Number.isFinite(remainingSeconds)) {
-      els.driveRemainingTime.textContent =
-        formatDuration(remainingSeconds);
-    } else {
-      els.driveRemainingTime.textContent = "—";
-    }
+    els.driveRemainingTime.textContent =
+      Number.isFinite(remainingSeconds)
+        ? formatDuration(remainingSeconds)
+        : "—";
   }
 
   if (els.driveEtaValue) {
-    if (Number.isFinite(remainingSeconds)) {
-      els.driveEtaValue.textContent =
-        formatEta(remainingSeconds);
-    } else {
-      els.driveEtaValue.textContent = "—";
-    }
+    els.driveEtaValue.textContent =
+      Number.isFinite(remainingSeconds)
+        ? formatEta(remainingSeconds)
+        : "—";
   }
 }
 
@@ -841,75 +837,98 @@ function updateEcoScore(current) {
   const now = current.timestamp || Date.now();
   const speedKmh = getCurrentSpeedKmh(current);
   const maxSpeed = getCurrentMaxSpeed();
+  const recommendation = getGreenWaveRecommendation(current);
 
   if (
-    typeof score.lastSpeedKmh === "number" &&
-    Number.isFinite(score.lastSpeedKmh) &&
-    typeof score.lastTimestamp === "number" &&
-    Number.isFinite(score.lastTimestamp)
+    typeof score.lastSpeedKmh !== "number" ||
+    !Number.isFinite(score.lastSpeedKmh) ||
+    typeof score.lastTimestamp !== "number" ||
+    !Number.isFinite(score.lastTimestamp)
   ) {
-    const deltaSeconds =
-      Math.max(0.5, (now - score.lastTimestamp) / 1000);
+    score.lastSpeedKmh = speedKmh;
+    score.lastTimestamp = now;
+    score.samples += 1;
+    updateEcoScoreBadge();
+    return;
+  }
 
-    const deltaSpeed =
-      speedKmh - score.lastSpeedKmh;
+  const deltaSeconds =
+    Math.max(0.75, (now - score.lastTimestamp) / 1000);
 
-    const accelerationKmhPerSecond =
-      deltaSpeed / deltaSeconds;
+  const deltaSpeed =
+    speedKmh - score.lastSpeedKmh;
 
-    if (accelerationKmhPerSecond > 8) {
+  const acceleration =
+    deltaSpeed / deltaSeconds;
+
+  let change = 0;
+
+  const isMoving =
+    speedKmh > 8 || score.lastSpeedKmh > 8;
+
+  if (isMoving) {
+    if (Math.abs(acceleration) <= 1.5) {
+      change += 0.45;
+    } else if (acceleration > 1.5 && acceleration <= 4.5) {
+      change += 0.25;
+    } else if (acceleration < -1.5 && acceleration >= -5.5) {
+      change += 0.25;
+    } else if (acceleration > 7.5) {
+      change -= 1.4;
       score.hardAccelerationCount += 1;
-    }
-
-    if (accelerationKmhPerSecond < -10) {
+    } else if (acceleration < -9.5) {
+      change -= 1.6;
       score.hardBrakeCount += 1;
     }
 
-    if (
-      maxSpeed &&
-      speedKmh > maxSpeed + 4
-    ) {
-      score.speedingCount += 1;
+    if (maxSpeed) {
+      if (speedKmh <= maxSpeed + 2) {
+        change += 0.18;
+      } else if (speedKmh > maxSpeed + 6) {
+        change -= 1.1;
+        score.speedingCount += 1;
+      }
     }
 
-    const recommendation =
-      getGreenWaveRecommendation(current);
+    if (Number.isFinite(recommendation.speedKmh)) {
+      const diff =
+        Math.abs(speedKmh - recommendation.speedKmh);
 
-    if (
-      Number.isFinite(recommendation.speedKmh) &&
-      Math.abs(speedKmh - recommendation.speedKmh) > 14 &&
-      speedKmh > 20
-    ) {
-      score.greenWaveMissCount += 1;
+      if (diff <= 7) {
+        change += 0.3;
+      } else if (diff > 18 && speedKmh > 20) {
+        change -= 0.8;
+        score.greenWaveMissCount += 1;
+      }
     }
 
     if (
-      Math.abs(deltaSpeed) <= 3 &&
-      speedKmh > 15
+      Math.abs(deltaSpeed) <= 2 &&
+      speedKmh >= 25
     ) {
-      score.smoothDrivingBonus += 0.15;
+      change += 0.25;
+      score.smoothDrivingBonus += 0.1;
     }
+  }
+
+  if (
+    !isMoving &&
+    speedKmh < 5 &&
+    score.lastSpeedKmh < 5
+  ) {
+    change += 0.03;
   }
 
   score.samples += 1;
   score.lastSpeedKmh = speedKmh;
   score.lastTimestamp = now;
 
-  const penalty =
-    score.hardAccelerationCount * 4 +
-    score.hardBrakeCount * 5 +
-    score.speedingCount * 3 +
-    score.greenWaveMissCount * 2;
-
-  const bonus =
-    Math.min(8, score.smoothDrivingBonus);
-
   score.value =
     Math.max(
       0,
       Math.min(
         100,
-        Math.round(100 - penalty + bonus)
+        Math.round((score.value || 75) + change)
       )
     );
 
@@ -924,7 +943,7 @@ function updateEcoScoreBadge() {
   const value =
     Number.isFinite(state.ecoScore?.value)
       ? state.ecoScore.value
-      : 100;
+      : 75;
 
   els.ecoScoreBadge.textContent =
     `Eco ${value}`;
