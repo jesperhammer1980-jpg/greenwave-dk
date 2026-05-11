@@ -83,8 +83,8 @@ export async function startLiveNavigation() {
     handleNavigationError,
     {
       enableHighAccuracy: true,
-      maximumAge: 300,
-      timeout: 15000
+      maximumAge: 180,
+      timeout: 12000
     }
   );
 }
@@ -152,7 +152,7 @@ function resetRerouteState() {
 
 function resetEcoScore() {
   state.ecoScore = {
-    value: 75,
+    value: 70,
     samples: 0,
     lastSpeedKmh: null,
     lastTimestamp: null,
@@ -160,7 +160,8 @@ function resetEcoScore() {
     hardBrakeCount: 0,
     speedingCount: 0,
     greenWaveMissCount: 0,
-    smoothDrivingBonus: 0
+    smoothDrivingBonus: 0,
+    lastBonusAt: null
   };
 
   updateEcoScoreBadge();
@@ -271,7 +272,7 @@ async function handleNavigationPosition(position) {
 
 function shouldIgnoreStalePosition(raw) {
   const age = Date.now() - raw.timestamp;
-  return age > 7000;
+  return age > 5000;
 }
 
 function isGoodGpsFix(raw) {
@@ -279,7 +280,7 @@ function isGoodGpsFix(raw) {
     typeof raw.accuracy === "number" &&
     Number.isFinite(raw.accuracy)
   ) {
-    return raw.accuracy <= 35;
+    return raw.accuracy <= 45;
   }
 
   return true;
@@ -311,22 +312,30 @@ function smoothPosition(raw) {
 
   const speedKmh = getCurrentSpeedKmh(raw);
 
-  if (distance < 4 && speedKmh < 30) {
+  if (distance < 2.5 && speedKmh < 20) {
     return previous;
   }
 
-  let alpha = 0.24;
+  let alpha = 0.36;
 
-  if (speedKmh > 25) {
-    alpha = 0.34;
+  if (speedKmh > 20) {
+    alpha = 0.46;
   }
 
-  if (speedKmh > 60) {
-    alpha = 0.44;
+  if (speedKmh > 50) {
+    alpha = 0.56;
   }
 
-  if (distance > 80 && speedKmh < 25) {
-    alpha = 0.10;
+  if (speedKmh > 90) {
+    alpha = 0.64;
+  }
+
+  if (distance > 100 && speedKmh < 25) {
+    alpha = 0.18;
+  }
+
+  if (distance > 250) {
+    alpha = 0.78;
   }
 
   return {
@@ -347,7 +356,7 @@ function getStableNavigationHeading(raw, smooth, routeBearing) {
   ) {
     targetHeading = routeBearing;
   } else if (
-    speedKmh > 14 &&
+    speedKmh > 10 &&
     typeof raw.heading === "number" &&
     Number.isFinite(raw.heading) &&
     raw.heading >= 0
@@ -361,7 +370,7 @@ function getStableNavigationHeading(raw, smooth, routeBearing) {
       smooth.lng
     );
 
-    if (moved > 10) {
+    if (moved > 6) {
       targetHeading = calculateBearing(
         state.previousPosition.lat,
         state.previousPosition.lng,
@@ -386,19 +395,33 @@ function getStableNavigationHeading(raw, smooth, routeBearing) {
     return targetHeading;
   }
 
-  const alpha =
-    speedKmh > 75
-      ? 0.18
-      : speedKmh > 40
-        ? 0.22
-        : 0.14;
+  const diff =
+    Math.abs(
+      ((targetHeading - state.smoothedHeading + 540) % 360) - 180
+    );
 
-  const maxStep =
-    speedKmh > 75
-      ? 26
-      : speedKmh > 40
-        ? 30
-        : 20;
+  let alpha = 0.22;
+  let maxStep = 28;
+
+  if (speedKmh > 12) {
+    alpha = 0.34;
+    maxStep = 42;
+  }
+
+  if (speedKmh > 35) {
+    alpha = 0.42;
+    maxStep = 55;
+  }
+
+  if (speedKmh > 70) {
+    alpha = 0.36;
+    maxStep = 46;
+  }
+
+  if (diff > 55 && speedKmh > 15) {
+    alpha = Math.max(alpha, 0.55);
+    maxStep = Math.max(maxStep, 70);
+  }
 
   state.smoothedHeading =
     smoothAngleLimited(
@@ -414,7 +437,7 @@ function getStableNavigationHeading(raw, smooth, routeBearing) {
 function shouldRotateMap(raw, heading) {
   const speedKmh = getCurrentSpeedKmh(raw);
 
-  if (speedKmh < 8) {
+  if (speedKmh < 5) {
     return false;
   }
 
@@ -427,7 +450,7 @@ function shouldRotateMap(raw, heading) {
 
   if (
     typeof raw.accuracy === "number" &&
-    raw.accuracy > 55
+    raw.accuracy > 70
   ) {
     return false;
   }
@@ -866,27 +889,44 @@ function updateEcoScore(current) {
   const isMoving =
     speedKmh > 8 || score.lastSpeedKmh > 8;
 
+  const bonusAllowed =
+    !score.lastBonusAt ||
+    now - score.lastBonusAt > 3500;
+
   if (isMoving) {
-    if (Math.abs(acceleration) <= 1.5) {
-      change += 0.45;
-    } else if (acceleration > 1.5 && acceleration <= 4.5) {
-      change += 0.25;
-    } else if (acceleration < -1.5 && acceleration >= -5.5) {
-      change += 0.25;
-    } else if (acceleration > 7.5) {
-      change -= 1.4;
+    if (Math.abs(acceleration) <= 1.2) {
+      if (bonusAllowed && speedKmh >= 25) {
+        change += 0.18;
+        score.lastBonusAt = now;
+      }
+    } else if (acceleration > 1.2 && acceleration <= 3.8) {
+      if (bonusAllowed) {
+        change += 0.12;
+        score.lastBonusAt = now;
+      }
+    } else if (acceleration < -1.2 && acceleration >= -4.8) {
+      if (bonusAllowed) {
+        change += 0.10;
+        score.lastBonusAt = now;
+      }
+    } else if (acceleration > 6.5) {
+      change -= 1.9;
       score.hardAccelerationCount += 1;
-    } else if (acceleration < -9.5) {
-      change -= 1.6;
+    } else if (acceleration < -8.2) {
+      change -= 2.1;
       score.hardBrakeCount += 1;
     }
 
     if (maxSpeed) {
-      if (speedKmh <= maxSpeed + 2) {
-        change += 0.18;
-      } else if (speedKmh > maxSpeed + 6) {
-        change -= 1.1;
+      if (speedKmh > maxSpeed + 4) {
+        change -= 1.25;
         score.speedingCount += 1;
+      } else if (
+        speedKmh <= maxSpeed &&
+        speedKmh >= Math.max(20, maxSpeed - 15) &&
+        bonusAllowed
+      ) {
+        change += 0.08;
       }
     }
 
@@ -894,29 +934,13 @@ function updateEcoScore(current) {
       const diff =
         Math.abs(speedKmh - recommendation.speedKmh);
 
-      if (diff <= 7) {
-        change += 0.3;
-      } else if (diff > 18 && speedKmh > 20) {
-        change -= 0.8;
+      if (diff <= 6 && bonusAllowed) {
+        change += 0.12;
+      } else if (diff > 16 && speedKmh > 20) {
+        change -= 0.9;
         score.greenWaveMissCount += 1;
       }
     }
-
-    if (
-      Math.abs(deltaSpeed) <= 2 &&
-      speedKmh >= 25
-    ) {
-      change += 0.25;
-      score.smoothDrivingBonus += 0.1;
-    }
-  }
-
-  if (
-    !isMoving &&
-    speedKmh < 5 &&
-    score.lastSpeedKmh < 5
-  ) {
-    change += 0.03;
   }
 
   score.samples += 1;
@@ -928,7 +952,7 @@ function updateEcoScore(current) {
       0,
       Math.min(
         100,
-        Math.round((score.value || 75) + change)
+        Math.round((score.value || 70) + change)
       )
     );
 
@@ -943,7 +967,7 @@ function updateEcoScoreBadge() {
   const value =
     Number.isFinite(state.ecoScore?.value)
       ? state.ecoScore.value
-      : 75;
+      : 70;
 
   els.ecoScoreBadge.textContent =
     `Eco ${value}`;
@@ -954,9 +978,9 @@ function updateEcoScoreBadge() {
     "eco-low"
   );
 
-  if (value >= 80) {
+  if (value >= 82) {
     els.ecoScoreBadge.classList.add("eco-ok");
-  } else if (value >= 55) {
+  } else if (value >= 58) {
     els.ecoScoreBadge.classList.add("eco-mid");
   } else {
     els.ecoScoreBadge.classList.add("eco-low");
