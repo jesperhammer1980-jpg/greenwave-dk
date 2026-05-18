@@ -161,7 +161,9 @@ function resetEcoScore() {
     speedingCount: 0,
     greenWaveMissCount: 0,
     smoothDrivingBonus: 0,
-    lastBonusAt: null
+    calmDecelerationBonus: 0,
+    stableSpeedBonus: 0,
+    lastEcoFeedback: ""
   };
 
   updateEcoScoreBadge();
@@ -885,74 +887,88 @@ function updateEcoScore(current) {
     deltaSpeed / deltaSeconds;
 
   let change = 0;
+  let feedback = "";
 
   const isMoving =
     speedKmh > 8 || score.lastSpeedKmh > 8;
 
-  const bonusAllowed =
-    !score.lastBonusAt ||
-    now - score.lastBonusAt > 3500;
-
   if (isMoving) {
-    if (Math.abs(acceleration) <= 1.2) {
-      if (bonusAllowed && speedKmh >= 25) {
-        change += 0.18;
-        score.lastBonusAt = now;
-      }
-    } else if (acceleration > 1.2 && acceleration <= 3.8) {
-      if (bonusAllowed) {
-        change += 0.12;
-        score.lastBonusAt = now;
-      }
-    } else if (acceleration < -1.2 && acceleration >= -4.8) {
-      if (bonusAllowed) {
-        change += 0.10;
-        score.lastBonusAt = now;
-      }
-    } else if (acceleration > 6.5) {
-      change -= 1.9;
-      score.hardAccelerationCount += 1;
-    } else if (acceleration < -8.2) {
-      change -= 2.1;
-      score.hardBrakeCount += 1;
+    if (Math.abs(acceleration) <= 1.2 && speedKmh >= 25) {
+      change += 0.08;
+      score.stableSpeedBonus += 0.08;
+      feedback = "+ stabil fart";
     }
 
-    if (maxSpeed) {
-      if (speedKmh > maxSpeed + 4) {
-        change -= 1.25;
-        score.speedingCount += 1;
-      } else if (
-        speedKmh <= maxSpeed &&
-        speedKmh >= Math.max(20, maxSpeed - 15) &&
-        bonusAllowed
-      ) {
-        change += 0.08;
-      }
+    if (acceleration > 1.2 && acceleration <= 3.8) {
+      change += 0.06;
+      feedback = "+ rolig acceleration";
+    }
+
+    if (acceleration < -1.0 && acceleration >= -5.2) {
+      change += 0.08;
+      score.calmDecelerationBonus += 0.08;
+      feedback = "+ rolig nedbremsning";
+    }
+
+    if (acceleration > 6.5) {
+      change -= 1.8;
+      score.hardAccelerationCount += 1;
+      feedback = "- hård acceleration";
+    }
+
+    if (acceleration < -8.5) {
+      change -= 2.1;
+      score.hardBrakeCount += 1;
+      feedback = "- hård bremsning";
+    }
+
+    if (maxSpeed && speedKmh > maxSpeed + 4) {
+      const overSpeed = speedKmh - maxSpeed;
+
+      change -= overSpeed > 12 ? 1.7 : 0.9;
+      score.speedingCount += 1;
+      feedback = "- for høj fart";
     }
 
     if (Number.isFinite(recommendation.speedKmh)) {
-      const diff =
-        Math.abs(speedKmh - recommendation.speedKmh);
+      const greenDiff =
+        speedKmh - recommendation.speedKmh;
 
-      if (diff <= 6 && bonusAllowed) {
-        change += 0.12;
-      } else if (diff > 16 && speedKmh > 20) {
-        change -= 0.9;
-        score.greenWaveMissCount += 1;
+      if (Math.abs(greenDiff) <= 6 && speedKmh > 15) {
+        change += 0.07;
+        feedback = feedback || "+ følger GreenWave";
       }
+
+      if (greenDiff > 16 && speedKmh > 20) {
+        change -= 0.7;
+        score.greenWaveMissCount += 1;
+        feedback = "- over GreenWave";
+      }
+
+      /*
+        Vigtigt:
+        Lavere fart end GreenWave giver IKKE minus.
+        Det kan skyldes kø, kryds, hensyn eller økonomisk kørsel.
+      */
     }
   }
 
   score.samples += 1;
   score.lastSpeedKmh = speedKmh;
   score.lastTimestamp = now;
+  score.lastEcoFeedback = feedback;
+
+  const currentValue =
+    Number.isFinite(score.value)
+      ? score.value
+      : 70;
 
   score.value =
     Math.max(
       0,
       Math.min(
         100,
-        Math.round((score.value || 70) + change)
+        Math.round((currentValue + change) * 10) / 10
       )
     );
 
@@ -964,10 +980,13 @@ function updateEcoScoreBadge() {
     return;
   }
 
-  const value =
+  const rawValue =
     Number.isFinite(state.ecoScore?.value)
       ? state.ecoScore.value
       : 70;
+
+  const value =
+    Math.round(rawValue);
 
   els.ecoScoreBadge.textContent =
     `Eco ${value}`;
