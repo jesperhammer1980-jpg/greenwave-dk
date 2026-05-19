@@ -148,6 +148,8 @@ export async function recalculateRouteFromCurrentPosition(position) {
     refreshFuel: true
   });
 
+  setRouteReady(true);
+
   return route;
 }
 
@@ -170,9 +172,15 @@ async function applyNewRoute(route, options = {}) {
   prepareRouteSteps();
 
   if (saveToHistory && state.destination) {
-    saveHistory(state.destination);
-    renderHistory();
+    try {
+      saveHistory(state.destination);
+      renderHistory();
+    } catch (error) {
+      console.warn("Historik kunne ikke gemmes", error);
+    }
   }
+
+  setRouteReady(true);
 
   if (refreshFuel) {
     await Promise.allSettled([
@@ -181,17 +189,22 @@ async function applyNewRoute(route, options = {}) {
       loadMaxSpeedZones()
     ]);
 
-    computeRouteDistances();
-    applyPricesToStations();
-
-    updateFuelBox();
-    updateFuelMarkers();
+    try {
+      computeRouteDistances();
+      applyPricesToStations();
+      updateFuelBox();
+      updateFuelMarkers();
+    } catch (error) {
+      console.warn("Fuel-opdatering fejlede", error);
+    }
   } else {
     await Promise.allSettled([
       loadTrafficSignals(state.routeData.geometry),
       loadMaxSpeedZones()
     ]);
   }
+
+  setRouteReady(true);
 }
 
 async function fetchBestRoute(from, to) {
