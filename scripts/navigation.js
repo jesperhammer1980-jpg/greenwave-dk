@@ -1,1359 +1,680 @@
-import { state } from "./state.js";
-import { els } from "./dom.js";
-
-import {
-  formatDistance,
-  setStatus,
-  haversine
-} from "./utils.js";
-
-import {
-  updateUserMarker,
-  recenterMap,
-  followNavigationCamera,
-  setMapBearing,
-  resetMapBearing,
-  enterNavigationView,
-  exitNavigationView,
-  setNavigationNightMode
-} from "./map.js";
-
-import {
-  getGreenWaveRecommendation
-} from "./greenwave.js";
-
-import {
-  updateCurrentMaxSpeed
-} from "./maxspeed.js";
-
-import {
-  getActiveStep,
-  getRouteBearingAtProgress,
-  getRemainingRouteDistance,
-  getRemainingRouteDuration
-} from "./route-progress.js";
-
-export async function startLiveNavigation() {
-  if (!state.routeData || !state.destination) {
-    return;
-  }
-
-  state.isNavigating = true;
-  state.currentStepIndex = 0;
-
-  resetNavigationPositionState();
-  resetRerouteState();
-  resetEcoScore();
-
-  enterNavigationView();
-  els.navOverlay?.classList.remove("hidden");
-
-  updateNightMode();
-
-  await requestWakeLock();
-
-  document.addEventListener(
-    "visibilitychange",
-    handleVisibilityChange
-  );
-
-  if (els.startNavBtn) {
-    els.startNavBtn.disabled = true;
-  }
-
-  if (els.stopNavBtn) {
-    els.stopNavBtn.disabled = false;
-  }
-
-  setStatus(
-    "GPS: live",
-    "Navigation: live",
-    "Kort: følger position"
-  );
-
-  initializeNavigationUi();
-
-  if (state.watchId !== null) {
-    navigator.geolocation.clearWatch(state.watchId);
-    state.watchId = null;
-  }
-
-  state.watchId = navigator.geolocation.watchPosition(
-    handleNavigationPosition,
-    handleNavigationError,
-    {
-      enableHighAccuracy: true,
-      maximumAge: 180,
-      timeout: 12000
-    }
-  );
-}
-
-export async function stopLiveNavigation() {
-  const finalEcoScore = calculateEcoScoreSummary();
-
-  state.isNavigating = false;
-
-  if (state.watchId !== null) {
-    navigator.geolocation.clearWatch(state.watchId);
-    state.watchId = null;
-  }
-
-  document.removeEventListener(
-    "visibilitychange",
-    handleVisibilityChange
-  );
-
-  await releaseWakeLock();
-
-  els.navOverlay?.classList.add("hidden");
-
-  resetMapBearing();
-  exitNavigationView();
-
-  resetRerouteState();
-
-  if (els.startNavBtn) {
-    els.startNavBtn.disabled = !state.routeData;
-  }
-
-  if (els.stopNavBtn) {
-    els.stopNavBtn.disabled = true;
-  }
-
-  setStatus(
-    "GPS: klar",
-    "Navigation: inaktiv",
-    "Kort: klar"
-  );
-
-  recenterMap();
-
-  showEcoScoreSummary(finalEcoScore);
-}
-
-function resetNavigationPositionState() {
-  state.rawPosition = null;
-  state.previousPosition = null;
-  state.smoothedPosition = null;
-  state.currentHeading = null;
-  state.smoothedHeading = null;
-  state.isRecoveringPosition = false;
-  state.lastVisibilityChangeAt = null;
-  state.lastGoodGpsAt = null;
-  state.lastCameraMoveAt = null;
-}
-
-function resetRerouteState() {
-  if (!state.reroute) {
-    return;
-  }
-
-  state.reroute.isRerouting = false;
-  state.reroute.offRouteSince = null;
-  state.reroute.lastRerouteAt = null;
-}
-
-function resetEcoScore() {
-  state.ecoScore = {
-    value: 0,
-
-    samples: 0,
-    movingSamples: 0,
-
-    lastSpeedKmh: null,
-    lastTimestamp: null,
-
-    accelerationEvents: 0,
-    accelerationQualitySum: 0,
-
-    brakingEvents: 0,
-    brakingQualitySum: 0,
-
-    steadySamples: 0,
-    steadyQualitySum: 0,
-
-    tripStartedAt: Date.now(),
-    tripEndedAt: null
-  };
-
-  updateEcoScoreBadge();
-}
-
-function initializeNavigationUi() {
-  updateTurnCardFromStep(null, null);
-  updateTurnProgress(0.12);
-  updateSpeedSigns(0, null);
-  updateEcoScoreBadge();
-
-  if (els.driveEtaValue) {
-    els.driveEtaValue.textContent = "—";
-  }
-}
-
-async function handleNavigationPosition(position) {
-  const raw = {
-    lat: position.coords.latitude,
-    lng: position.coords.longitude,
-    speed: position.coords.speed,
-    heading: position.coords.heading,
-    accuracy: position.coords.accuracy,
-    timestamp: position.timestamp || Date.now()
-  };
-
-  if (shouldIgnoreStalePosition(raw)) {
-    return;
-  }
-
-  const isGoodFix = isGoodGpsFix(raw);
-
-  if (state.isRecoveringPosition && !isGoodFix) {
-    setStatus(
-      "GPS: genfinder",
-      "Navigation: live",
-      "Kort: venter på præcis position"
-    );
-    return;
-  }
-
-  state.rawPosition = raw;
-
-  const smooth = state.isRecoveringPosition
-    ? { ...raw }
-    : smoothPosition(raw);
-
-  if (state.isRecoveringPosition) {
-    state.smoothedPosition = smooth;
-    state.previousPosition = smooth;
-    state.currentPosition = smooth;
-    state.lastGoodGpsAt = Date.now();
-  }
-
-  updateCurrentMaxSpeed(smooth);
-
-  const active = getActiveStep(smooth);
-
-  const routeBearing =
-    getRouteBearingAtProgress(active?.progress);
-
-  const heading =
-    getStableNavigationHeading(raw, smooth, routeBearing);
-
-  state.previousPosition = state.currentPosition;
-  state.currentPosition = smooth;
-  state.smoothedPosition = smooth;
-  state.currentHeading = heading;
-  state.lastGoodGpsAt = Date.now();
-
-  updateUserMarker(smooth.lat, smooth.lng);
-
-  updateNavigationStats(smooth);
-
-  updateTurnCardFromStep(
-    active?.step || null,
-    active?.distanceToStep ?? null
-  );
-
-  updateEcoScore(smooth);
-
-  await maybeAutoReroute(smooth);
-
-  const snapCamera = state.isRecoveringPosition;
-
-  followNavigationCamera(smooth, {
-    routeProgress: active?.progress || null,
-    nextStep: active?.step || null,
-    snap: snapCamera
-  });
-
-  if (shouldRotateMap(raw, heading)) {
-    setMapBearing(heading, {
-      snap: snapCamera
-    });
-  }
-
-  if (state.isRecoveringPosition) {
-    state.isRecoveringPosition = false;
-
-    setStatus(
-      "GPS: live",
-      "Navigation: live",
-      "Kort: følger position"
-    );
-  }
-}
-
-function shouldIgnoreStalePosition(raw) {
-  const age = Date.now() - raw.timestamp;
-  return age > 5000;
-}
-
-function isGoodGpsFix(raw) {
-  if (
-    typeof raw.accuracy === "number" &&
-    Number.isFinite(raw.accuracy)
-  ) {
-    return raw.accuracy <= 45;
-  }
-
-  return true;
-}
-
-function handleNavigationError(error) {
-  console.error("Navigation GPS fejl", error);
-
-  setStatus(
-    "GPS: fejl",
-    "Navigation: live",
-    "Kort: GPS fejl"
-  );
-}
-
-function smoothPosition(raw) {
-  if (!state.smoothedPosition) {
-    return { ...raw };
-  }
-
-  const previous = state.smoothedPosition;
-
-  const distance = haversine(
-    previous.lat,
-    previous.lng,
-    raw.lat,
-    raw.lng
-  );
-
-  const speedKmh = getCurrentSpeedKmh(raw);
-
-  if (distance < 2.5 && speedKmh < 20) {
-    return previous;
-  }
-
-  let alpha = 0.36;
-
-  if (speedKmh > 20) {
-    alpha = 0.46;
-  }
-
-  if (speedKmh > 50) {
-    alpha = 0.56;
-  }
-
-  if (speedKmh > 90) {
-    alpha = 0.64;
-  }
-
-  if (distance > 100 && speedKmh < 25) {
-    alpha = 0.18;
-  }
-
-  if (distance > 250) {
-    alpha = 0.78;
-  }
-
-  return {
-    ...raw,
-    lat: previous.lat + (raw.lat - previous.lat) * alpha,
-    lng: previous.lng + (raw.lng - previous.lng) * alpha
-  };
-}
-
-function getStableNavigationHeading(raw, smooth, routeBearing) {
-  const speedKmh = getCurrentSpeedKmh(raw);
-
-  let targetHeading = null;
-
-  if (
-    typeof routeBearing === "number" &&
-    Number.isFinite(routeBearing)
-  ) {
-    targetHeading = routeBearing;
-  } else if (
-    speedKmh > 10 &&
-    typeof raw.heading === "number" &&
-    Number.isFinite(raw.heading) &&
-    raw.heading >= 0
-  ) {
-    targetHeading = raw.heading;
-  } else if (state.previousPosition) {
-    const moved = haversine(
-      state.previousPosition.lat,
-      state.previousPosition.lng,
-      smooth.lat,
-      smooth.lng
-    );
-
-    if (moved > 6) {
-      targetHeading = calculateBearing(
-        state.previousPosition.lat,
-        state.previousPosition.lng,
-        smooth.lat,
-        smooth.lng
-      );
-    }
-  }
-
-  if (
-    typeof targetHeading !== "number" ||
-    !Number.isFinite(targetHeading)
-  ) {
-    return state.smoothedHeading;
-  }
-
-  if (
-    typeof state.smoothedHeading !== "number" ||
-    !Number.isFinite(state.smoothedHeading)
-  ) {
-    state.smoothedHeading = targetHeading;
-    return targetHeading;
-  }
-
-  const diff =
-    Math.abs(
-      ((targetHeading - state.smoothedHeading + 540) % 360) - 180
-    );
-
-  let alpha = 0.22;
-  let maxStep = 28;
-
-  if (speedKmh > 12) {
-    alpha = 0.34;
-    maxStep = 42;
-  }
-
-  if (speedKmh > 35) {
-    alpha = 0.42;
-    maxStep = 55;
-  }
-
-  if (speedKmh > 70) {
-    alpha = 0.36;
-    maxStep = 46;
-  }
-
-  if (diff > 55 && speedKmh > 15) {
-    alpha = Math.max(alpha, 0.55);
-    maxStep = Math.max(maxStep, 70);
-  }
-
-  state.smoothedHeading =
-    smoothAngleLimited(
-      state.smoothedHeading,
-      targetHeading,
-      alpha,
-      maxStep
-    );
-
-  return state.smoothedHeading;
-}
-
-function shouldRotateMap(raw, heading) {
-  const speedKmh = getCurrentSpeedKmh(raw);
-
-  if (speedKmh < 5) {
-    return false;
-  }
-
-  if (
-    typeof heading !== "number" ||
-    !Number.isFinite(heading)
-  ) {
-    return false;
-  }
-
-  if (
-    typeof raw.accuracy === "number" &&
-    raw.accuracy > 70
-  ) {
-    return false;
-  }
-
-  return true;
-}
-
-function calculateBearing(lat1, lng1, lat2, lng2) {
-  const toRad = value => value * Math.PI / 180;
-  const toDeg = value => value * 180 / Math.PI;
-
-  const φ1 = toRad(lat1);
-  const φ2 = toRad(lat2);
-  const Δλ = toRad(lng2 - lng1);
-
-  const y =
-    Math.sin(Δλ) *
-    Math.cos(φ2);
-
-  const x =
-    Math.cos(φ1) *
-    Math.sin(φ2) -
-    Math.sin(φ1) *
-    Math.cos(φ2) *
-    Math.cos(Δλ);
-
-  return (toDeg(Math.atan2(y, x)) + 360) % 360;
-}
-
-function smoothAngleLimited(current, target, alpha, maxStepDegrees) {
-  const diff =
-    ((target - current + 540) % 360) - 180;
-
-  const limitedDiff =
-    Math.max(
-      -maxStepDegrees,
-      Math.min(maxStepDegrees, diff)
-    );
-
-  return (
-    current +
-    limitedDiff * alpha +
-    360
-  ) % 360;
-}
-
-function updateNavigationStats(current) {
-  const currentSpeedKmh =
-    getCurrentSpeedKmh(current);
-
-  updateRemainingTripStats(
-    current,
-    currentSpeedKmh
-  );
-
-  const recommendation =
-    getGreenWaveRecommendation(current);
-
-  updateSpeedSigns(
-    currentSpeedKmh,
-    recommendation.speedKmh
-  );
-}
-
-function updateRemainingTripStats(current, speedKmh) {
-  if (!els.driveRemainingDistance) {
-    return;
-  }
-
-  const remainingMeters =
-    getRemainingRouteDistance(current);
-
-  const remainingSeconds =
-    getRemainingRouteDuration(
-      current,
-      speedKmh
-    );
-
-  if (Number.isFinite(remainingMeters)) {
-    els.driveRemainingDistance.textContent =
-      formatDistance(remainingMeters);
-  } else if (state.destination) {
-    const fallbackMeters = haversine(
-      current.lat,
-      current.lng,
-      state.destination.lat,
-      state.destination.lng
-    );
-
-    els.driveRemainingDistance.textContent =
-      formatDistance(fallbackMeters);
-  } else {
-    els.driveRemainingDistance.textContent = "—";
-  }
-
-  if (els.driveRemainingTime) {
-    els.driveRemainingTime.textContent =
-      Number.isFinite(remainingSeconds)
-        ? formatDuration(remainingSeconds)
-        : "—";
-  }
-
-  if (els.driveEtaValue) {
-    els.driveEtaValue.textContent =
-      Number.isFinite(remainingSeconds)
-        ? formatEta(remainingSeconds)
-        : "—";
-  }
-}
-
-function updateSpeedSigns(currentSpeedKmh, recommendedSpeedKmh) {
-  const maxSpeed = getCurrentMaxSpeed();
-
-  if (els.speedLimitValue) {
-    els.speedLimitValue.textContent =
-      maxSpeed ? String(maxSpeed) : "?";
-  }
-
-  if (els.currentSpeedValue) {
-    els.currentSpeedValue.textContent =
-      String(currentSpeedKmh);
-  }
-
-  if (els.recommendedSpeedValue) {
-    els.recommendedSpeedValue.textContent =
-      Number.isFinite(recommendedSpeedKmh)
-        ? String(recommendedSpeedKmh)
-        : "?";
-  }
-
-  if (!els.currentSpeedSign) {
-    return;
-  }
-
-  els.currentSpeedSign.classList.remove(
-    "speed-ok",
-    "speed-warning",
-    "speed-danger"
-  );
-
-  if (!Number.isFinite(recommendedSpeedKmh) && !maxSpeed) {
-    els.currentSpeedSign.classList.add("speed-warning");
-    return;
-  }
-
-  const referenceSpeed =
-    maxSpeed || recommendedSpeedKmh;
-
-  const diff =
-    currentSpeedKmh - referenceSpeed;
-
-  if (
-    diff <= 4 &&
-    (
-      !Number.isFinite(recommendedSpeedKmh) ||
-      Math.abs(currentSpeedKmh - recommendedSpeedKmh) <= 7
-    )
-  ) {
-    els.currentSpeedSign.classList.add("speed-ok");
-    return;
-  }
-
-  if (diff <= 10) {
-    els.currentSpeedSign.classList.add("speed-warning");
-    return;
-  }
-
-  els.currentSpeedSign.classList.add("speed-danger");
-}
-
-function getCurrentMaxSpeed() {
-  if (
-    typeof state.currentMaxSpeed === "number" &&
-    Number.isFinite(state.currentMaxSpeed)
-  ) {
-    return state.currentMaxSpeed;
-  }
-
-  return null;
-}
-
-function updateTurnCardFromStep(step, distanceToStep) {
-  if (!step) {
-    if (els.turnIcon) {
-      els.turnIcon.textContent = "↑";
-    }
-
-    if (els.nextTurnDistance) {
-      els.nextTurnDistance.textContent = "Følg ruten";
-    }
-
-    if (els.nextTurnInstruction) {
-      els.nextTurnInstruction.textContent = "Fortsæt ligeud";
-    }
-
-    if (els.nextTurnRoad) {
-      els.nextTurnRoad.textContent = "GreenWave navigation";
-    }
-
-    updateTurnProgress(0.12);
-    return;
-  }
-
-  if (els.turnIcon) {
-    els.turnIcon.textContent = getTurnIcon(step);
-  }
-
-  if (els.nextTurnDistance) {
-    els.nextTurnDistance.textContent =
-      Number.isFinite(distanceToStep)
-        ? formatDistance(distanceToStep)
-        : "Snart";
-  }
-
-  if (els.nextTurnInstruction) {
-    els.nextTurnInstruction.textContent =
-      getShortTurnInstruction(step);
-  }
-
-  if (els.nextTurnRoad) {
-    els.nextTurnRoad.textContent =
-      getRoadName(step);
-  }
-
-  updateTurnProgress(
-    calculateStepProgress(step, distanceToStep)
-  );
-}
-
-function calculateStepProgress(step, distanceToStep) {
-  if (
-    !step ||
-    !Number.isFinite(distanceToStep)
-  ) {
-    return 0.18;
-  }
-
-  const stepDistance =
-    Number(step.distance || 0);
-
-  if (!Number.isFinite(stepDistance) || stepDistance <= 0) {
-    if (distanceToStep > 5000) return 0.08;
-    if (distanceToStep > 1000) return 0.22;
-    if (distanceToStep > 250) return 0.55;
-    return 0.82;
-  }
-
-  const done =
-    1 -
-    Math.min(
-      1,
-      Math.max(
-        0,
-        distanceToStep / stepDistance
-      )
-    );
-
-  return Math.max(0.08, Math.min(1, done));
-}
-
-function updateTurnProgress(progress) {
-  if (!els.turnProgressBar) {
-    return;
-  }
-
-  els.turnProgressBar.style.width =
-    `${Math.round(progress * 100)}%`;
-}
-
-function getTurnIcon(step) {
-  const type = String(step.maneuverType || "").toLowerCase();
-  const modifier = String(step.maneuverModifier || "").toLowerCase();
-  const message = String(step.message || "").toLowerCase();
-
-  if (type.includes("arrive")) return "🏁";
-
-  if (
-    type.includes("roundabout") ||
-    type.includes("rotary") ||
-    message.includes("rundkør") ||
-    message.includes("roundabout")
-  ) {
-    return "↻";
-  }
-
-  if (modifier.includes("left")) return "↰";
-  if (modifier.includes("right")) return "↱";
-  if (modifier.includes("uturn")) return "↶";
-  if (modifier.includes("straight")) return "↑";
-
-  if (type.includes("depart")) return "↑";
-  if (type.includes("merge")) return "⇢";
-  if (type.includes("fork")) return "↗";
-  if (type.includes("ramp")) return "↘";
-
-  return "↑";
-}
-
-function getShortTurnInstruction(step) {
-  const type = String(step.maneuverType || "").toLowerCase();
-  const modifier = String(step.maneuverModifier || "").toLowerCase();
-  const message = String(step.message || "");
-
-  if (type.includes("arrive")) return "Du er fremme";
-  if (type.includes("depart")) return "Start";
-
-  if (
-    type.includes("roundabout") ||
-    type.includes("rotary") ||
-    message.toLowerCase().includes("rundkør")
-  ) {
-    return getRoundaboutInstruction(step);
-  }
-
-  if (type.includes("merge")) return "Flet ind";
-
-  if (type.includes("fork")) {
-    if (modifier.includes("left")) return "Hold til venstre";
-    if (modifier.includes("right")) return "Hold til højre";
-    return "Hold retningen";
-  }
-
-  if (type.includes("on ramp")) return "Kør på rampen";
-  if (type.includes("off ramp")) return "Tag afkørslen";
-
-  if (modifier.includes("left")) return "Drej til venstre";
-  if (modifier.includes("right")) return "Drej til højre";
-  if (modifier.includes("uturn")) return "Vend om";
-  if (modifier.includes("straight")) return "Fortsæt ligeud";
-
-  const cleaned = cleanInstruction(message);
-
-  if (cleaned) {
-    return removeRoadNameFromInstruction(cleaned);
-  }
-
-  return "Fortsæt";
-}
-
-function removeRoadNameFromInstruction(value) {
-  let text = String(value)
-    .replace(/\s+/g, " ")
-    .trim();
-
-  text = text.replace(/^drej til venstre ad .+$/i, "Drej til venstre");
-  text = text.replace(/^drej til højre ad .+$/i, "Drej til højre");
-  text = text.replace(/^fortsæt ad .+$/i, "Fortsæt ligeud");
-  text = text.replace(/^følg .+$/i, "Følg vejen");
-  text = text.replace(/^hold til venstre ad .+$/i, "Hold til venstre");
-  text = text.replace(/^hold til højre ad .+$/i, "Hold til højre");
-  text = text.replace(/^tag afkørslen mod .+$/i, "Tag afkørslen");
-
-  return text;
-}
-
-function getRoundaboutInstruction(step) {
-  const exit =
-    step.roundaboutExit ||
-    step.exitNumber ||
-    step.exit;
-
-  if (exit) {
-    return `Tag ${exit}. afkørsel`;
-  }
-
-  return "Kør gennem rundkørslen";
-}
-
-function cleanInstruction(value) {
-  return String(value)
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function getRoadName(step) {
-  if (step.name) {
-    return step.name;
-  }
-
-  const message = String(step.message || "");
-
-  const roadFromAd =
-    message.match(/\bad\s+(.+)$/i)?.[1];
-
-  if (roadFromAd) {
-    return roadFromAd.trim();
-  }
-
-  if (String(step.maneuverType || "").toLowerCase().includes("arrive")) {
-    return "Destination";
-  }
-
-  return "";
+/* =========================
+   NAV OVERLAY
+========================= */
+
+.nav-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 500;
 }
 
 /* =========================
-   TRIP-BASED ECO SCORE
+   FLOATING STOP BUTTON
 ========================= */
 
-function updateEcoScore(current) {
-  if (!state.settings?.ecoScoreEnabled) {
-    return;
-  }
+.nav-floating-stop {
+  position: absolute;
+  top: 18px;
+  left: 18px;
 
-  const score = state.ecoScore;
+  z-index: 900;
 
-  if (!score) {
-    return;
-  }
+  pointer-events: auto;
 
-  const now = current.timestamp || Date.now();
-  const speedKmh = getCurrentSpeedKmh(current);
+  border: none;
 
-  if (
-    typeof score.lastSpeedKmh !== "number" ||
-    !Number.isFinite(score.lastSpeedKmh) ||
-    typeof score.lastTimestamp !== "number" ||
-    !Number.isFinite(score.lastTimestamp)
-  ) {
-    score.lastSpeedKmh = speedKmh;
-    score.lastTimestamp = now;
-    score.samples += 1;
-    updateEcoScoreBadge();
-    return;
-  }
+  background: rgba(18, 18, 18, 0.92);
 
-  const deltaSeconds =
-    Math.max(0.75, (now - score.lastTimestamp) / 1000);
+  color: #fff;
 
-  const deltaSpeed =
-    speedKmh - score.lastSpeedKmh;
+  padding: 12px 18px;
 
-  const acceleration =
-    deltaSpeed / deltaSeconds;
+  border-radius: 14px;
 
-  const isMoving =
-    speedKmh > 8 || score.lastSpeedKmh > 8;
+  font-size: 15px;
+  font-weight: 700;
 
-  score.samples += 1;
+  backdrop-filter: blur(12px);
 
-  if (isMoving) {
-    score.movingSamples += 1;
+  box-shadow:
+    0 10px 30px rgba(0,0,0,0.35);
 
-    if (acceleration > 0.7) {
-      score.accelerationEvents += 1;
-      score.accelerationQualitySum += rateAcceleration(acceleration);
-    }
+  cursor: pointer;
 
-    if (acceleration < -0.7) {
-      score.brakingEvents += 1;
-      score.brakingQualitySum += rateBraking(acceleration);
-    }
-
-    if (
-      speedKmh >= 20 &&
-      Math.abs(acceleration) <= 1.2
-    ) {
-      score.steadySamples += 1;
-      score.steadyQualitySum += rateSteadySpeed(acceleration);
-    } else if (speedKmh >= 20) {
-      score.steadySamples += 1;
-      score.steadyQualitySum += Math.max(
-        0,
-        100 - Math.abs(acceleration) * 18
-      );
-    }
-  }
-
-  score.lastSpeedKmh = speedKmh;
-  score.lastTimestamp = now;
-
-  const summary = calculateEcoScoreSummary();
-
-  score.value = summary.total;
-
-  updateEcoScoreBadge();
+  transition:
+    transform 0.18s ease,
+    background 0.18s ease;
 }
 
-function rateAcceleration(acceleration) {
-  const a = Math.abs(acceleration);
+.nav-floating-stop:hover {
+  transform: translateY(-1px);
 
-  if (a <= 1.8) return 100;
-  if (a <= 2.8) return 90;
-  if (a <= 4.0) return 75;
-  if (a <= 5.5) return 55;
-  if (a <= 7.0) return 35;
-
-  return 15;
-}
-
-function rateBraking(acceleration) {
-  const a = Math.abs(acceleration);
-
-  if (a <= 1.8) return 100;
-  if (a <= 3.0) return 90;
-  if (a <= 4.5) return 75;
-  if (a <= 6.0) return 55;
-  if (a <= 8.0) return 35;
-
-  return 15;
-}
-
-function rateSteadySpeed(acceleration) {
-  const a = Math.abs(acceleration);
-
-  if (a <= 0.4) return 100;
-  if (a <= 0.8) return 92;
-  if (a <= 1.2) return 82;
-
-  return Math.max(0, 100 - a * 22);
-}
-
-function calculateEcoScoreSummary() {
-  const score = state.ecoScore;
-
-  if (!score) {
-    return {
-      acceleration: 0,
-      braking: 0,
-      steady: 0,
-      total: 0
-    };
-  }
-
-  const accelerationScore =
-    score.accelerationEvents > 0
-      ? score.accelerationQualitySum / score.accelerationEvents
-      : 70;
-
-  const brakingScore =
-    score.brakingEvents > 0
-      ? score.brakingQualitySum / score.brakingEvents
-      : 70;
-
-  const steadyScore =
-    score.steadySamples > 0
-      ? score.steadyQualitySum / score.steadySamples
-      : 70;
-
-  const total =
-    accelerationScore * 0.30 +
-    brakingScore * 0.30 +
-    steadyScore * 0.40;
-
-  return {
-    acceleration: Math.round(accelerationScore),
-    braking: Math.round(brakingScore),
-    steady: Math.round(steadyScore),
-    total: Math.round(total)
-  };
-}
-
-function updateEcoScoreBadge() {
-  if (!els.ecoScoreBadge) {
-    return;
-  }
-
-  const summary = calculateEcoScoreSummary();
-  const value = summary.total;
-
-  els.ecoScoreBadge.textContent =
-    `Eco ${value}`;
-
-  els.ecoScoreBadge.classList.remove(
-    "eco-ok",
-    "eco-mid",
-    "eco-low"
-  );
-
-  if (value >= 82) {
-    els.ecoScoreBadge.classList.add("eco-ok");
-  } else if (value >= 58) {
-    els.ecoScoreBadge.classList.add("eco-mid");
-  } else {
-    els.ecoScoreBadge.classList.add("eco-low");
-  }
-}
-
-function showEcoScoreSummary(summary) {
-  if (!summary || state.ecoScore?.movingSamples < 5) {
-    return;
-  }
-
-  window.alert(
-    `EcoScore for turen\n\n` +
-    `Samlet score: ${summary.total}/100\n\n` +
-    `Acceleration: ${summary.acceleration}/100\n` +
-    `Nedbremsning: ${summary.braking}/100\n` +
-    `Jævn hastighed: ${summary.steady}/100`
-  );
+  background: rgba(30, 30, 30, 0.96);
 }
 
 /* =========================
-   AUTO REROUTE
+   ECO SCORE BADGE
 ========================= */
 
-async function maybeAutoReroute(current) {
-  if (!state.settings?.autoRerouteEnabled) {
-    return;
-  }
+.eco-score-badge {
+  position: absolute;
 
-  if (!state.reroute || state.reroute.isRerouting) {
-    return;
-  }
+  top: 18px;
+  right: 18px;
 
-  if (!state.routeData?.geometry?.length || !state.destination) {
-    return;
-  }
+  z-index: 950;
 
-  const distanceToRoute =
-    getDistanceToRouteMeters(current);
+  pointer-events: auto !important;
 
-  if (!Number.isFinite(distanceToRoute)) {
-    return;
-  }
+  border: none;
 
-  const now = Date.now();
+  min-width: 110px;
 
-  const limit =
-    state.reroute.offRouteDistanceLimitMeters || 70;
+  padding: 12px 18px;
 
-  const delay =
-    state.reroute.offRouteDelayMs || 8000;
+  border-radius: 999px;
 
-  const cooldown =
-    state.reroute.rerouteCooldownMs || 25000;
+  font-size: 16px;
+  font-weight: 800;
 
-  if (distanceToRoute <= limit) {
-    state.reroute.offRouteSince = null;
-    return;
-  }
+  letter-spacing: 0.3px;
 
-  if (!state.reroute.offRouteSince) {
-    state.reroute.offRouteSince = now;
-    return;
-  }
+  backdrop-filter: blur(14px);
 
-  const hasBeenOffRouteLongEnough =
-    now - state.reroute.offRouteSince >= delay;
+  cursor: pointer;
 
-  const cooldownPassed =
-    !state.reroute.lastRerouteAt ||
-    now - state.reroute.lastRerouteAt >= cooldown;
-
-  if (!hasBeenOffRouteLongEnough || !cooldownPassed) {
-    return;
-  }
-
-  await triggerReroute(current);
+  transition:
+    transform 0.18s ease,
+    box-shadow 0.18s ease,
+    background 0.18s ease;
 }
 
-async function triggerReroute(current) {
-  try {
-    state.reroute.isRerouting = true;
-    state.reroute.lastRerouteAt = Date.now();
+.eco-score-badge:hover {
+  transform: translateY(-1px) scale(1.02);
+}
 
-    setStatus(
-      "GPS: live",
-      "Navigation: genberegner",
-      "Kort: ny rute"
+.eco-ok {
+  background:
+    linear-gradient(
+      135deg,
+      rgba(34,197,94,0.95),
+      rgba(21,128,61,0.95)
     );
 
-    const routing =
-      await import("./routing.js");
+  color: white;
 
-    if (typeof routing.recalculateRouteFromCurrentPosition !== "function") {
-      throw new Error("Reroute-funktion mangler i routing.js");
-    }
-
-    await routing.recalculateRouteFromCurrentPosition(current);
-
-    state.currentStepIndex = 0;
-    state.reroute.offRouteSince = null;
-
-    setStatus(
-      "GPS: live",
-      "Navigation: live",
-      "Kort: ny rute klar"
-    );
-  } catch (error) {
-    console.error("Auto-reroute fejl", error);
-
-    setStatus(
-      "GPS: live",
-      "Navigation: reroute fejl",
-      "Kort: fortsætter"
-    );
-  } finally {
-    state.reroute.isRerouting = false;
-  }
+  box-shadow:
+    0 10px 30px rgba(34,197,94,0.28);
 }
 
-function getDistanceToRouteMeters(position) {
-  const geometry = state.routeData?.geometry;
-
-  if (!position || !Array.isArray(geometry) || geometry.length < 2) {
-    return Infinity;
-  }
-
-  let best = Infinity;
-
-  for (let i = 1; i < geometry.length; i++) {
-    const start = geometry[i - 1];
-    const end = geometry[i];
-
-    const distance =
-      distancePointToSegmentApproxMeters(
-        position.lat,
-        position.lng,
-        start[1],
-        start[0],
-        end[1],
-        end[0]
-      );
-
-    if (distance < best) {
-      best = distance;
-    }
-  }
-
-  return best;
-}
-
-function distancePointToSegmentApproxMeters(
-  lat,
-  lng,
-  lat1,
-  lng1,
-  lat2,
-  lng2
-) {
-  const metersPerDegreeLat = 111320;
-  const metersPerDegreeLng =
-    111320 * Math.cos(lat * Math.PI / 180);
-
-  const px = lng * metersPerDegreeLng;
-  const py = lat * metersPerDegreeLat;
-
-  const ax = lng1 * metersPerDegreeLng;
-  const ay = lat1 * metersPerDegreeLat;
-
-  const bx = lng2 * metersPerDegreeLng;
-  const by = lat2 * metersPerDegreeLat;
-
-  const dx = bx - ax;
-  const dy = by - ay;
-
-  const lengthSquared =
-    dx * dx + dy * dy;
-
-  if (lengthSquared === 0) {
-    return Math.hypot(px - ax, py - ay);
-  }
-
-  let t =
-    ((px - ax) * dx + (py - ay) * dy) /
-    lengthSquared;
-
-  t = Math.max(0, Math.min(1, t));
-
-  const projectedX = ax + t * dx;
-  const projectedY = ay + t * dy;
-
-  return Math.hypot(
-    px - projectedX,
-    py - projectedY
-  );
-}
-
-function getCurrentSpeedKmh(current) {
-  if (
-    typeof current?.speed === "number" &&
-    Number.isFinite(current.speed)
-  ) {
-    return Math.max(
-      0,
-      Math.round(current.speed * 3.6)
-    );
-  }
-
-  return 0;
-}
-
-function formatDuration(seconds) {
-  if (!Number.isFinite(seconds)) {
-    return "—";
-  }
-
-  const minutes = Math.max(
-    1,
-    Math.round(seconds / 60)
-  );
-
-  if (minutes < 60) {
-    return `${minutes} min`;
-  }
-
-  const hours =
-    Math.floor(minutes / 60);
-
-  const restMinutes =
-    minutes % 60;
-
-  if (restMinutes === 0) {
-    return `${hours} t`;
-  }
-
-  return `${hours} t ${restMinutes} min`;
-}
-
-function formatEta(secondsFromNow) {
-  if (!Number.isFinite(secondsFromNow)) {
-    return "—";
-  }
-
-  const eta = new Date(
-    Date.now() + secondsFromNow * 1000
-  );
-
-  return eta.toLocaleTimeString("da-DK", {
-    hour: "2-digit",
-    minute: "2-digit"
-  });
-}
-
-function updateNightMode() {
-  const hour = new Date().getHours();
-
-  const isNight =
-    hour >= 20 || hour <= 6;
-
-  setNavigationNightMode(isNight);
-}
-
-async function requestWakeLock() {
-  try {
-    if (!("wakeLock" in navigator)) {
-      return;
-    }
-
-    state.wakeLock =
-      await navigator.wakeLock.request("screen");
-
-    state.wakeLock.addEventListener("release", () => {
-      state.wakeLock = null;
-    });
-  } catch (error) {
-    console.warn("Wake Lock ikke tilgængelig", error);
-    state.wakeLock = null;
-  }
-}
-
-async function releaseWakeLock() {
-  try {
-    if (state.wakeLock) {
-      await state.wakeLock.release();
-      state.wakeLock = null;
-    }
-  } catch (error) {
-    console.warn("Kunne ikke frigive Wake Lock", error);
-    state.wakeLock = null;
-  }
-}
-
-async function handleVisibilityChange() {
-  if (!state.isNavigating) {
-    return;
-  }
-
-  if (document.visibilityState === "hidden") {
-    state.isRecoveringPosition = true;
-    state.lastVisibilityChangeAt = Date.now();
-    return;
-  }
-
-  if (document.visibilityState === "visible") {
-    state.isRecoveringPosition = true;
-
-    state.smoothedPosition = null;
-    state.previousPosition = null;
-    state.lastCameraMoveAt = null;
-
-    setStatus(
-      "GPS: genfinder",
-      "Navigation: live",
-      "Kort: venter på position"
+.eco-mid {
+  background:
+    linear-gradient(
+      135deg,
+      rgba(245,158,11,0.95),
+      rgba(180,83,9,0.95)
     );
 
-    if (!state.wakeLock) {
-      await requestWakeLock();
-    }
+  color: white;
+
+  box-shadow:
+    0 10px 30px rgba(245,158,11,0.28);
+}
+
+.eco-low {
+  background:
+    linear-gradient(
+      135deg,
+      rgba(239,68,68,0.95),
+      rgba(153,27,27,0.95)
+    );
+
+  color: white;
+
+  box-shadow:
+    0 10px 30px rgba(239,68,68,0.28);
+}
+
+/* =========================
+   TURN CARD
+========================= */
+
+.turn-card {
+  position: absolute;
+
+  top: 86px;
+  left: 50%;
+
+  transform: translateX(-50%);
+
+  width: min(92vw, 560px);
+
+  pointer-events: none;
+
+  background:
+    linear-gradient(
+      180deg,
+      rgba(15,15,15,0.96),
+      rgba(8,8,8,0.92)
+    );
+
+  border-radius: 28px;
+
+  padding: 18px 20px 16px;
+
+  box-shadow:
+    0 20px 50px rgba(0,0,0,0.45);
+
+  backdrop-filter: blur(18px);
+
+  border:
+    1px solid rgba(255,255,255,0.06);
+
+  z-index: 700;
+}
+
+.turn-card-top {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.turn-icon {
+  width: 74px;
+  height: 74px;
+
+  border-radius: 22px;
+
+  background:
+    linear-gradient(
+      180deg,
+      rgba(37,99,235,0.92),
+      rgba(29,78,216,0.92)
+    );
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  font-size: 36px;
+  font-weight: 800;
+
+  color: white;
+
+  flex-shrink: 0;
+
+  box-shadow:
+    0 10px 30px rgba(37,99,235,0.35);
+}
+
+.turn-copy {
+  flex: 1;
+  min-width: 0;
+}
+
+.turn-distance {
+  font-size: 15px;
+  font-weight: 700;
+
+  color: rgba(255,255,255,0.72);
+
+  margin-bottom: 4px;
+}
+
+.turn-instruction {
+  font-size: 26px;
+  font-weight: 800;
+
+  line-height: 1.05;
+
+  color: white;
+
+  word-break: break-word;
+}
+
+.turn-road {
+  margin-top: 8px;
+
+  font-size: 14px;
+  font-weight: 600;
+
+  color: rgba(255,255,255,0.56);
+
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.turn-progress-wrap {
+  width: 100%;
+  height: 8px;
+
+  border-radius: 999px;
+
+  background: rgba(255,255,255,0.08);
+
+  overflow: hidden;
+
+  margin-top: 16px;
+}
+
+.turn-progress-bar {
+  height: 100%;
+
+  border-radius: inherit;
+
+  background:
+    linear-gradient(
+      90deg,
+      #2563eb,
+      #60a5fa
+    );
+
+  transition:
+    width 0.25s linear;
+}
+
+/* =========================
+   SPEED SIGNS
+========================= */
+
+.speed-sign-stack {
+  position: absolute;
+
+  right: 18px;
+  top: 230px;
+
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+
+  z-index: 700;
+
+  pointer-events: none;
+}
+
+.speed-sign-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.speed-sign-label {
+  font-size: 12px;
+  font-weight: 700;
+
+  color: rgba(255,255,255,0.72);
+
+  text-transform: uppercase;
+
+  letter-spacing: 0.4px;
+}
+
+.speed-sign {
+  width: 76px;
+  height: 76px;
+
+  border-radius: 50%;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  font-size: 28px;
+  font-weight: 900;
+
+  color: white;
+
+  box-shadow:
+    0 12px 28px rgba(0,0,0,0.38);
+
+  backdrop-filter: blur(10px);
+}
+
+.speed-sign-limit {
+  background:
+    radial-gradient(
+      circle at 30% 30%,
+      #ff5f5f,
+      #b91c1c
+    );
+
+  border: 6px solid white;
+}
+
+.speed-sign-current {
+  background:
+    radial-gradient(
+      circle at 30% 30%,
+      #1f2937,
+      #030712
+    );
+}
+
+.speed-sign-recommended {
+  background:
+    radial-gradient(
+      circle at 30% 30%,
+      #3b82f6,
+      #1d4ed8
+    );
+}
+
+.speed-ok {
+  box-shadow:
+    0 0 0 3px rgba(34,197,94,0.9),
+    0 12px 28px rgba(0,0,0,0.38);
+}
+
+.speed-warning {
+  box-shadow:
+    0 0 0 3px rgba(245,158,11,0.95),
+    0 12px 28px rgba(0,0,0,0.38);
+}
+
+.speed-danger {
+  box-shadow:
+    0 0 0 3px rgba(239,68,68,0.95),
+    0 12px 28px rgba(0,0,0,0.38);
+}
+
+/* =========================
+   NAV BOTTOM BAR
+========================= */
+
+.nav-bottom {
+  position: absolute;
+
+  left: 18px;
+  right: 18px;
+  bottom: 18px;
+
+  z-index: 700;
+
+  pointer-events: none;
+}
+
+.nav-bottom-main {
+  display: grid;
+
+  grid-template-columns:
+    repeat(3, 1fr);
+
+  gap: 12px;
+
+  background:
+    linear-gradient(
+      180deg,
+      rgba(16,16,16,0.94),
+      rgba(8,8,8,0.92)
+    );
+
+  border-radius: 24px;
+
+  padding: 16px 18px;
+
+  backdrop-filter: blur(18px);
+
+  border:
+    1px solid rgba(255,255,255,0.05);
+
+  box-shadow:
+    0 18px 40px rgba(0,0,0,0.45);
+}
+
+.nav-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.nav-meta span {
+  font-size: 12px;
+  font-weight: 700;
+
+  color: rgba(255,255,255,0.58);
+
+  text-transform: uppercase;
+}
+
+.nav-meta strong {
+  font-size: 21px;
+  font-weight: 800;
+
+  color: white;
+}
+
+/* =========================
+   ECO SCORE MODAL
+========================= */
+
+.eco-score-modal {
+  position: fixed;
+
+  inset: 50% auto auto 50%;
+
+  transform: translate(-50%, -50%);
+
+  width: min(92vw, 560px);
+
+  background:
+    linear-gradient(
+      180deg,
+      rgba(18,18,18,0.98),
+      rgba(8,8,8,0.96)
+    );
+
+  border-radius: 32px;
+
+  padding: 26px;
+
+  z-index: 4000;
+
+  border:
+    1px solid rgba(255,255,255,0.06);
+
+  box-shadow:
+    0 40px 90px rgba(0,0,0,0.6);
+
+  backdrop-filter: blur(24px);
+}
+
+.eco-score-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.eco-score-header h2 {
+  margin: 0;
+
+  font-size: 32px;
+  font-weight: 900;
+
+  color: white;
+}
+
+.eco-score-header p {
+  margin-top: 6px;
+
+  color: rgba(255,255,255,0.6);
+
+  font-size: 14px;
+}
+
+.eco-score-header button {
+  border: none;
+
+  background: rgba(255,255,255,0.08);
+
+  color: white;
+
+  border-radius: 14px;
+
+  padding: 10px 16px;
+
+  font-weight: 700;
+
+  cursor: pointer;
+}
+
+.eco-score-body {
+  margin-top: 24px;
+}
+
+.eco-score-total {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+
+  padding: 28px 20px;
+
+  border-radius: 28px;
+
+  background:
+    linear-gradient(
+      135deg,
+      rgba(37,99,235,0.25),
+      rgba(59,130,246,0.14)
+    );
+
+  border:
+    1px solid rgba(96,165,250,0.22);
+}
+
+.eco-score-total span {
+  font-size: 14px;
+  font-weight: 700;
+
+  color: rgba(255,255,255,0.7);
+
+  text-transform: uppercase;
+}
+
+.eco-score-total strong {
+  margin-top: 8px;
+
+  font-size: 58px;
+  font-weight: 900;
+
+  color: white;
+}
+
+.eco-score-grid {
+  display: grid;
+
+  grid-template-columns:
+    repeat(3, 1fr);
+
+  gap: 14px;
+
+  margin-top: 22px;
+}
+
+.eco-score-card {
+  background:
+    rgba(255,255,255,0.04);
+
+  border:
+    1px solid rgba(255,255,255,0.05);
+
+  border-radius: 22px;
+
+  padding: 18px;
+}
+
+.eco-score-card span {
+  display: block;
+
+  font-size: 13px;
+  font-weight: 700;
+
+  color: rgba(255,255,255,0.68);
+
+  margin-bottom: 8px;
+}
+
+.eco-score-card strong {
+  display: block;
+
+  font-size: 28px;
+  font-weight: 900;
+
+  color: white;
+}
+
+.eco-score-card small {
+  display: block;
+
+  margin-top: 10px;
+
+  line-height: 1.45;
+
+  color: rgba(255,255,255,0.48);
+
+  font-size: 12px;
+}
+
+.eco-score-comment {
+  margin-top: 20px;
+
+  text-align: center;
+
+  padding: 16px 18px;
+
+  border-radius: 18px;
+
+  background:
+    rgba(255,255,255,0.05);
+
+  color: rgba(255,255,255,0.82);
+
+  font-size: 15px;
+  font-weight: 700;
+}
+
+/* =========================
+   MOBILE
+========================= */
+
+@media (max-width: 768px) {
+  .turn-card {
+    width: calc(100vw - 22px);
+
+    top: 84px;
+  }
+
+  .turn-instruction {
+    font-size: 22px;
+  }
+
+  .turn-icon {
+    width: 62px;
+    height: 62px;
+
+    font-size: 30px;
+  }
+
+  .speed-sign {
+    width: 64px;
+    height: 64px;
+
+    font-size: 24px;
+  }
+
+  .nav-bottom-main {
+    grid-template-columns: 1fr;
+  }
+
+  .eco-score-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .eco-score-total strong {
+    font-size: 46px;
   }
 }
