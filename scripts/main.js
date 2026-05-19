@@ -1,463 +1,216 @@
 import { state } from "./state.js";
+import { els, cacheDom } from "./dom.js";
 
-import {
-  els,
-  cacheDom
-} from "./dom.js";
-
-import {
-  loadSettings,
-  applySettingsToUI,
-  saveSettingsFromControls,
-  openSettings,
-  closeSettings
-} from "./settings.js";
-
-import {
-  initMap,
-  recenterMap
-} from "./map.js";
-
-import {
-  runAutocomplete,
-  hideAutocomplete
-} from "./autocomplete.js";
-
-import {
-  calculateRoute
-} from "./routing.js";
-
-import {
-  loadFuelPrices,
-  updateFuelBox,
-  openFuelList,
-  closeFuelList,
-  renderFuelList,
-  openFuelHistory,
-  closeFuelHistory
-} from "./fuel.js";
-
-import {
-  renderHistory
-} from "./history.js";
-
-import {
-  setStatus
-} from "./utils.js";
-
-document.addEventListener(
-  "DOMContentLoaded",
-  init
-);
+document.addEventListener("DOMContentLoaded", init);
 
 async function init() {
   try {
     cacheDom();
+    bindCoreEvents();
 
-    loadSettings();
+    await safeCall("./settings.js", "loadSettings");
+    await safeCall("./map.js", "initMap");
+    await safeCall("./settings.js", "applySettingsToUI");
+    await safeCall("./history.js", "renderHistory");
+    await safeCall("./utils.js", "setStatus", "GPS: klar", "Navigation: inaktiv", "Kort: klar");
+    await safeCall("./fuel.js", "loadFuelPrices");
+    await safeCall("./fuel.js", "updateFuelBox");
 
-    initMap();
-
-    bindEvents();
-
-    applySettingsToUI();
-
-    renderHistory();
-
-    setStatus(
-      "GPS: klar",
-      "Navigation: inaktiv",
-      "Kort: klar"
-    );
-
-    await loadFuelPrices();
-
-    updateFuelBox();
-
-    console.log("GreenWave init OK");
+    console.log("GreenWave emergency main loaded");
   } catch (error) {
-    console.error(
-      "INIT FEJL:",
-      error
-    );
+    console.error("GreenWave init fejl:", error);
   }
 }
 
-function bindEvents() {
-  bindSearchEvents();
+function bindCoreEvents() {
+  els.destinationInput?.addEventListener("input", () => {
+    state.selectedAutocompleteItem = null;
+    clearTimeout(state.autocompleteTimer);
 
-  bindNavigationEvents();
+    state.autocompleteTimer = setTimeout(async () => {
+      await safeCall("./autocomplete.js", "runAutocomplete");
+    }, 250);
+  });
 
-  bindSettingsEvents();
+  els.calcRouteBtn?.addEventListener("click", async () => {
+    await safeCall("./routing.js", "calculateRoute");
+  });
 
-  bindFuelEvents();
+  els.startNavBtn?.addEventListener("click", async () => {
+    await safeCall("./navigation.js", "startLiveNavigation");
+  });
 
-  bindEcoScoreEvents();
+  els.stopNavBtn?.addEventListener("click", async () => {
+    await safeCall("./navigation.js", "stopLiveNavigation");
+  });
 
-  bindGlobalEvents();
-}
+  els.overlayStopBtn?.addEventListener("click", async () => {
+    await safeCall("./navigation.js", "stopLiveNavigation");
+  });
 
-/* =========================
-   SEARCH
-========================= */
+  els.centerBtn?.addEventListener("click", async () => {
+    await safeCall("./map.js", "recenterMap");
+  });
 
-function bindSearchEvents() {
-  els.destinationInput?.addEventListener(
-    "input",
-    () => {
-      state.selectedAutocompleteItem = null;
+  els.settingsBtn?.addEventListener("click", async () => {
+    await safeCall("./settings.js", "openSettings");
+  });
 
-      clearTimeout(
-        state.autocompleteTimer
-      );
+  els.closeSettingsBtn?.addEventListener("click", async () => {
+    await safeCall("./settings.js", "closeSettings");
+  });
 
-      state.autocompleteTimer =
-        setTimeout(
-          runAutocomplete,
-          250
-        );
-    }
-  );
-}
+  els.settingsBackdrop?.addEventListener("click", async () => {
+    await safeCall("./settings.js", "closeSettings");
+  });
 
-/* =========================
-   NAVIGATION
-========================= */
+  els.saveSettingsBtn?.addEventListener("click", async () => {
+    await safeCall("./settings.js", "saveSettingsFromControls");
+  });
 
-function bindNavigationEvents() {
-  els.calcRouteBtn?.addEventListener(
-    "click",
-    calculateRoute
-  );
+  els.openFuelListBtn?.addEventListener("click", async () => {
+    await safeCall("./fuel.js", "openFuelList");
+  });
 
-  els.startNavBtn?.addEventListener(
-    "click",
-    async () => {
-      try {
-        const nav = await import("./navigation.js");
+  els.closeFuelListBtn?.addEventListener("click", async () => {
+    await safeCall("./fuel.js", "closeFuelList");
+  });
 
-        if (nav.startLiveNavigation) {
-          nav.startLiveNavigation();
-        }
-      } catch (error) {
-        console.error(
-          "Start navigation fejl",
-          error
-        );
-      }
-    }
-  );
+  els.fuelListBackdrop?.addEventListener("click", async () => {
+    await safeCall("./fuel.js", "closeFuelList");
+  });
 
-  els.stopNavBtn?.addEventListener(
-    "click",
-    async () => {
-      try {
-        const nav = await import("./navigation.js");
+  els.sortFuelByPriceBtn?.addEventListener("click", async () => {
+    state.fuelListSort = "price";
+    await safeCall("./fuel.js", "renderFuelList");
+  });
 
-        if (nav.stopLiveNavigation) {
-          nav.stopLiveNavigation();
-        }
-      } catch (error) {
-        console.error(
-          "Stop navigation fejl",
-          error
-        );
-      }
-    }
-  );
+  els.sortFuelByDetourBtn?.addEventListener("click", async () => {
+    state.fuelListSort = "detour";
+    await safeCall("./fuel.js", "renderFuelList");
+  });
 
-  els.overlayStopBtn?.addEventListener(
-    "click",
-    async () => {
-      try {
-        const nav = await import("./navigation.js");
+  els.fuelHistoryBtn?.addEventListener("click", async () => {
+    await safeCall("./fuel.js", "openFuelHistory");
+  });
 
-        if (nav.stopLiveNavigation) {
-          nav.stopLiveNavigation();
-        }
-      } catch (error) {
-        console.error(
-          "Overlay stop fejl",
-          error
-        );
-      }
-    }
-  );
+  els.closeFuelHistoryBtn?.addEventListener("click", async () => {
+    await safeCall("./fuel.js", "closeFuelHistory");
+  });
 
-  els.centerBtn?.addEventListener(
-    "click",
-    recenterMap
-  );
-}
+  els.fuelHistoryBackdrop?.addEventListener("click", async () => {
+    await safeCall("./fuel.js", "closeFuelHistory");
+  });
 
-/* =========================
-   SETTINGS
-========================= */
-
-function bindSettingsEvents() {
-  els.settingsBtn?.addEventListener(
-    "click",
-    openSettings
-  );
-
-  els.closeSettingsBtn?.addEventListener(
-    "click",
-    closeSettings
-  );
-
-  els.settingsBackdrop?.addEventListener(
-    "click",
-    closeSettings
-  );
-
-  els.saveSettingsBtn?.addEventListener(
-    "click",
-    saveSettingsFromControls
-  );
-}
-
-/* =========================
-   FUEL
-========================= */
-
-function bindFuelEvents() {
-  els.openFuelListBtn?.addEventListener(
-    "click",
-    openFuelList
-  );
-
-  els.closeFuelListBtn?.addEventListener(
-    "click",
-    closeFuelList
-  );
-
-  els.fuelListBackdrop?.addEventListener(
-    "click",
-    closeFuelList
-  );
-
-  els.sortFuelByPriceBtn?.addEventListener(
-    "click",
-    () => {
-      state.fuelListSort = "price";
-
-      renderFuelList();
-    }
-  );
-
-  els.sortFuelByDetourBtn?.addEventListener(
-    "click",
-    () => {
-      state.fuelListSort = "detour";
-
-      renderFuelList();
-    }
-  );
-
-  els.fuelHistoryBtn?.addEventListener(
-    "click",
-    openFuelHistory
-  );
-
-  els.closeFuelHistoryBtn?.addEventListener(
-    "click",
-    closeFuelHistory
-  );
-
-  els.fuelHistoryBackdrop?.addEventListener(
-    "click",
-    closeFuelHistory
-  );
-}
-
-/* =========================
-   ECO SCORE
-========================= */
-
-function bindEcoScoreEvents() {
-  els.ecoScoreBadge?.addEventListener(
-    "click",
-    async () => {
-      try {
-        toggleEcoScoreModal();
-      } catch (error) {
-        console.error(
-          "Eco modal fejl",
-          error
-        );
-      }
-    }
-  );
-
-  els.closeEcoScoreBtn?.addEventListener(
-    "click",
-    closeEcoScoreModal
-  );
-
-  els.ecoScoreBackdrop?.addEventListener(
-    "click",
-    closeEcoScoreModal
-  );
-}
-
-function toggleEcoScoreModal() {
-  if (
-    els.ecoScoreModal?.classList.contains(
-      "hidden"
-    )
-  ) {
+  els.ecoScoreBadge?.addEventListener("click", () => {
     openEcoScoreModal();
-  } else {
-    closeEcoScoreModal();
+  });
+
+  els.closeEcoScoreBtn?.addEventListener("click", closeEcoScoreModal);
+  els.ecoScoreBackdrop?.addEventListener("click", closeEcoScoreModal);
+
+  document.addEventListener("click", async event => {
+    if (!event.target.closest(".search-wrap")) {
+      await safeCall("./autocomplete.js", "hideAutocomplete");
+    }
+  });
+
+  document.addEventListener("keydown", async event => {
+    if (event.key === "Escape") {
+      await safeCall("./settings.js", "closeSettings");
+      await safeCall("./fuel.js", "closeFuelList");
+      await safeCall("./fuel.js", "closeFuelHistory");
+      closeEcoScoreModal();
+    }
+  });
+}
+
+async function safeCall(modulePath, exportName, ...args) {
+  try {
+    const mod = await import(modulePath + "?safe=" + Date.now());
+
+    if (typeof mod[exportName] !== "function") {
+      console.warn(`${exportName} findes ikke i ${modulePath}`);
+      return null;
+    }
+
+    return await mod[exportName](...args);
+  } catch (error) {
+    console.error(`Fejl i ${modulePath} -> ${exportName}:`, error);
+    return null;
   }
 }
 
 function openEcoScoreModal() {
   updateEcoScoreModal();
 
-  els.ecoScoreModal?.classList.remove(
-    "hidden"
-  );
-
-  els.ecoScoreBackdrop?.classList.remove(
-    "hidden"
-  );
+  els.ecoScoreModal?.classList.remove("hidden");
+  els.ecoScoreBackdrop?.classList.remove("hidden");
 }
 
 function closeEcoScoreModal() {
-  els.ecoScoreModal?.classList.add(
-    "hidden"
-  );
-
-  els.ecoScoreBackdrop?.classList.add(
-    "hidden"
-  );
+  els.ecoScoreModal?.classList.add("hidden");
+  els.ecoScoreBackdrop?.classList.add("hidden");
 }
 
 function updateEcoScoreModal() {
   const eco = state.ecoScore;
 
-  if (!eco) {
-    return;
-  }
+  const acceleration = average(
+    eco?.accelerationQualitySum,
+    eco?.accelerationEvents,
+    70
+  );
 
-  const acceleration =
-    calculateAverage(
-      eco.accelerationQualitySum,
-      eco.accelerationEvents,
-      70
-    );
+  const braking = average(
+    eco?.brakingQualitySum,
+    eco?.brakingEvents,
+    70
+  );
 
-  const braking =
-    calculateAverage(
-      eco.brakingQualitySum,
-      eco.brakingEvents,
-      70
-    );
+  const steady = average(
+    eco?.steadyQualitySum,
+    eco?.steadySamples,
+    70
+  );
 
-  const steady =
-    calculateAverage(
-      eco.steadyQualitySum,
-      eco.steadySamples,
-      70
-    );
-
-  const total =
-    Math.round(
-      acceleration * 0.30 +
-      braking * 0.30 +
-      steady * 0.40
-    );
+  const total = Math.round(
+    acceleration * 0.3 +
+    braking * 0.3 +
+    steady * 0.4
+  );
 
   if (els.ecoScoreTotalValue) {
-    els.ecoScoreTotalValue.textContent =
-      `${total}/100`;
+    els.ecoScoreTotalValue.textContent = `${total}/100`;
   }
 
   if (els.ecoScoreAccelerationValue) {
-    els.ecoScoreAccelerationValue.textContent =
-      `${Math.round(acceleration)}/100`;
+    els.ecoScoreAccelerationValue.textContent = `${Math.round(acceleration)}/100`;
   }
 
   if (els.ecoScoreBrakingValue) {
-    els.ecoScoreBrakingValue.textContent =
-      `${Math.round(braking)}/100`;
+    els.ecoScoreBrakingValue.textContent = `${Math.round(braking)}/100`;
   }
 
   if (els.ecoScoreSteadyValue) {
-    els.ecoScoreSteadyValue.textContent =
-      `${Math.round(steady)}/100`;
+    els.ecoScoreSteadyValue.textContent = `${Math.round(steady)}/100`;
   }
 
   if (els.ecoScoreComment) {
-    els.ecoScoreComment.textContent =
-      getEcoComment(total);
+    els.ecoScoreComment.textContent = getEcoComment(total);
   }
 }
 
-function calculateAverage(
-  sum,
-  count,
-  fallback
-) {
-  if (!count || count <= 0) {
-    return fallback;
-  }
-
+function average(sum, count, fallback) {
+  if (!count || count <= 0) return fallback;
   return sum / count;
 }
 
 function getEcoComment(score) {
-  if (score >= 92) {
-    return "Ekstremt rolig og effektiv kørsel.";
-  }
-
-  if (score >= 82) {
-    return "Meget økonomisk og stabil kørsel.";
-  }
-
-  if (score >= 70) {
-    return "Generelt rolig og effektiv kørestil.";
-  }
-
-  if (score >= 55) {
-    return "Lidt ujævn kørestil med potentiale for forbedring.";
-  }
-
-  if (score >= 40) {
-    return "Mange hårde accelerationer eller opbremsninger.";
-  }
-
+  if (score >= 92) return "Ekstremt rolig og effektiv kørsel.";
+  if (score >= 82) return "Meget økonomisk og stabil kørsel.";
+  if (score >= 70) return "Generelt rolig og effektiv kørestil.";
+  if (score >= 55) return "Lidt ujævn kørestil med potentiale for forbedring.";
+  if (score >= 40) return "Mange hårde accelerationer eller opbremsninger.";
   return "Aggressiv og ineffektiv kørestil.";
-}
-
-/* =========================
-   GLOBAL
-========================= */
-
-function bindGlobalEvents() {
-  document.addEventListener(
-    "click",
-    event => {
-      if (
-        !event.target.closest(
-          ".search-wrap"
-        )
-      ) {
-        hideAutocomplete();
-      }
-    }
-  );
-
-  document.addEventListener(
-    "keydown",
-    event => {
-      if (event.key === "Escape") {
-        closeSettings();
-        closeFuelList();
-        closeFuelHistory();
-        closeEcoScoreModal();
-      }
-    }
-  );
 }
