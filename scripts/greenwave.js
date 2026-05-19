@@ -1,11 +1,15 @@
 import { state } from "./state.js";
 
 import {
-  formatDistance,
   haversine
 } from "./utils.js";
 
-export async function loadTrafficSignals(geometry) {
+export async function loadTrafficSignals(geometry = []) {
+  if (!Array.isArray(geometry) || !geometry.length) {
+    state.trafficSignals = [];
+    return;
+  }
+
   const sample = sampleRoutePoints(geometry);
 
   if (!sample.length) {
@@ -20,7 +24,7 @@ export async function loadTrafficSignals(geometry) {
         node(around:1200,${point.lat},${point.lng})["highway"="traffic_signals"];
       `).join("")}
     );
-    out;
+    out body;
   `;
 
   try {
@@ -41,127 +45,229 @@ export async function loadTrafficSignals(geometry) {
 
     const data = await response.json();
 
-    state.trafficSignals = dedupeSignals(
-      (data.elements || [])
-        .filter(item =>
-          typeof item.lat === "number" &&
-          typeof item.lon === "number"
-        )
-        .map(item => ({
-          id: item.id,
-          lat: item.lat,
-          lng: item.lon
-        }))
-    );
+    state.trafficSignals = (data.elements || [])
+      .filter(item =>
+        typeof item.lat === "number" &&
+        typeof item.lon === "number"
+      )
+      .map(item => ({
+        id: item.id,
+        lat: item.lat,
+        lng: item.lon
+      }));
   } catch (error) {
-    console.warn("Kunne ikke hente trafiklys", error);
+    console.warn("Trafiklys-data ikke tilgængelig", error);
     state.trafficSignals = [];
   }
 }
 
 export function getGreenWaveRecommendation(current) {
-  const maxSpeed = getCurrentMaxSpeed();
+  const speedLimit =
+    typeof state.currentMaxSpeed === "number" &&
+    Number.isFinite(state.currentMaxSpeed)
+      ? state.currentMaxSpeed
+      : null;
 
-  /*
-    SIKKERHEDSREGEL:
-    Hvis maxhastighed er ukendt, må appen ikke gætte.
-    Derfor vises anbefalet hastighed som ?.
-  */
-  if (!maxSpeed) {
-    return {
-      speedKmh: null,
-      distanceToSignal: null,
-      message: "Ukendt hastighedsgrænse"
-    };
+  const nextStep = getNextStepEstimate(current);
+
+  const nextSignalDistance =
+    getNearestTrafficSignalDistance(current);
+
+  let recommended =
+    calculateBaseRecommendedSpeed(speedLimit);
+
+  if (nextStep) {
+    recommended = applyTurnBasedSpeed(
+      recommended,
+      nextStep
+    );
   }
 
-  const nextSignal = findNextTrafficSignal(current);
-
-  /*
-    Hvis der ikke er trafiklys forude:
-    anbefalet hastighed = maxhastighed.
-    Ikke aktuel hastighed.
-    Ikke max - 5.
-  */
-  if (!nextSignal) {
-    return {
-      speedKmh: maxSpeed,
-      distanceToSignal: null,
-      message: `Ingen trafiklys forude · hold ${maxSpeed} km/t`
-    };
+  if (
+    Number.isFinite(nextSignalDistance) &&
+    nextSignalDistance < 350
+  ) {
+    recommended = Math.min(
+      recommended,
+      calculateApproachSpeed(nextSignalDistance)
+    );
   }
 
-  const distance = nextSignal.distance;
-
-  const recommended =
-    calculateSignalAwareSpeed(distance, maxSpeed);
+  recommended = clampRecommendedSpeed(
+    recommended,
+    speedLimit
+  );
 
   return {
     speedKmh: recommended,
-    distanceToSignal: distance,
-    message:
-      `Trafiklys om ${formatDistance(distance)} · anbefalet ${recommended} km/t`
+    reason: getRecommendationReason(
+      speedLimit,
+      nextStep,
+      nextSignalDistance
+    )
   };
 }
 
-function calculateSignalAwareSpeed(distanceMeters, maxSpeed) {
-  if (!maxSpeed) {
+function calculateBaseRecommendedSpeed(speedLimit) {
+  if (!speedLimit) {
     return null;
   }
 
+  if (speedLimit <= 40) {
+    return Math.max(25, Math.round(speedLimit * 0.9));
+  }
+
+  if (speedLimit <= 60) {
+    return Math.round(speedLimit * 0.88);
+  }
+
+  if (speedLimit <= 90) {
+    return Math.round(speedLimit * 0.9);
+  }
+
+  return Math.round(speedLimit * 0.88);
+}
+
+function applyTurnBasedSpeed(currentRecommendation, step) {
+  if (!Number.isFinite(currentRecommendation)) {
+    return currentRecommendation;
+  }
+
+  const distance =
+    Number(step.distanceToStep || step.distance || Infinity);
+
+  const type =
+    String(step.maneuverType || "").toLowerCase();
+
+  const modifier =
+    String(step.maneuverModifier || "").toLowerCase();
+
+  const isTurn =
+    modifier.includes("left") ||
+    modifier.includes("right") ||
+    type.includes("turn");
+
+  const isRoundabout =
+    type.includes("roundabout") ||
+    type.includes("rotary");
+
+  const isRamp =
+    type.includes("ramp") ||
+    type.includes("merge");
+
+  if (isRoundabout && distance < 300) {
+    return Math.min(currentRecommendation, 35);
+  }
+
+  if (isTurn && distance < 250) {
+    return Math.min(currentRecommendation, 35);
+  }
+
+  if (isRamp && distance < 350) {
+    return Math.min(currentRecommendation, 55);
+  }
+
+  if (distance < 120) {
+    return Math.min(currentRecommendation, 35);
+  }
+
+  return currentRecommendation;
+}
+
+function calculateApproachSpeed(distanceMeters) {
   if (distanceMeters < 80) {
-    return Math.min(maxSpeed, 30);
+    return 25;
   }
 
-  if (distanceMeters < 180) {
-    return Math.min(maxSpeed, 40);
+  if (distanceMeters < 150) {
+    return 35;
   }
 
-  if (distanceMeters < 350) {
-    return Math.min(maxSpeed, 50);
+  if (distanceMeters < 250) {
+    return 45;
   }
 
-  return maxSpeed;
+  return 55;
 }
 
-function findNextTrafficSignal(current) {
+function clampRecommendedSpeed(value, speedLimit) {
+  if (!Number.isFinite(value)) {
+    return null;
+  }
+
+  let min = 25;
+  let max = speedLimit || 90;
+
+  if (speedLimit && speedLimit <= 40) {
+    min = 20;
+  }
+
+  const rounded =
+    Math.round(value / 5) * 5;
+
+  return Math.max(
+    min,
+    Math.min(max, rounded)
+  );
+}
+
+function getNextStepEstimate(current) {
+  const steps = state.routeSteps || [];
+
+  if (!steps.length) {
+    return null;
+  }
+
+  return steps[state.currentStepIndex || 0] || null;
+}
+
+function getNearestTrafficSignalDistance(current) {
   if (!current || !Array.isArray(state.trafficSignals)) {
-    return null;
+    return Infinity;
   }
 
-  if (!state.trafficSignals.length) {
-    return null;
-  }
+  let nearest = Infinity;
 
-  const candidates = state.trafficSignals
-    .map(signal => ({
-      ...signal,
-      distance: haversine(
-        current.lat,
-        current.lng,
-        signal.lat,
-        signal.lng
-      )
-    }))
-    .filter(signal =>
-      Number.isFinite(signal.distance) &&
-      signal.distance > 25 &&
-      signal.distance < 1200
-    )
-    .sort((a, b) => a.distance - b.distance);
+  state.trafficSignals.forEach(signal => {
+    const distance = haversine(
+      current.lat,
+      current.lng,
+      signal.lat,
+      signal.lng
+    );
 
-  return candidates[0] || null;
+    if (distance < nearest) {
+      nearest = distance;
+    }
+  });
+
+  return nearest;
 }
 
-function getCurrentMaxSpeed() {
-  if (
-    typeof state.currentMaxSpeed === "number" &&
-    Number.isFinite(state.currentMaxSpeed)
-  ) {
-    return state.currentMaxSpeed;
+function getRecommendationReason(
+  speedLimit,
+  nextStep,
+  nextSignalDistance
+) {
+  if (!speedLimit) {
+    return "Mangler fartgrænse";
   }
 
-  return null;
+  if (
+    nextStep &&
+    Number(nextStep.distance || Infinity) < 300
+  ) {
+    return "Tilpasset kommende manøvre";
+  }
+
+  if (
+    Number.isFinite(nextSignalDistance) &&
+    nextSignalDistance < 350
+  ) {
+    return "Rolig tilgang mod trafiklys";
+  }
+
+  return "Økonomisk anbefalet fart";
 }
 
 function sampleRoutePoints(geometry) {
@@ -174,7 +280,8 @@ function sampleRoutePoints(geometry) {
 
   for (let i = 0; i < maxSamples; i++) {
     const index = Math.round(
-      (geometry.length - 1) * (i / (maxSamples - 1))
+      (geometry.length - 1) *
+      (i / (maxSamples - 1))
     );
 
     const point = geometry[index];
@@ -193,7 +300,7 @@ function sampleRoutePoints(geometry) {
 
   return points.filter(point => {
     const key =
-      `${point.lat.toFixed(3)},${point.lng.toFixed(3)}`;
+      `${point.lat.toFixed(4)},${point.lng.toFixed(4)}`;
 
     if (seen.has(key)) {
       return false;
@@ -202,25 +309,4 @@ function sampleRoutePoints(geometry) {
     seen.add(key);
     return true;
   });
-}
-
-function dedupeSignals(signals) {
-  const out = [];
-
-  signals.forEach(signal => {
-    const duplicate = out.some(existing =>
-      haversine(
-        signal.lat,
-        signal.lng,
-        existing.lat,
-        existing.lng
-      ) < 25
-    );
-
-    if (!duplicate) {
-      out.push(signal);
-    }
-  });
-
-  return out;
 }
