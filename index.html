@@ -17,12 +17,12 @@
 
   <link
     rel="stylesheet"
-    href="styles/base.css?v=11"
+    href="styles/base.css?v=14"
   />
 
   <link
     rel="stylesheet"
-    href="styles/navigation.css?v=13"
+    href="styles/navigation.css?v=14"
   />
 </head>
 
@@ -33,8 +33,7 @@
         <h1>GreenWave</h1>
 
         <p class="muted" style="margin-top:12px;">
-          Intelligent navigation med GreenWave,
-          hastighedsanbefalinger og brændstofpriser langs ruten.
+          Intelligent navigation med GreenWave, hastighedsanbefalinger og brændstofpriser langs ruten.
         </p>
       </section>
 
@@ -80,21 +79,21 @@
         </div>
 
         <div class="button-row" style="margin-top:16px;">
-          <button id="calcRouteBtn">
+          <button id="calcRouteBtn" type="button">
             Beregn rute
           </button>
 
-          <button id="startNavBtn" disabled>
+          <button id="startNavBtn" type="button" disabled>
             Start navigation
           </button>
         </div>
 
         <div class="button-row" style="margin-top:10px;">
-          <button id="centerBtn">
+          <button id="centerBtn" type="button">
             Centrér
           </button>
 
-          <button id="settingsBtn">
+          <button id="settingsBtn" type="button">
             Settings
           </button>
         </div>
@@ -154,6 +153,7 @@
         >
           <button
             id="openFuelListBtn"
+            type="button"
             disabled
           >
             Se billigste på ruten
@@ -185,13 +185,14 @@
           <button
             id="overlayStopBtn"
             class="overlay-btn nav-floating-stop"
+            type="button"
           >
             Stop
           </button>
 
           <button
             id="ecoScoreBadge"
-            class="eco-score-badge eco-ok"
+            class="eco-score-badge eco-mid"
             type="button"
           >
             Eco 70
@@ -291,8 +292,6 @@
     </main>
   </div>
 
-  <!-- SETTINGS -->
-
   <div
     id="settingsBackdrop"
     class="settings-backdrop hidden"
@@ -305,7 +304,7 @@
     <div class="settings-header">
       <h2>Settings</h2>
 
-      <button id="closeSettingsBtn">
+      <button id="closeSettingsBtn" type="button">
         Luk
       </button>
     </div>
@@ -316,13 +315,11 @@
     ></div>
 
     <div class="settings-footer">
-      <button id="saveSettingsBtn">
+      <button id="saveSettingsBtn" type="button">
         Gem settings
       </button>
     </div>
   </div>
-
-  <!-- FUEL LIST -->
 
   <div
     id="fuelListBackdrop"
@@ -336,17 +333,17 @@
     <div class="fuel-list-header">
       <h2>Tankstationer på ruten</h2>
 
-      <button id="closeFuelListBtn">
+      <button id="closeFuelListBtn" type="button">
         Luk
       </button>
     </div>
 
     <div class="fuel-list-controls">
-      <button id="sortFuelByPriceBtn">
+      <button id="sortFuelByPriceBtn" type="button">
         Billigst
       </button>
 
-      <button id="sortFuelByDetourBtn">
+      <button id="sortFuelByDetourBtn" type="button">
         Mindst omvej
       </button>
     </div>
@@ -356,8 +353,6 @@
       class="fuel-list-content"
     ></div>
   </div>
-
-  <!-- ECO SCORE MODAL -->
 
   <div
     id="ecoScoreBackdrop"
@@ -376,7 +371,7 @@
         </p>
       </div>
 
-      <button id="closeEcoScoreBtn">
+      <button id="closeEcoScoreBtn" type="button">
         Luk
       </button>
     </div>
@@ -416,8 +411,6 @@
     </div>
   </div>
 
-  <!-- FUEL HISTORY -->
-
   <div
     id="fuelHistoryBackdrop"
     class="modal-backdrop hidden"
@@ -430,7 +423,7 @@
     <div class="fuel-list-header">
       <h2>Prishistorik</h2>
 
-      <button id="closeFuelHistoryBtn">
+      <button id="closeFuelHistoryBtn" type="button">
         Luk
       </button>
     </div>
@@ -445,7 +438,7 @@
 
   <script
     type="module"
-    src="scripts/main.js?v=51"
+    src="scripts/main.js?v=52"
   ></script>
 </body>
 </html>
