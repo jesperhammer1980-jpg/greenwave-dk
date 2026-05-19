@@ -4,13 +4,21 @@ import {
   haversine
 } from "./utils.js";
 
+/* =========================
+   LOAD TRAFFIC SIGNALS
+========================= */
+
 export async function loadTrafficSignals(geometry = []) {
-  if (!Array.isArray(geometry) || !geometry.length) {
+  if (
+    !Array.isArray(geometry) ||
+    !geometry.length
+  ) {
     state.trafficSignals = [];
     return;
   }
 
-  const sample = sampleRoutePoints(geometry);
+  const sample =
+    sampleRoutePoints(geometry);
 
   if (!sample.length) {
     state.trafficSignals = [];
@@ -28,119 +36,220 @@ export async function loadTrafficSignals(geometry = []) {
   `;
 
   try {
-    const response = await fetch(
-      "https://overpass-api.de/api/interpreter",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "text/plain;charset=UTF-8"
-        },
-        body: query
-      }
-    );
+    const response =
+      await fetch(
+        "https://overpass-api.de/api/interpreter",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "text/plain;charset=UTF-8"
+          },
+          body: query
+        }
+      );
 
     if (!response.ok) {
-      throw new Error("Trafiklys kunne ikke hentes");
+      throw new Error(
+        "Trafiklys kunne ikke hentes"
+      );
     }
 
-    const data = await response.json();
+    const data =
+      await response.json();
 
-    state.trafficSignals = (data.elements || [])
-      .filter(item =>
-        typeof item.lat === "number" &&
-        typeof item.lon === "number"
-      )
-      .map(item => ({
-        id: item.id,
-        lat: item.lat,
-        lng: item.lon
-      }));
+    state.trafficSignals =
+      (data.elements || [])
+        .filter(item =>
+          typeof item.lat === "number" &&
+          typeof item.lon === "number"
+        )
+        .map(item => ({
+          id: item.id,
+          lat: item.lat,
+          lng: item.lon
+        }));
   } catch (error) {
-    console.warn("Trafiklys-data ikke tilgængelig", error);
+    console.warn(
+      "Trafiklys-data ikke tilgængelig",
+      error
+    );
+
     state.trafficSignals = [];
   }
 }
 
-export function getGreenWaveRecommendation(current) {
-  const speedLimit =
-    typeof state.currentMaxSpeed === "number" &&
-    Number.isFinite(state.currentMaxSpeed)
-      ? state.currentMaxSpeed
-      : null;
+/* =========================
+   PUBLIC RECOMMENDATION
+========================= */
 
-  const nextStep = getNextStepEstimate(current);
+export function getGreenWaveRecommendation(current) {
+  if (
+    !state.settings.greenWaveEnabled
+  ) {
+    return {
+      speedKmh: null,
+      reason: "Anbefalet fart slået fra"
+    };
+  }
+
+  const speedLimit =
+    getReliableSpeedLimit();
+
+  const nextStep =
+    getNextStepEstimate();
 
   const nextSignalDistance =
     getNearestTrafficSignalDistance(current);
 
-  let recommended =
-    calculateBaseRecommendedSpeed(speedLimit);
+  const curveSpeed =
+    getCurveOrTurnSpeed(nextStep);
 
-  if (nextStep) {
-    recommended = applyTurnBasedSpeed(
-      recommended,
-      nextStep
+  let recommended =
+    calculateBaseRecommendedSpeed(
+      speedLimit,
+      current
     );
+
+  if (
+    Number.isFinite(curveSpeed)
+  ) {
+    recommended =
+      Math.min(
+        recommended || curveSpeed,
+        curveSpeed
+      );
   }
 
   if (
-    Number.isFinite(nextSignalDistance) &&
-    nextSignalDistance < 350
+    Number.isFinite(nextSignalDistance)
   ) {
-    recommended = Math.min(
-      recommended,
-      calculateApproachSpeed(nextSignalDistance)
-    );
+    recommended =
+      applyTrafficSignalApproach(
+        recommended,
+        nextSignalDistance,
+        current
+      );
   }
 
-  recommended = clampRecommendedSpeed(
-    recommended,
-    speedLimit
-  );
+  recommended =
+    clampRecommendedSpeed(
+      recommended,
+      speedLimit
+    );
 
   return {
     speedKmh: recommended,
-    reason: getRecommendationReason(
-      speedLimit,
-      nextStep,
-      nextSignalDistance
-    )
+    reason:
+      getRecommendationReason({
+        speedLimit,
+        nextStep,
+        nextSignalDistance,
+        curveSpeed,
+        recommended
+      })
   };
 }
 
-function calculateBaseRecommendedSpeed(speedLimit) {
+/* =========================
+   SPEED LIMIT HANDLING
+========================= */
+
+function getReliableSpeedLimit() {
+  if (
+    typeof state.currentMaxSpeed === "number" &&
+    Number.isFinite(state.currentMaxSpeed) &&
+    state.currentMaxSpeed >= 20 &&
+    state.currentMaxSpeed <= 130
+  ) {
+    return state.currentMaxSpeed;
+  }
+
+  return null;
+}
+
+/* =========================
+   BASE SPEED
+========================= */
+
+function calculateBaseRecommendedSpeed(
+  speedLimit,
+  current
+) {
+  const speed =
+    Number(current?.speed || 0);
+
   if (!speedLimit) {
+    if (speed > 90) return 90;
+    if (speed > 65) return 75;
+    if (speed > 40) return 55;
+    if (speed > 15) return 40;
+
     return null;
   }
 
+  if (speedLimit <= 30) {
+    return 25;
+  }
+
   if (speedLimit <= 40) {
-    return Math.max(25, Math.round(speedLimit * 0.9));
+    return 35;
+  }
+
+  if (speedLimit <= 50) {
+    return 45;
   }
 
   if (speedLimit <= 60) {
-    return Math.round(speedLimit * 0.88);
+    return 55;
+  }
+
+  if (speedLimit <= 80) {
+    return 70;
   }
 
   if (speedLimit <= 90) {
-    return Math.round(speedLimit * 0.9);
+    return 80;
   }
 
-  return Math.round(speedLimit * 0.88);
+  if (speedLimit <= 110) {
+    return 95;
+  }
+
+  return 105;
 }
 
-function applyTurnBasedSpeed(currentRecommendation, step) {
-  if (!Number.isFinite(currentRecommendation)) {
-    return currentRecommendation;
+/* =========================
+   TURN / CURVE SPEED
+========================= */
+
+function getCurveOrTurnSpeed(step) {
+  if (
+    !state.settings.curveSpeedAssist &&
+    !state.navigationView.curveSpeedAssist
+  ) {
+    return null;
+  }
+
+  if (!step) {
+    return null;
   }
 
   const distance =
-    Number(step.distanceToStep || step.distance || Infinity);
+    Number(
+      step.distanceToStep ||
+      step.distance ||
+      Infinity
+    );
 
   const type =
-    String(step.maneuverType || "").toLowerCase();
+    String(
+      step.maneuverType || ""
+    ).toLowerCase();
 
   const modifier =
-    String(step.maneuverModifier || "").toLowerCase();
+    String(
+      step.maneuverModifier || ""
+    ).toLowerCase();
 
   const isTurn =
     modifier.includes("left") ||
@@ -153,52 +262,115 @@ function applyTurnBasedSpeed(currentRecommendation, step) {
 
   const isRamp =
     type.includes("ramp") ||
-    type.includes("merge");
+    type.includes("merge") ||
+    type.includes("fork");
 
-  if (isRoundabout && distance < 300) {
-    return Math.min(currentRecommendation, 35);
-  }
+  if (
+    isRoundabout &&
+    distance < 350
+  ) {
+    if (distance < 120) return 25;
+    if (distance < 220) return 35;
 
-  if (isTurn && distance < 250) {
-    return Math.min(currentRecommendation, 35);
-  }
-
-  if (isRamp && distance < 350) {
-    return Math.min(currentRecommendation, 55);
-  }
-
-  if (distance < 120) {
-    return Math.min(currentRecommendation, 35);
-  }
-
-  return currentRecommendation;
-}
-
-function calculateApproachSpeed(distanceMeters) {
-  if (distanceMeters < 80) {
-    return 25;
-  }
-
-  if (distanceMeters < 150) {
-    return 35;
-  }
-
-  if (distanceMeters < 250) {
     return 45;
   }
 
-  return 55;
+  if (
+    isTurn &&
+    distance < 300
+  ) {
+    if (distance < 80) return 25;
+    if (distance < 180) return 35;
+
+    return 45;
+  }
+
+  if (
+    isRamp &&
+    distance < 450
+  ) {
+    if (distance < 140) return 45;
+    if (distance < 280) return 55;
+
+    return 65;
+  }
+
+  return null;
 }
 
-function clampRecommendedSpeed(value, speedLimit) {
+/* =========================
+   TRAFFIC SIGNAL APPROACH
+========================= */
+
+function applyTrafficSignalApproach(
+  currentRecommendation,
+  distanceMeters,
+  current
+) {
+  if (
+    !Number.isFinite(distanceMeters) ||
+    distanceMeters > 450
+  ) {
+    return currentRecommendation;
+  }
+
+  const currentSpeed =
+    Number(current?.speed || 0);
+
+  let signalSpeed = null;
+
+  if (distanceMeters < 70) {
+    signalSpeed = 25;
+  } else if (distanceMeters < 140) {
+    signalSpeed = 35;
+  } else if (distanceMeters < 260) {
+    signalSpeed = 45;
+  } else if (distanceMeters < 450) {
+    signalSpeed = 55;
+  }
+
+  if (!Number.isFinite(signalSpeed)) {
+    return currentRecommendation;
+  }
+
+  if (!Number.isFinite(currentRecommendation)) {
+    return signalSpeed;
+  }
+
+  if (currentSpeed > signalSpeed + 12) {
+    return Math.min(
+      currentRecommendation,
+      signalSpeed
+    );
+  }
+
+  return Math.min(
+    currentRecommendation,
+    signalSpeed + 5
+  );
+}
+
+/* =========================
+   CLAMPING
+========================= */
+
+function clampRecommendedSpeed(
+  value,
+  speedLimit
+) {
   if (!Number.isFinite(value)) {
     return null;
   }
 
-  let min = 25;
-  let max = speedLimit || 90;
+  const max =
+    speedLimit || 110;
 
-  if (speedLimit && speedLimit <= 40) {
+  let min = 25;
+
+  if (
+    speedLimit &&
+    speedLimit <= 30
+  ) {
     min = 20;
   }
 
@@ -211,30 +383,44 @@ function clampRecommendedSpeed(value, speedLimit) {
   );
 }
 
-function getNextStepEstimate(current) {
-  const steps = state.routeSteps || [];
+/* =========================
+   CONTEXT HELPERS
+========================= */
+
+function getNextStepEstimate() {
+  const steps =
+    state.routeSteps || [];
 
   if (!steps.length) {
     return null;
   }
 
-  return steps[state.currentStepIndex || 0] || null;
+  return (
+    steps[state.currentStepIndex || 0] ||
+    steps[0] ||
+    null
+  );
 }
 
 function getNearestTrafficSignalDistance(current) {
-  if (!current || !Array.isArray(state.trafficSignals)) {
+  if (
+    !current ||
+    !Array.isArray(state.trafficSignals) ||
+    !state.trafficSignals.length
+  ) {
     return Infinity;
   }
 
   let nearest = Infinity;
 
   state.trafficSignals.forEach(signal => {
-    const distance = haversine(
-      current.lat,
-      current.lng,
-      signal.lat,
-      signal.lng
-    );
+    const distance =
+      haversine(
+        current.lat,
+        current.lng,
+        signal.lat,
+        signal.lng
+      );
 
     if (distance < nearest) {
       nearest = distance;
@@ -244,47 +430,69 @@ function getNearestTrafficSignalDistance(current) {
   return nearest;
 }
 
-function getRecommendationReason(
+function getRecommendationReason({
   speedLimit,
   nextStep,
-  nextSignalDistance
-) {
-  if (!speedLimit) {
-    return "Mangler fartgrænse";
+  nextSignalDistance,
+  curveSpeed,
+  recommended
+}) {
+  if (!Number.isFinite(recommended)) {
+    return "Mangler data";
   }
 
   if (
-    nextStep &&
-    Number(nextStep.distance || Infinity) < 300
+    Number.isFinite(curveSpeed)
   ) {
-    return "Tilpasset kommende manøvre";
+    return "Tilpasset kommende sving";
   }
 
   if (
     Number.isFinite(nextSignalDistance) &&
-    nextSignalDistance < 350
+    nextSignalDistance < 450
   ) {
     return "Rolig tilgang mod trafiklys";
+  }
+
+  if (!speedLimit) {
+    return "Anbefalet økonomisk fart";
+  }
+
+  if (nextStep) {
+    return "Tilpasset rute og fartgrænse";
   }
 
   return "Økonomisk anbefalet fart";
 }
 
+/* =========================
+   ROUTE SAMPLING
+========================= */
+
 function sampleRoutePoints(geometry) {
   const points = [];
   const maxSamples = 18;
 
-  if (!Array.isArray(geometry) || !geometry.length) {
+  if (
+    !Array.isArray(geometry) ||
+    !geometry.length
+  ) {
     return points;
   }
 
-  for (let i = 0; i < maxSamples; i++) {
-    const index = Math.round(
-      (geometry.length - 1) *
-      (i / (maxSamples - 1))
-    );
+  for (
+    let i = 0;
+    i < maxSamples;
+    i++
+  ) {
+    const index =
+      Math.round(
+        (geometry.length - 1) *
+        (i / (maxSamples - 1))
+      );
 
-    const point = geometry[index];
+    const point =
+      geometry[index];
 
     if (!point) {
       continue;
@@ -307,6 +515,7 @@ function sampleRoutePoints(geometry) {
     }
 
     seen.add(key);
+
     return true;
   });
 }
