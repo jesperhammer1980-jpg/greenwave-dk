@@ -4,32 +4,23 @@ export function cacheDom() {
 
   /* =========================
      MAP
-  ========================= */
+  ========================== */
 
-  els.map = document.getElementById("map");
-
-  els.mapRotationWrap =
-    document.getElementById(
-      "map-rotation-wrap"
-    );
-
-  els.mapRotationInner =
-    document.getElementById(
-      "map-rotation-inner"
-    );
+  els.map =
+    document.getElementById("map");
 
   /* =========================
      SEARCH
-  ========================= */
+  ========================== */
 
   els.destinationInput =
     document.getElementById(
       "destinationInput"
     );
 
-  els.autocompleteBox =
+  els.calcRouteBtn =
     document.getElementById(
-      "autocompleteBox"
+      "calcRouteBtn"
     );
 
   els.autocompleteResults =
@@ -38,42 +29,12 @@ export function cacheDom() {
     );
 
   /* =========================
-     BUTTONS
-  ========================= */
-
-  els.calcRouteBtn =
-    document.getElementById(
-      "calcRouteBtn"
-    );
-
-  els.startNavBtn =
-    document.getElementById(
-      "startNavBtn"
-    );
-
-  els.stopNavBtn =
-    document.getElementById(
-      "stopNavBtn"
-    );
-
-  els.overlayStopBtn =
-    document.getElementById(
-      "overlayStopBtn"
-    );
+     QUICK ACTIONS
+  ========================== */
 
   els.centerBtn =
     document.getElementById(
       "centerBtn"
-    );
-
-  els.settingsBtn =
-    document.getElementById(
-      "settingsBtn"
-    );
-
-  els.historyBtn =
-    document.getElementById(
-      "historyBtn"
     );
 
   els.openFuelListBtn =
@@ -81,14 +42,62 @@ export function cacheDom() {
       "openFuelListBtn"
     );
 
-  els.fuelHistoryBtn =
+  els.startNavBtn =
     document.getElementById(
-      "fuelHistoryBtn"
+      "startNavBtn"
+    );
+
+  /* =========================
+     HISTORY
+  ========================== */
+
+  els.historyList =
+    document.getElementById(
+      "historyList"
+    );
+
+  /* =========================
+     FUEL
+  ========================== */
+
+  els.fuelContent =
+    document.getElementById(
+      "fuelContent"
+    );
+
+  els.fuelListModal =
+    document.getElementById(
+      "fuelListModal"
+    );
+
+  els.fuelListBackdrop =
+    document.getElementById(
+      "fuelListBackdrop"
+    );
+
+  els.closeFuelListBtn =
+    document.getElementById(
+      "closeFuelListBtn"
+    );
+
+  els.fuelListContent =
+    document.getElementById(
+      "fuelListContent"
+    );
+
+  els.sortFuelByPriceBtn =
+    document.getElementById(
+      "sortFuelByPriceBtn"
+    );
+
+  els.sortFuelByDetourBtn =
+    document.getElementById(
+      "sortFuelByDetourBtn"
     );
 
   /* =========================
      STATUS
-  ========================= */
+  ========================== */
 
   els.gpsStatus =
     document.getElementById(
@@ -106,12 +115,51 @@ export function cacheDom() {
     );
 
   /* =========================
-     NAVIGATION OVERLAY
-  ========================= */
+     SETTINGS
+  ========================== */
+
+  els.settingsBtn =
+    document.getElementById(
+      "settingsBtn"
+    );
+
+  els.settingsPanel =
+    document.getElementById(
+      "settingsPanel"
+    );
+
+  els.settingsBackdrop =
+    document.getElementById(
+      "settingsBackdrop"
+    );
+
+  els.closeSettingsBtn =
+    document.getElementById(
+      "closeSettingsBtn"
+    );
+
+  els.settingsBody =
+    document.getElementById(
+      "settingsBody"
+    );
+
+  els.saveSettingsBtn =
+    document.getElementById(
+      "saveSettingsBtn"
+    );
+
+  /* =========================
+     NAVIGATION
+  ========================== */
 
   els.navOverlay =
     document.getElementById(
       "navOverlay"
+    );
+
+  els.overlayStopBtn =
+    document.getElementById(
+      "overlayStopBtn"
     );
 
   els.turnIcon =
@@ -134,15 +182,6 @@ export function cacheDom() {
       "nextTurnRoad"
     );
 
-  els.turnProgressBar =
-    document.getElementById(
-      "turnProgressBar"
-    );
-
-  /* =========================
-     SPEED UI
-  ========================= */
-
   els.speedLimitValue =
     document.getElementById(
       "speedLimitValue"
@@ -157,15 +196,6 @@ export function cacheDom() {
     document.getElementById(
       "recommendedSpeedValue"
     );
-
-  els.currentSpeedSign =
-    document.getElementById(
-      "currentSpeedSign"
-    );
-
-  /* =========================
-     BOTTOM BAR
-  ========================= */
 
   els.driveRemainingDistance =
     document.getElementById(
@@ -183,8 +213,8 @@ export function cacheDom() {
     );
 
   /* =========================
-     ECO SCORE
-  ========================= */
+     ECO
+  ========================== */
 
   els.ecoScoreBadge =
     document.getElementById(
@@ -229,121 +259,5 @@ export function cacheDom() {
   els.ecoScoreComment =
     document.getElementById(
       "ecoScoreComment"
-    );
-
-  els.ecoScoreSubtitle =
-    document.getElementById(
-      "ecoScoreSubtitle"
-    );
-
-  /* =========================
-     SETTINGS
-  ========================= */
-
-  els.settingsPanel =
-    document.getElementById(
-      "settingsPanel"
-    );
-
-  els.settingsBackdrop =
-    document.getElementById(
-      "settingsBackdrop"
-    );
-
-  els.closeSettingsBtn =
-    document.getElementById(
-      "closeSettingsBtn"
-    );
-
-  els.saveSettingsBtn =
-    document.getElementById(
-      "saveSettingsBtn"
-    );
-
-  els.settingsBody =
-    document.getElementById(
-      "settingsBody"
-    );
-
-  /* =========================
-     FUEL
-  ========================= */
-
-  els.fuelBox =
-    document.getElementById(
-      "fuelBox"
-    );
-
-  els.fuelContent =
-    document.getElementById(
-      "fuelContent"
-    );
-
-  els.fuelDisclaimer =
-    document.getElementById(
-      "fuelDisclaimer"
-    );
-
-  els.fuelListModal =
-    document.getElementById(
-      "fuelListModal"
-    );
-
-  els.fuelListBackdrop =
-    document.getElementById(
-      "fuelListBackdrop"
-    );
-
-  els.closeFuelListBtn =
-    document.getElementById(
-      "closeFuelListBtn"
-    );
-
-  els.fuelListContent =
-    document.getElementById(
-      "fuelListContent"
-    );
-
-  els.sortFuelByPriceBtn =
-    document.getElementById(
-      "sortFuelByPriceBtn"
-    );
-
-  els.sortFuelByDetourBtn =
-    document.getElementById(
-      "sortFuelByDetourBtn"
-    );
-
-  /* =========================
-     FUEL HISTORY
-  ========================= */
-
-  els.fuelHistoryModal =
-    document.getElementById(
-      "fuelHistoryModal"
-    );
-
-  els.fuelHistoryBackdrop =
-    document.getElementById(
-      "fuelHistoryBackdrop"
-    );
-
-  els.closeFuelHistoryBtn =
-    document.getElementById(
-      "closeFuelHistoryBtn"
-    );
-
-  els.fuelHistoryContent =
-    document.getElementById(
-      "fuelHistoryContent"
-    );
-
-  /* =========================
-     HISTORY
-  ========================= */
-
-  els.historyList =
-    document.getElementById(
-      "historyList"
     );
 }
