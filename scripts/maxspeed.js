@@ -1,126 +1,220 @@
 import { state } from "./state.js";
-import { haversine } from "./utils.js";
 
-/*
-  Henter maxspeed fra OSM via Overpass
-  baseret på rute-bounding-box
-*/
+import {
+  haversine
+} from "./utils.js";
 
 export async function loadMaxSpeedZones() {
-  if (!state.routeData?.geometry?.length) {
+
+  if (
+    !state.routeData?.geometry
+      ?.length
+  ) {
     return;
   }
 
-  const bbox = getRouteBoundingBox(state.routeData.geometry);
-
-  const query = `
-    [out:json][timeout:25];
-    (
-      way["highway"]["maxspeed"](${bbox});
-    );
-    out geom;
-  `;
-
   try {
-    const res = await fetch("https://overpass-api.de/api/interpreter", {
-      method: "POST",
-      body: query
-    });
 
-    const data = await res.json();
+    const sample =
+      sampleRoutePoints(
+        state.routeData.geometry
+      );
 
-    state.maxSpeedZones = parseMaxSpeedWays(data.elements);
+    const query = `
+      [out:json][timeout:25];
+      (
+        ${sample.map(point => `
+          way(around:1200,${point.lat},${point.lng})["highway"]["maxspeed"];
+        `).join("")}
+      );
+      out tags center;
+    `;
 
-    console.log("MaxSpeed zones loaded:", state.maxSpeedZones.length);
-  } catch (err) {
-    console.warn("Kunne ikke hente maxspeed", err);
+    const response =
+      await fetch(
+        "https://overpass-api.de/api/interpreter",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type":
+              "text/plain;charset=UTF-8"
+          },
+          body: query
+        }
+      );
+
+    if (!response.ok) {
+      throw new Error(
+        "Maxspeed API fejl"
+      );
+    }
+
+    const data =
+      await response.json();
+
+    state.maxSpeedZones =
+      (data.elements || [])
+        .map(normalizeZone)
+        .filter(Boolean);
+
+  } catch (error) {
+
+    console.warn(
+      "Kunne ikke hente fartzoner",
+      error
+    );
+
     state.maxSpeedZones = [];
   }
 }
 
-function getRouteBoundingBox(geometry) {
-  let minLat = Infinity;
-  let maxLat = -Infinity;
-  let minLng = Infinity;
-  let maxLng = -Infinity;
+export function updateCurrentMaxSpeed(
+  position
+) {
 
-  for (const [lng, lat] of geometry) {
-    if (lat < minLat) minLat = lat;
-    if (lat > maxLat) maxLat = lat;
-    if (lng < minLng) minLng = lng;
-    if (lng > maxLng) maxLng = lng;
+  if (
+    !position ||
+    !state.maxSpeedZones.length
+  ) {
+    return null;
   }
 
-  return `${minLat},${minLng},${maxLat},${maxLng}`;
-}
+  let nearest = null;
+  let bestDistance = Infinity;
 
-function parseMaxSpeedWays(elements) {
-  const zones = [];
+  state.maxSpeedZones.forEach(zone => {
 
-  for (const el of elements) {
-    if (!el.tags?.maxspeed || !el.geometry) continue;
+    const distance =
+      haversine(
+        position.lat,
+        position.lng,
+        zone.lat,
+        zone.lng
+      );
 
-    const speed = parseMaxSpeed(el.tags.maxspeed);
-
-    if (!speed) continue;
-
-    for (const node of el.geometry) {
-      zones.push({
-        lat: node.lat,
-        lng: node.lon,
-        speed
-      });
+    if (
+      distance < bestDistance
+    ) {
+      bestDistance = distance;
+      nearest = zone;
     }
+  });
+
+  if (
+    nearest &&
+    bestDistance < 250
+  ) {
+
+    state.currentMaxSpeed =
+      nearest.maxspeed;
+
+    return nearest.maxspeed;
   }
 
-  return zones;
+  return state.currentMaxSpeed;
 }
 
-function parseMaxSpeed(value) {
-  if (!value) return null;
+function normalizeZone(
+  item
+) {
 
-  const str = String(value).toLowerCase();
+  const tags =
+    item.tags || {};
 
-  if (str.includes("dk:urban")) return 50;
-  if (str.includes("dk:rural")) return 80;
-  if (str.includes("dk:motorway")) return 130;
-
-  const num = parseInt(str.replace(/[^\d]/g, ""), 10);
-
-  if (!Number.isFinite(num)) return null;
-
-  return num;
-}
-
-/*
-  Finder aktuel maxspeed baseret på nærmeste zone
-*/
-
-export function updateCurrentMaxSpeed(position) {
-  if (!position || !state.maxSpeedZones.length) {
-    state.currentMaxSpeed = null;
-    return;
-  }
-
-  let best = null;
-
-  for (const zone of state.maxSpeedZones) {
-    const d = haversine(
-      position.lat,
-      position.lng,
-      zone.lat,
-      zone.lng
+  const maxspeed =
+    parseSpeed(
+      tags.maxspeed
     );
 
-    if (d > 120) continue;
-
-    if (!best || d < best.distance) {
-      best = {
-        speed: zone.speed,
-        distance: d
-      };
-    }
+  if (!maxspeed) {
+    return null;
   }
 
-  state.currentMaxSpeed = best?.speed ?? null;
+  const lat =
+    item.center?.lat;
+
+  const lng =
+    item.center?.lon;
+
+  if (
+    !Number.isFinite(lat) ||
+    !Number.isFinite(lng)
+  ) {
+    return null;
+  }
+
+  return {
+    lat,
+    lng,
+
+    maxspeed,
+
+    highway:
+      tags.highway ||
+      "road"
+  };
+}
+
+function parseSpeed(
+  value
+) {
+
+  if (!value) {
+    return null;
+  }
+
+  const clean =
+    String(value)
+      .replace(
+        /km\/h/gi,
+        ""
+      )
+      .trim();
+
+  const speed =
+    Number(clean);
+
+  if (
+    !Number.isFinite(speed)
+  ) {
+    return null;
+  }
+
+  return speed;
+}
+
+function sampleRoutePoints(
+  geometry
+) {
+
+  const out = [];
+
+  const maxSamples = 20;
+
+  for (
+    let i = 0;
+    i < maxSamples;
+    i++
+  ) {
+
+    const index =
+      Math.round(
+        (geometry.length - 1) *
+        (i / (maxSamples - 1))
+      );
+
+    const point =
+      geometry[index];
+
+    if (!point) {
+      continue;
+    }
+
+    out.push({
+      lng: point[0],
+      lat: point[1]
+    });
+  }
+
+  return out;
 }
