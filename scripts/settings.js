@@ -1,1487 +1,273 @@
-import { state, FUEL_DATA_URL } from "./state.js";
+import { state, SETTINGS_KEY } from "./state.js";
 import { els } from "./dom.js";
 
 import {
-  buildGoogleMapsLink,
-  dedupeStations,
-  escapeHtml,
-  extractCity,
-  formatDistance,
-  formatPrice,
-  formatPriceShort,
-  haversine,
-  normalizeBrand,
-  normalizeText,
-  numberOrNull,
-  projectPointToSegment,
-  sharedWordScore
-} from "./utils.js";
+  applyPricesToStations,
+  updateFuelBox,
+  updateFuelMarkers
+} from "./fuel.js";
 
-import {
-  estimateUsFuelPrice
-} from "./usa-fuel-estimates.js";
-
-/* =========================
-   LOAD PRICE DATA
-========================= */
-
-export async function loadFuelPrices() {
+export function loadSettings() {
   try {
-    const response = await fetch(
-      FUEL_DATA_URL,
-      {
-        cache: "no-store"
-      }
+    const saved = JSON.parse(
+      localStorage.getItem(SETTINGS_KEY) || "{}"
     );
 
-    if (!response.ok) {
-      throw new Error(
-        "fuel-prices.json kunne ikke hentes"
-      );
-    }
-
-    const raw =
-      await response.json();
-
-    state.fuelPriceOverrides =
-      normalizeFuelPrices(
-        Array.isArray(raw)
-          ? raw
-          : []
-      );
-
-    if (els.fuelDisclaimer) {
-      els.fuelDisclaimer.textContent =
-        `Prisposter: ${state.fuelPriceOverrides.length}`;
-    }
-  } catch (error) {
-    console.error(
-      "Prisdata fejl",
-      error
-    );
-
-    state.fuelPriceOverrides = [];
-
-    if (els.fuelDisclaimer) {
-      els.fuelDisclaimer.textContent =
-        "fuel-prices.json kunne ikke hentes";
-    }
-  }
-}
-
-function normalizeFuelPrices(rawStations) {
-  const out = [];
-
-  rawStations.forEach(station => {
-    if (
-      !station ||
-      typeof station !== "object"
-    ) {
-      return;
-    }
-
-    const country =
-      String(
-        station.country ||
-        station.market ||
-        "DK"
-      ).toUpperCase();
-
-    if (
-      station.fuelTypes &&
-      typeof station.fuelTypes === "object"
-    ) {
-      Object.entries(
-        station.fuelTypes
-      ).forEach(
-        ([fuelType, data]) => {
-          if (
-            !data ||
-            typeof data.price !== "number"
-          ) {
-            return;
-          }
-
-          out.push({
-            name:
-              station.name ||
-              "Ukendt station",
-
-            brand:
-              station.brand ||
-              "",
-
-            address:
-              station.address ||
-              "",
-
-            city:
-              extractCity(
-                station.address || ""
-              ),
-
-            lat:
-              numberOrNull(
-                station.lat
-              ),
-
-            lng:
-              numberOrNull(
-                station.lng
-              ),
-
-            country,
-            fuelType,
-
-            price:
-              data.price,
-
-            currency:
-              data.currency ||
-              "DKK",
-
-            unit:
-              data.unit ||
-              "liter",
-
-            source:
-              data.source ||
-              "fuel-prices.json",
-
-            updatedAt:
-              data.updatedAt ||
-              null,
-
-            dataAgeLabel:
-              data.updatedAt
-                ? `Opdateret: ${formatDateTime(data.updatedAt)}`
-                : null
-          });
-        }
-      );
-
-      return;
-    }
-
-    if (typeof station.price === "number") {
-      out.push({
-        name:
-          station.name ||
-          "Ukendt station",
-
-        brand:
-          station.brand ||
-          "",
-
-        address:
-          station.address ||
-          "",
-
-        city:
-          extractCity(
-            station.address || ""
-          ),
-
-        lat:
-          numberOrNull(
-            station.lat
-          ),
-
-        lng:
-          numberOrNull(
-            station.lng
-          ),
-
-        country,
-
-        fuelType:
-          station.fuelType ||
-          state.settings.fuelType,
-
-        price:
-          station.price,
-
-        currency:
-          station.currency ||
-          "DKK",
-
-        unit:
-          station.unit ||
-          "liter",
-
-        source:
-          station.source ||
-          "fuel-prices.json",
-
-        updatedAt:
-          station.updatedAt ||
-          null,
-
-        dataAgeLabel:
-          station.updatedAt
-            ? `Opdateret: ${formatDateTime(station.updatedAt)}`
-            : null
-      });
-    }
-  });
-
-  return out;
-}
-
-/* =========================
-   LOAD OSM STATIONS
-========================= */
-
-export async function loadFuelStations(geometry) {
-  const sample =
-    sampleRoutePoints(geometry);
-
-  if (!sample.length) {
-    state.osmFuelStations = [];
-    return;
-  }
-
-  const query = `
-    [out:json][timeout:25];
-    (
-      ${sample.map(point => `
-        node(around:2500,${point.lat},${point.lng})["amenity"="fuel"];
-        way(around:2500,${point.lat},${point.lng})["amenity"="fuel"];
-      `).join("")}
-    );
-    out center tags;
-  `;
-
-  try {
-    const response =
-      await fetch(
-        "https://overpass-api.de/api/interpreter",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type":
-              "text/plain;charset=UTF-8"
-          },
-          body: query
-        }
-      );
-
-    if (!response.ok) {
-      throw new Error(
-        "Overpass kunne ikke hentes"
-      );
-    }
-
-    const data =
-      await response.json();
-
-    state.osmFuelStations =
-      dedupeStations(
-        (data.elements || [])
-          .map(normalizeOsmStation)
-          .filter(Boolean)
-      );
-  } catch (error) {
-    console.error(
-      "Tankstationer fejl",
-      error
-    );
-
-    state.osmFuelStations = [];
-  }
-}
-
-function sampleRoutePoints(geometry) {
-  const points = [];
-  const maxSamples = 22;
-
-  if (
-    !Array.isArray(geometry) ||
-    !geometry.length
-  ) {
-    return points;
-  }
-
-  for (
-    let i = 0;
-    i < maxSamples;
-    i++
-  ) {
-    const index =
-      Math.round(
-        (geometry.length - 1) *
-        (i / (maxSamples - 1))
-      );
-
-    const point =
-      geometry[index];
-
-    if (!point) {
-      continue;
-    }
-
-    points.push({
-      lng: point[0],
-      lat: point[1]
-    });
-  }
-
-  const seen = new Set();
-
-  return points.filter(point => {
-    const key =
-      `${point.lat.toFixed(3)},${point.lng.toFixed(3)}`;
-
-    if (seen.has(key)) {
-      return false;
-    }
-
-    seen.add(key);
-
-    return true;
-  });
-}
-
-function normalizeOsmStation(element) {
-  const lat =
-    typeof element.lat === "number"
-      ? element.lat
-      : element.center?.lat;
-
-  const lng =
-    typeof element.lon === "number"
-      ? element.lon
-      : element.center?.lon;
-
-  if (
-    !Number.isFinite(lat) ||
-    !Number.isFinite(lng)
-  ) {
-    return null;
-  }
-
-  const tags =
-    element.tags || {};
-
-  const name =
-    tags.name ||
-    tags.brand ||
-    tags.operator ||
-    "Tankstation";
-
-  const brand =
-    normalizeBrand(
-      tags.brand ||
-      tags.operator ||
-      name
-    );
-
-  const address = [
-    tags["addr:street"],
-    tags["addr:housenumber"],
-    tags["addr:postcode"],
-    tags["addr:city"]
-  ]
-    .filter(Boolean)
-    .join(" ");
-
-  return {
-    id:
-      `${element.type}-${element.id}`,
-
-    lat,
-    lng,
-    name,
-    brand,
-
-    address,
-
-    city:
-      tags["addr:city"] ||
-      extractCity(address),
-
-    price: null,
-    currency: null,
-    unit: null,
-
-    source: "OSM",
-    matchMode: null,
-    updatedAt: null,
-    dataAgeLabel: null,
-    stateCode: null,
-
-    distanceAlongRoute: Infinity,
-    distanceToRoute: Infinity,
-
-    favoriteScore: 0
-  };
-}
-
-/* =========================
-   ROUTE DISTANCES
-========================= */
-
-export function computeRouteDistances() {
-  if (
-    !state.routeData?.geometry?.length
-  ) {
-    return;
-  }
-
-  const route =
-    state.routeData.geometry;
-
-  let cumulative = 0;
-  const segments = [];
-
-  for (
-    let i = 1;
-    i < route.length;
-    i++
-  ) {
-    const start = route[i - 1];
-    const end = route[i];
-
-    const length =
-      haversine(
-        start[1],
-        start[0],
-        end[1],
-        end[0]
-      );
-
-    segments.push({
-      start,
-      end,
-      startMeters: cumulative,
-      length
-    });
-
-    cumulative += length;
-  }
-
-  state.osmFuelStations.forEach(station => {
-    let bestDistanceToRoute = Infinity;
-    let bestAlong = Infinity;
-
-    segments.forEach(segment => {
-      const projected =
-        projectPointToSegment(
-          station.lat,
-          station.lng,
-          segment.start[1],
-          segment.start[0],
-          segment.end[1],
-          segment.end[0]
-        );
-
-      if (
-        projected.distanceMeters <
-        bestDistanceToRoute
-      ) {
-        bestDistanceToRoute =
-          projected.distanceMeters;
-
-        bestAlong =
-          segment.startMeters +
-          segment.length *
-          projected.t;
-      }
-    });
-
-    station.distanceToRoute =
-      bestDistanceToRoute;
-
-    station.distanceAlongRoute =
-      bestAlong;
-  });
-}
-
-/* =========================
-   APPLY PRICES
-========================= */
-
-export function applyPricesToStations() {
-  state.osmFuelStations =
-    state.osmFuelStations.map(station => {
-      const realMatch =
-        findFuelPrice(station);
-
-      if (realMatch) {
-        return decorateStation({
-          ...station,
-
-          price:
-            realMatch.price,
-
-          currency:
-            realMatch.currency ||
-            null,
-
-          unit:
-            realMatch.unit ||
-            null,
-
-          source:
-            realMatch.source,
-
-          matchMode:
-            realMatch.matchMode,
-
-          updatedAt:
-            realMatch.updatedAt ||
-            null,
-
-          dataAgeLabel:
-            realMatch.dataAgeLabel ||
-            (
-              realMatch.updatedAt
-                ? `Opdateret: ${formatDateTime(realMatch.updatedAt)}`
-                : "Prisdata fra lokal fil"
-            ),
-
-          stateCode:
-            realMatch.stateCode ||
-            null
-        });
-      }
-
-      if (state.settings.region === "us") {
-        const estimate =
-          estimateUsFuelPrice(
-            station,
-            state.settings.fuelType
-          );
-
-        return decorateStation({
-          ...station,
-
-          price:
-            estimate.price,
-
-          currency:
-            estimate.currency,
-
-          unit:
-            estimate.unit,
-
-          source:
-            estimate.source,
-
-          matchMode:
-            estimate.matchMode,
-
-          stateCode:
-            estimate.stateCode,
-
-          dataAgeLabel:
-            estimate.dataAgeLabel,
-
-          updatedAt:
-            estimate.updatedAt
-        });
-      }
-
-      return decorateStation({
-        ...station,
-        price: null,
-        currency: null,
-        unit: null,
-        source: "OSM",
-        matchMode: null,
-        updatedAt: null,
-        dataAgeLabel: null,
-        stateCode: null
-      });
-    });
-}
-
-function decorateStation(station) {
-  const favorite =
-    normalizeFavoriteBrand(
-      state.settings.favoriteFuelBrand
-    );
-
-  const brand =
-    normalizeFavoriteBrand(
-      station.brand ||
-      station.name
-    );
-
-  const isFavorite =
-    favorite !== "all" &&
-    brand === favorite;
-
-  return {
-    ...station,
-    favoriteScore:
-      isFavorite ? 1 : 0,
-    brandLogo:
-      getFuelBrandLogo(
-        station.brand ||
-        station.name
-      ),
-    brandLabel:
-      getFuelBrandLabel(
-        station.brand ||
-        station.name
-      )
-  };
-}
-
-/* =========================
-   PRICE MATCHING
-========================= */
-
-function findFuelPrice(station) {
-  const candidates =
-    state.fuelPriceOverrides.filter(item =>
-      item.fuelType === state.settings.fuelType &&
-      typeof item.price === "number" &&
-      isCompatiblePrice(item)
-    );
-
-  if (!candidates.length) {
-    return null;
-  }
-
-  const stationBrand =
-    normalizeBrand(
-      station.brand ||
-      station.name
-    );
-
-  const stationName =
-    normalizeText(
-      station.name
-    );
-
-  const stationCity =
-    normalizeText(
-      station.city ||
-      extractCity(
-        station.address
-      )
-    );
-
-  const coordMatch =
-    candidates
-      .filter(item =>
-        Number.isFinite(item.lat) &&
-        Number.isFinite(item.lng)
-      )
-      .map(item => ({
-        ...item,
-        distance:
-          haversine(
-            station.lat,
-            station.lng,
-            item.lat,
-            item.lng
-          ),
-        matchMode: "koordinat"
-      }))
-      .filter(item =>
-        item.distance <= 150
-      )
-      .sort(
-        (a, b) =>
-          a.distance - b.distance
-      )[0];
-
-  if (coordMatch) {
-    return coordMatch;
-  }
-
-  const scored =
-    candidates
-      .map(item => {
-        const itemBrand =
-          normalizeBrand(
-            item.brand ||
-            item.name
-          );
-
-        const itemName =
-          normalizeText(
-            item.name
-          );
-
-        const itemCity =
-          normalizeText(
-            item.city ||
-            extractCity(
-              item.address
-            )
-          );
-
-        let score = 0;
-
-        if (
-          stationBrand &&
-          itemBrand &&
-          stationBrand === itemBrand
-        ) {
-          score += 60;
-        }
-
-        if (
-          stationCity &&
-          itemCity &&
-          stationCity === itemCity
-        ) {
-          score += 35;
-        }
-
-        if (
-          stationName &&
-          itemName
-        ) {
-          if (
-            stationName === itemName
-          ) {
-            score += 40;
-          } else if (
-            stationName.includes(itemName) ||
-            itemName.includes(stationName)
-          ) {
-            score += 25;
-          } else {
-            score +=
-              sharedWordScore(
-                stationName,
-                itemName
-              );
-          }
-        }
-
-        return {
-          ...item,
-          score,
-          matchMode:
-            "brand/navn/by"
-        };
-      })
-      .filter(item =>
-        item.score >= 45
-      )
-      .sort(
-        (a, b) =>
-          b.score - a.score ||
-          a.price - b.price
-      );
-
-  if (scored.length) {
-    return scored[0];
-  }
-
-  const sameBrand =
-    candidates
-      .filter(item =>
-        normalizeBrand(
-          item.brand ||
-          item.name
-        ) === stationBrand
-      )
-      .sort(
-        (a, b) =>
-          a.price - b.price
-      )[0];
-
-  if (sameBrand) {
-    return {
-      ...sameBrand,
-      matchMode:
-        "samme brand fallback"
+    state.settings = {
+      ...state.settings,
+      ...saved
     };
+  } catch (error) {
+    console.error("Settings load fejl", error);
   }
-
-  return null;
 }
 
-function isCompatiblePrice(item) {
-  if (state.settings.region === "us") {
-    return (
-      item.country === "US" ||
-      item.currency === "USD" ||
-      item.unit === "gallon"
-    );
-  }
-
-  return (
-    item.country !== "US" &&
-    item.currency !== "USD"
+export function saveSettings() {
+  localStorage.setItem(
+    SETTINGS_KEY,
+    JSON.stringify(state.settings)
   );
 }
 
-/* =========================
-   FILTER + SORT
-========================= */
-
-function getRouteLimitMeters() {
-  return Number(
-    state.settings.searchRadiusBase ||
-    100000
-  );
+export function applySettingsToUI() {
+  renderSettingsBody();
+  syncSettingsControls();
 }
 
-export function getStationsInRange() {
-  const limit =
-    getRouteLimitMeters();
+export function openSettings() {
+  renderSettingsBody();
+  syncSettingsControls();
 
-  let stations =
-    state.osmFuelStations
-      .filter(station =>
-        station.distanceAlongRoute <= limit
-      )
-      .filter(station =>
-        station.distanceToRoute <= 2500
-      );
-
-  const favorite =
-    normalizeFavoriteBrand(
-      state.settings.favoriteFuelBrand
-    );
-
-  if (
-    favorite !== "all" &&
-    state.settings.favoriteFuelMode === "only"
-  ) {
-    stations =
-      stations.filter(station =>
-        normalizeFavoriteBrand(
-          station.brand ||
-          station.name
-        ) === favorite
-      );
-  }
-
-  const withPrice =
-    stations.filter(
-      station =>
-        typeof station.price === "number"
-    );
-
-  const withoutPrice =
-    stations.filter(
-      station =>
-        typeof station.price !== "number"
-    );
-
-  const favoriteBoost =
-    state.settings.favoriteFuelMode === "boost"
-      ? 0.18
-      : 0;
-
-  if (
-    state.fuelListSort === "detour"
-  ) {
-    withPrice.sort(
-      (a, b) =>
-        b.favoriteScore - a.favoriteScore ||
-        a.distanceToRoute - b.distanceToRoute ||
-        a.price - b.price ||
-        a.distanceAlongRoute - b.distanceAlongRoute
-    );
-  } else {
-    withPrice.sort(
-      (a, b) =>
-        adjustedPrice(a, favoriteBoost) -
-        adjustedPrice(b, favoriteBoost) ||
-        a.distanceToRoute - b.distanceToRoute ||
-        a.distanceAlongRoute - b.distanceAlongRoute
-    );
-  }
-
-  withoutPrice.sort(
-    (a, b) =>
-      b.favoriteScore - a.favoriteScore ||
-      a.distanceToRoute - b.distanceToRoute ||
-      a.distanceAlongRoute - b.distanceAlongRoute
-  );
-
-  return [
-    ...withPrice,
-    ...withoutPrice
-  ].slice(0, 12);
+  els.settingsPanel?.classList.remove("hidden");
+  els.settingsBackdrop?.classList.remove("hidden");
 }
 
-function adjustedPrice(station, favoriteBoost) {
-  if (
-    typeof station.price !== "number"
-  ) {
-    return Infinity;
-  }
-
-  return (
-    station.price -
-    station.favoriteScore *
-    favoriteBoost
-  );
+export function closeSettings() {
+  els.settingsPanel?.classList.add("hidden");
+  els.settingsBackdrop?.classList.add("hidden");
 }
 
-/* =========================
-   UI: MAIN BOX
-========================= */
+export function saveSettingsFromControls() {
+  state.settings.region =
+    getControl("regionUS")?.checked ? "us" : "dk";
 
-export function updateFuelBox() {
-  if (!els.fuelContent) {
-    return;
-  }
+  state.settings.routeMode =
+    getControl("settingsRouteEco")?.checked ? "eco" : "fast";
 
-  if (!state.routeData) {
-    els.fuelContent.innerHTML =
-      "Beregn en rute først.";
-    return;
-  }
+  state.settings.fuelType =
+    getControl("settingsFuelType")?.value || "benzin95";
 
-  const stations =
-    getStationsInRange();
+  state.settings.searchRadiusBase =
+    Number(getControl("settingsSearchRadius")?.value || 100000);
 
-  const priced =
-    stations.filter(
-      station =>
-        typeof station.price === "number"
-    );
+  state.settings.favoriteFuelBrand =
+    getControl("settingsFavoriteFuelBrand")?.value || "all";
 
-  if (!stations.length) {
-    els.fuelContent.innerHTML = `
-      <div class="fuel-name">
-        Ingen tankstationer fundet
-      </div>
-      <div class="fuel-meta">
-        Inden for valgt afstand langs ruten.
-      </div>
-    `;
-    return;
-  }
+  state.settings.favoriteFuelMode =
+    getControl("settingsFavoriteFuelMode")?.value || "boost";
 
-  if (!priced.length) {
-    els.fuelContent.innerHTML = `
-      <div class="fuel-name">
-        Pris mangler
-      </div>
-      <div class="fuel-meta">
-        Tankstationer fundet: ${stations.length}
-      </div>
-      <div class="fuel-meta">
-        Prisposter: ${state.fuelPriceOverrides.length}
-      </div>
-    `;
-    return;
-  }
+  state.settings.mapStyleMode =
+    getControl("settingsMapStyleMode")?.value || "navigation";
 
-  const best =
-    priced
-      .slice()
-      .sort(
-        (a, b) =>
-          adjustedPrice(a, 0.18) -
-          adjustedPrice(b, 0.18) ||
-          a.distanceToRoute -
-          b.distanceToRoute
-      )[0];
+  state.settings.ecoScoreEnabled =
+    getControl("settingsEcoScoreEnabled")?.checked !== false;
 
-  els.fuelContent.innerHTML =
-    renderCompactFuelCard(best);
-}
+  state.settings.autoRerouteEnabled =
+    getControl("settingsAutoRerouteEnabled")?.checked !== false;
 
-function renderCompactFuelCard(station) {
-  return `
-    <div class="fuel-station-card">
-      ${renderFuelLogo(station)}
+  state.settings.dynamicZoomEnabled =
+    getControl("settingsDynamicZoomEnabled")?.checked !== false;
 
-      <div class="fuel-info">
-        <div class="fuel-name">
-          ${escapeHtml(station.name)}
-        </div>
+  state.settings.smoothCameraEnabled =
+    getControl("settingsSmoothCameraEnabled")?.checked !== false;
 
-        <div class="fuel-meta">
-          ${escapeHtml(station.brandLabel || station.brand || "Ukendt")}
-          · ${formatDistance(station.distanceAlongRoute)} langs ruten
-        </div>
+  state.settings.laneGuidanceEnabled =
+    getControl("settingsLaneGuidanceEnabled")?.checked !== false;
 
-        <div class="fuel-meta">
-          ${formatDistance(station.distanceToRoute)} fra ruten
-        </div>
+  state.settings.greenWaveEnabled =
+    getControl("settingsGreenWaveEnabled")?.checked !== false;
 
-        ${
-          station.dataAgeLabel
-            ? `<div class="fuel-meta">${escapeHtml(station.dataAgeLabel)}</div>`
-            : ""
-        }
-      </div>
+  saveSettings();
+  closeSettings();
 
-      <div class="fuel-price">
-        ${
-          typeof station.price === "number"
-            ? formatPrice(station.price)
-            : "—"
-        }
-      </div>
-    </div>
-
-    <a
-      class="fuel-map-link"
-      href="${buildGoogleMapsLink(station)}"
-      target="_blank"
-      rel="noopener noreferrer"
-    >
-      Åbn via Google Maps
-    </a>
-  `;
-}
-
-/* =========================
-   UI: LIST MODAL
-========================= */
-
-export function openFuelList() {
-  renderFuelList();
-
-  els.fuelListModal?.classList.remove(
-    "hidden"
-  );
-
-  els.fuelListBackdrop?.classList.remove(
-    "hidden"
-  );
-}
-
-export function closeFuelList() {
-  els.fuelListModal?.classList.add(
-    "hidden"
-  );
-
-  els.fuelListBackdrop?.classList.add(
-    "hidden"
-  );
-}
-
-export function renderFuelList() {
-  if (!els.fuelListContent) {
-    return;
-  }
-
-  const stations =
-    getStationsInRange();
-
-  if (!stations.length) {
-    els.fuelListContent.innerHTML =
-      `<div class="fuel-list-empty">
-        Ingen stationer fundet inden for valgt afstand langs ruten.
-      </div>`;
-
-    return;
-  }
-
-  els.fuelListContent.innerHTML =
-    stations.map(
-      (station, index) =>
-        renderFuelListItem(
-          station,
-          index
-        )
-    ).join("");
-}
-
-function renderFuelListItem(station, index) {
-  return `
-    <article class="fuel-list-item">
-      <div class="fuel-list-item-top">
-        ${renderFuelLogo(station)}
-
-        <div class="fuel-list-title-wrap">
-          <div class="fuel-list-name">
-            ${index + 1}. ${escapeHtml(station.name)}
-          </div>
-
-          <div class="fuel-list-brand">
-            ${escapeHtml(station.brandLabel || station.brand || "Ukendt")}
-            ${
-              station.favoriteScore
-                ? `<span class="favorite-pill">Favorit</span>`
-                : ""
-            }
-          </div>
-        </div>
-
-        <div class="fuel-list-price">
-          ${
-            typeof station.price === "number"
-              ? formatPrice(station.price)
-              : "Pris mangler"
-          }
-        </div>
-      </div>
-
-      <div class="fuel-list-meta-grid">
-        <div class="fuel-list-meta">
-          Langs ruten<br>
-          <strong>${formatDistance(station.distanceAlongRoute)}</strong>
-        </div>
-
-        <div class="fuel-list-meta">
-          Fra rute<br>
-          <strong>${formatDistance(station.distanceToRoute)}</strong>
-        </div>
-
-        <div class="fuel-list-meta">
-          Match<br>
-          <strong>${escapeHtml(station.matchMode || "—")}</strong>
-        </div>
-
-        <div class="fuel-list-meta">
-          Kilde<br>
-          <strong>${escapeHtml(station.source || "OSM")}</strong>
-        </div>
-
-        <div class="fuel-list-meta">
-          Prisstatus<br>
-          <strong>${escapeHtml(station.dataAgeLabel || "—")}</strong>
-        </div>
-
-        <div class="fuel-list-meta">
-          Marked<br>
-          <strong>${escapeHtml(station.stateCode || state.settings.region.toUpperCase())}</strong>
-        </div>
-      </div>
-
-      <div class="fuel-list-actions">
-        <a
-          class="fuel-list-map-link"
-          href="${buildGoogleMapsLink(station)}"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Åbn via Google Maps
-        </a>
-      </div>
-    </article>
-  `;
-}
-
-/* =========================
-   FUEL HISTORY
-========================= */
-
-export function openFuelHistory() {
-  if (!els.fuelHistoryContent) {
-    return;
-  }
-
-  const history =
-    state.fuelPriceOverrides
-      .filter(item =>
-        item.fuelType === state.settings.fuelType
-      )
-      .filter(item =>
-        item.updatedAt
-      )
-      .slice()
-      .sort(
-        (a, b) =>
-          String(b.updatedAt)
-            .localeCompare(
-              String(a.updatedAt)
-            )
-      )
-      .slice(0, 30);
-
-  if (!history.length) {
-    els.fuelHistoryContent.innerHTML = `
-      <div class="fuel-list-empty">
-        Prishistorik er slået fra i denne version.
-      </div>
-    `;
-  } else {
-    els.fuelHistoryContent.innerHTML =
-      history.map(item => `
-        <article class="fuel-list-item">
-          <div class="fuel-list-item-top">
-            <div>
-              <div class="fuel-list-name">
-                ${escapeHtml(item.name)}
-              </div>
-
-              <div class="fuel-list-brand">
-                ${escapeHtml(item.brand || item.city || "Ukendt")}
-              </div>
-            </div>
-
-            <div class="fuel-list-price">
-              ${formatPrice(item.price)}
-            </div>
-          </div>
-
-          <div class="fuel-list-meta-grid">
-            <div class="fuel-list-meta">
-              Brændstof<br>
-              <strong>${escapeHtml(item.fuelType)}</strong>
-            </div>
-
-            <div class="fuel-list-meta">
-              Opdateret<br>
-              <strong>${escapeHtml(formatDateTime(item.updatedAt))}</strong>
-            </div>
-
-            <div class="fuel-list-meta">
-              Kilde<br>
-              <strong>${escapeHtml(item.source || "fuel-prices.json")}</strong>
-            </div>
-
-            <div class="fuel-list-meta">
-              Land<br>
-              <strong>${escapeHtml(item.country || "DK")}</strong>
-            </div>
-          </div>
-        </article>
-      `).join("");
-  }
-
-  els.fuelHistoryModal?.classList.remove(
-    "hidden"
-  );
-
-  els.fuelHistoryBackdrop?.classList.remove(
-    "hidden"
-  );
-}
-
-export function closeFuelHistory() {
-  els.fuelHistoryModal?.classList.add(
-    "hidden"
-  );
-
-  els.fuelHistoryBackdrop?.classList.add(
-    "hidden"
-  );
-}
-
-/* =========================
-   MAP MARKERS
-========================= */
-
-export function updateFuelMarkers() {
-  clearFuelMarkers();
-
-  if (!state.map) {
-    return;
-  }
-
-  const stations =
-    getStationsInRange();
-
-  const bestFive =
-    stations
-      .filter(station =>
-        typeof station.price === "number"
-      )
-      .slice(0, 5);
-
-  bestFive.forEach((station, index) => {
-    const marker =
-      L.marker(
-        [
-          station.lat,
-          station.lng
-        ],
-        {
-          icon:
-            createFuelOverviewIcon(
-              station,
-              index
-            ),
-          zIndexOffset:
-            6500 - index
-        }
-      )
-        .addTo(state.map)
-        .bindPopup(
-          renderFuelPopup(station)
-        );
-
-    state.fuelOverviewMarkers.push(
-      marker
-    );
-  });
-}
-
-function createFuelOverviewIcon(station, index) {
-  const isBest =
-    index === 0;
-
-  const logo =
-    getFuelBrandInitials(
-      station.brand ||
-      station.name
-    );
-
-  return L.divIcon({
-    className: "fuel-overview-marker",
-
-    html: `
-      <div class="fuel-overview-pin ${isBest ? "best" : ""}">
-        <div class="fuel-overview-logo">
-          ${escapeHtml(logo)}
-        </div>
-
-        <div class="fuel-overview-price">
-          ${
-            typeof station.price === "number"
-              ? formatPriceShort(station.price)
-              : "—"
-          }
-        </div>
-      </div>
-    `,
-
-    iconSize: [118, 44],
-    iconAnchor: [59, 44]
-  });
-}
-
-function renderFuelPopup(station) {
-  return `
-    <strong>${escapeHtml(station.name)}</strong><br>
-    ${
-      typeof station.price === "number"
-        ? formatPrice(station.price)
-        : "Pris mangler"
-    }<br>
-    Langs ruten: ${formatDistance(station.distanceAlongRoute)}<br>
-    Fra rute: ${formatDistance(station.distanceToRoute)}<br>
-    Kilde: ${escapeHtml(station.source || "OSM")}<br>
-    ${
-      station.dataAgeLabel
-        ? `${escapeHtml(station.dataAgeLabel)}<br>`
-        : ""
+  if (state.routeData) {
+    try {
+      applyPricesToStations();
+      updateFuelBox();
+      updateFuelMarkers();
+    } catch (error) {
+      console.warn("Settings refresh fejl", error);
     }
-    <a
-      href="${buildGoogleMapsLink(station)}"
-      target="_blank"
-      rel="noopener noreferrer"
-    >
-      Åbn via Google Maps
-    </a>
-  `;
+  }
 }
 
-export function clearFuelMarkers() {
-  if (!state.map) {
-    state.fuelMarkers = [];
-    state.fuelOverviewMarkers = [];
+function renderSettingsBody() {
+  if (!els.settingsBody) {
     return;
   }
 
-  [
-    ...(state.fuelMarkers || []),
-    ...(state.fuelOverviewMarkers || [])
-  ].forEach(marker => {
-    state.map.removeLayer(marker);
-  });
+  els.settingsBody.innerHTML = `
+    <div class="settings-section">
+      <h3>Område</h3>
 
-  state.fuelMarkers = [];
-  state.fuelOverviewMarkers = [];
-}
+      <label class="settings-option">
+        <input id="regionDK" type="radio" name="region">
+        <span>Danmark</span>
+      </label>
 
-/* =========================
-   LOGOS / BRANDS
-========================= */
+      <label class="settings-option">
+        <input id="regionUS" type="radio" name="region">
+        <span>USA</span>
+      </label>
+    </div>
 
-function renderFuelLogo(station) {
-  const initials =
-    getFuelBrandInitials(
-      station.brand ||
-      station.name
-    );
+    <div class="settings-section">
+      <h3>Rute</h3>
 
-  return `
-    <div class="fuel-brand-logo">
-      <span>${escapeHtml(initials)}</span>
+      <label class="settings-option">
+        <input id="settingsRouteFast" type="radio" name="routeMode">
+        <span>Hurtigste rute</span>
+      </label>
+
+      <label class="settings-option">
+        <input id="settingsRouteEco" type="radio" name="routeMode">
+        <span>Økonomisk rute</span>
+      </label>
+    </div>
+
+    <div class="settings-section">
+      <h3>Navigation</h3>
+
+      <label class="settings-option">
+        <input id="settingsAutoRerouteEnabled" type="checkbox">
+        <span>Automatisk omdirigering</span>
+      </label>
+
+      <label class="settings-option">
+        <input id="settingsDynamicZoomEnabled" type="checkbox">
+        <span>Dynamisk zoom</span>
+      </label>
+
+      <label class="settings-option">
+        <input id="settingsSmoothCameraEnabled" type="checkbox">
+        <span>Flydende kamera</span>
+      </label>
+
+      <label class="settings-option">
+        <input id="settingsLaneGuidanceEnabled" type="checkbox">
+        <span>Simpel lane guidance</span>
+      </label>
+
+      <label class="settings-option">
+        <input id="settingsGreenWaveEnabled" type="checkbox">
+        <span>Anbefalet fart / GreenWave</span>
+      </label>
+
+      <p class="settings-note">
+        GreenWave er stadig en anbefalet økonomisk fart. Den er ikke en præcis trafiklys-forudsigelse endnu.
+      </p>
+    </div>
+
+    <div class="settings-section">
+      <h3>EcoScore</h3>
+
+      <label class="settings-option">
+        <input id="settingsEcoScoreEnabled" type="checkbox">
+        <span>Vis EcoScore</span>
+      </label>
+
+      <p class="settings-note">
+        Høj score kræver rolig acceleration, blød nedbremsning og stabil hastighed over hele turen.
+      </p>
+    </div>
+
+    <div class="settings-section">
+      <h3>Brændstof</h3>
+
+      <label class="label" for="settingsFuelType">Brændstof</label>
+      <select id="settingsFuelType">
+        <option value="benzin95">Benzin 95</option>
+        <option value="diesel">Diesel</option>
+      </select>
+
+      <label class="label" for="settingsFavoriteFuelBrand">Favorit tankkæde</label>
+      <select id="settingsFavoriteFuelBrand">
+        <option value="all">Alle / billigst uanset kæde</option>
+        <option value="ok">OK</option>
+        <option value="circle k">Circle K</option>
+        <option value="q8">Q8</option>
+        <option value="shell">Shell</option>
+        <option value="ingo">Ingo</option>
+        <option value="uno-x">Uno-X</option>
+        <option value="f24">F24</option>
+        <option value="goon">Go’on</option>
+      </select>
+
+      <label class="label" for="settingsFavoriteFuelMode">Favorit-prioritet</label>
+      <select id="settingsFavoriteFuelMode">
+        <option value="boost">Prioritér favorit</option>
+        <option value="only">Vis kun favorit</option>
+      </select>
+    </div>
+
+    <div class="settings-section">
+      <h3>Kort og radius</h3>
+
+      <label class="label" for="settingsMapStyleMode">Kortstil</label>
+      <select id="settingsMapStyleMode">
+        <option value="navigation">Premium navigation</option>
+        <option value="standard">Standard dark</option>
+      </select>
+
+      <label class="label" for="settingsSearchRadius">Søgeradius langs ruten</label>
+      <select id="settingsSearchRadius">
+        <option value="25000">25 km</option>
+        <option value="50000">50 km</option>
+        <option value="100000">100 km</option>
+        <option value="150000">150 km</option>
+        <option value="250000">250 km</option>
+      </select>
     </div>
   `;
 }
 
-function getFuelBrandInitials(value) {
-  const brand =
-    getFuelBrandLabel(value);
+function syncSettingsControls() {
+  setChecked("regionDK", state.settings.region === "dk");
+  setChecked("regionUS", state.settings.region === "us");
 
-  if (!brand) {
-    return "⛽";
+  setChecked("settingsRouteFast", state.settings.routeMode === "fast");
+  setChecked("settingsRouteEco", state.settings.routeMode === "eco");
+
+  setChecked("settingsEcoScoreEnabled", state.settings.ecoScoreEnabled !== false);
+  setChecked("settingsAutoRerouteEnabled", state.settings.autoRerouteEnabled !== false);
+  setChecked("settingsDynamicZoomEnabled", state.settings.dynamicZoomEnabled !== false);
+  setChecked("settingsSmoothCameraEnabled", state.settings.smoothCameraEnabled !== false);
+  setChecked("settingsLaneGuidanceEnabled", state.settings.laneGuidanceEnabled !== false);
+  setChecked("settingsGreenWaveEnabled", state.settings.greenWaveEnabled !== false);
+
+  setValue("settingsFuelType", state.settings.fuelType || "benzin95");
+  setValue("settingsFavoriteFuelBrand", state.settings.favoriteFuelBrand || "all");
+  setValue("settingsFavoriteFuelMode", state.settings.favoriteFuelMode || "boost");
+  setValue("settingsMapStyleMode", state.settings.mapStyleMode || "navigation");
+  setValue("settingsSearchRadius", String(state.settings.searchRadiusBase || 100000));
+}
+
+function getControl(id) {
+  return document.getElementById(id);
+}
+
+function setChecked(id, value) {
+  const el = getControl(id);
+
+  if (el) {
+    el.checked = Boolean(value);
   }
-
-  const upper =
-    brand.toUpperCase();
-
-  if (upper.includes("CIRCLE")) return "CK";
-  if (upper.includes("SHELL")) return "SH";
-  if (upper.includes("Q8")) return "Q8";
-  if (upper.includes("OK")) return "OK";
-  if (upper.includes("INGO")) return "IN";
-  if (upper.includes("UNO")) return "UX";
-  if (upper.includes("F24")) return "F24";
-  if (upper.includes("GO")) return "GO";
-
-  return upper
-    .split(/\s+/)
-    .map(part => part[0])
-    .join("")
-    .slice(0, 3);
 }
 
-function getFuelBrandLogo(value) {
-  return null;
-}
+function setValue(id, value) {
+  const el = getControl(id);
 
-function getFuelBrandLabel(value) {
-  const text =
-    normalizeText(value || "");
-
-  if (text.includes("circle")) return "Circle K";
-  if (text.includes("shell")) return "Shell";
-  if (text.includes("q8")) return "Q8";
-  if (text === "ok" || text.includes(" ok ")) return "OK";
-  if (text.includes("ingo")) return "Ingo";
-  if (text.includes("uno")) return "Uno-X";
-  if (text.includes("f24")) return "F24";
-  if (text.includes("goon") || text.includes("go on")) return "Go’on";
-
-  return value || "";
-}
-
-function normalizeFavoriteBrand(value) {
-  const text =
-    normalizeText(value || "all");
-
-  if (text === "all") return "all";
-  if (text.includes("circle")) return "circle k";
-  if (text.includes("shell")) return "shell";
-  if (text.includes("q8")) return "q8";
-  if (text === "ok") return "ok";
-  if (text.includes("ingo")) return "ingo";
-  if (text.includes("uno")) return "uno-x";
-  if (text.includes("f24")) return "f24";
-  if (text.includes("go")) return "goon";
-
-  return text;
-}
-
-/* =========================
-   UTILS
-========================= */
-
-function formatDateTime(value) {
-  try {
-    return new Date(value)
-      .toLocaleString(
-        "da-DK",
-        {
-          dateStyle: "short",
-          timeStyle: "short"
-        }
-      );
-  } catch {
-    return value || "—";
+  if (el) {
+    el.value = value;
   }
 }
