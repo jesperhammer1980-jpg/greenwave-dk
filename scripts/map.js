@@ -1,41 +1,64 @@
 import { state } from "./state.js";
 
-import {
-  smoothValue
-} from "./utils.js";
+let smoothAnimationFrame = null;
 
-let navigationAnimationFrame = null;
+export function initMap() {
 
-export async function initMap() {
+  state.map = L.map("map", {
+    zoomControl: false,
+    attributionControl: false,
+    preferCanvas: true,
 
-  state.map = L.map(
-    "map",
-    {
-      zoomControl: false,
-      attributionControl: false,
-      preferCanvas: true
-    }
-  );
+    zoomSnap: 0.1,
+    zoomDelta: 0.25,
 
-  const darkTiles = L.tileLayer(
-    "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
-    {
-      maxZoom: 20,
-      subdomains: "abcd"
-    }
-  );
+    fadeAnimation: true,
+    markerZoomAnimation: true,
 
-  darkTiles.addTo(state.map);
+    inertia: true,
+    inertiaDeceleration: 3000
+  });
+
+  const tileLayer =
+    getTileLayer();
+
+  tileLayer.addTo(state.map);
 
   state.map.setView(
     [55.6761, 12.5683],
-    12
+    13
   );
 
-  state.map.on(
-    "movestart",
-    () => {
-      state.camera.lastMoveAt = Date.now();
+  state.mapReady = true;
+
+  requestAnimationFrame(() => {
+    state.map.invalidateSize();
+  });
+}
+
+/* =========================
+   TILE LAYERS
+========================= */
+
+function getTileLayer() {
+
+  if (
+    state.settings.mapStyleMode === "standard"
+  ) {
+    return L.tileLayer(
+      "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
+      {
+        subdomains: "abcd",
+        maxZoom: 20
+      }
+    );
+  }
+
+  return L.tileLayer(
+    "https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png",
+    {
+      subdomains: "abcd",
+      maxZoom: 20
     }
   );
 }
@@ -44,53 +67,97 @@ export async function initMap() {
    ROUTE
 ========================= */
 
-export function drawRoute(geometry = []) {
+export function drawRoute(
+  geometry
+) {
 
   if (!state.map) {
     return;
+  }
+
+  clearRoute();
+
+  if (
+    !Array.isArray(geometry) ||
+    !geometry.length
+  ) {
+    return;
+  }
+
+  const latlngs =
+    geometry.map(point => [
+      point[1],
+      point[0]
+    ]);
+
+  const glow =
+    L.polyline(
+      latlngs,
+      {
+        color: "#57b0ff",
+        weight: 18,
+        opacity: 0.18,
+        lineCap: "round",
+        lineJoin: "round"
+      }
+    ).addTo(state.map);
+
+  const route =
+    L.polyline(
+      latlngs,
+      {
+        color: "#2b91ff",
+        weight: 8,
+        opacity: 1,
+
+        lineCap: "round",
+        lineJoin: "round"
+      }
+    ).addTo(state.map);
+
+  state.routeGlow = glow;
+  state.routeLine = route;
+
+  fitRouteToScreen(route);
+}
+
+function fitRouteToScreen(route) {
+
+  if (!route) {
+    return;
+  }
+
+  const bounds =
+    route.getBounds();
+
+  state.map.fitBounds(
+    bounds,
+    {
+      paddingTopLeft: [40, 220],
+      paddingBottomRight: [40, 240],
+
+      animate: true,
+      duration: 1.2
+    }
+  );
+}
+
+export function clearRoute() {
+
+  if (state.routeGlow) {
+    state.map.removeLayer(
+      state.routeGlow
+    );
+
+    state.routeGlow = null;
   }
 
   if (state.routeLine) {
     state.map.removeLayer(
       state.routeLine
     );
-  }
 
-  const latlngs = geometry.map(
-    point => [
-      point[1],
-      point[0]
-    ]
-  );
-
-  state.routeLine = L.polyline(
-    latlngs,
-    {
-      color: "#4da3ff",
-      weight: 8,
-      opacity: 0.92,
-      lineJoin: "round",
-      lineCap: "round"
-    }
-  );
-
-  state.routeLine.addTo(
-    state.map
-  );
-
-  try {
-    state.map.fitBounds(
-      state.routeLine.getBounds(),
-      {
-        padding: [50, 50],
-        animate: true
-      }
-    );
-  } catch (error) {
-    console.warn(
-      "fitBounds fejl",
-      error
-    );
+    state.routeLine = null;
   }
 }
 
@@ -107,32 +174,19 @@ export function updateUserMarker(
     return;
   }
 
-  const icon = L.divIcon({
-    className: "user-marker-wrap",
-
-    html: `
-      <div class="user-marker">
-        <div class="user-marker-inner"></div>
-      </div>
-    `,
-
-    iconSize: [26, 26],
-    iconAnchor: [13, 13]
-  });
+  const icon =
+    createUserMarkerIcon();
 
   if (!state.userMarker) {
 
-    state.userMarker = L.marker(
-      [lat, lng],
-      {
-        icon,
-        zIndexOffset: 10000
-      }
-    );
-
-    state.userMarker.addTo(
-      state.map
-    );
+    state.userMarker =
+      L.marker(
+        [lat, lng],
+        {
+          icon,
+          zIndexOffset: 5000
+        }
+      ).addTo(state.map);
 
     return;
   }
@@ -142,8 +196,31 @@ export function updateUserMarker(
   );
 }
 
+function createUserMarkerIcon() {
+
+  return L.divIcon({
+    className:
+      "greenwave-user-marker",
+
+    html: `
+      <div class="user-marker-wrap">
+
+        <div class="user-marker-shadow"></div>
+
+        <div class="user-marker-ring"></div>
+
+        <div class="user-marker-core"></div>
+
+      </div>
+    `,
+
+    iconSize: [64, 64],
+    iconAnchor: [32, 32]
+  });
+}
+
 /* =========================
-   DESTINATION MARKER
+   DESTINATION
 ========================= */
 
 export function updateDestinationMarker(
@@ -155,43 +232,47 @@ export function updateDestinationMarker(
     return;
   }
 
-  const icon = L.divIcon({
-    className: "destination-marker-wrap",
+  const icon =
+    createDestinationMarker();
 
-    html: `
-      <div class="destination-marker">
-        <div class="destination-marker-inner"></div>
-      </div>
-    `,
+  if (!state.destinationMarker) {
 
-    iconSize: [30, 30],
-    iconAnchor: [15, 15]
-  });
-
-  if (!state.destMarker) {
-
-    state.destMarker = L.marker(
-      [lat, lng],
-      {
-        icon,
-        zIndexOffset: 9000
-      }
-    );
-
-    state.destMarker.addTo(
-      state.map
-    );
+    state.destinationMarker =
+      L.marker(
+        [lat, lng],
+        {
+          icon,
+          zIndexOffset: 4500
+        }
+      ).addTo(state.map);
 
     return;
   }
 
-  state.destMarker.setLatLng(
+  state.destinationMarker.setLatLng(
     [lat, lng]
   );
 }
 
+function createDestinationMarker() {
+
+  return L.divIcon({
+    className:
+      "greenwave-destination-marker",
+
+    html: `
+      <div class="destination-marker">
+        ⌖
+      </div>
+    `,
+
+    iconSize: [58, 58],
+    iconAnchor: [29, 29]
+  });
+}
+
 /* =========================
-   NAVIGATION CAMERA
+   CAMERA
 ========================= */
 
 export function followNavigationCamera(
@@ -206,103 +287,181 @@ export function followNavigationCamera(
     return;
   }
 
-  const {
-    lat,
-    lng,
-    speed = 0,
-    heading = 0
-  } = position;
+  const heading =
+    Number(
+      position.heading || 0
+    );
+
+  const speed =
+    Number(
+      position.speed || 0
+    );
 
   const zoom =
-    calculateDynamicZoom(speed);
+    getDynamicZoom(speed);
 
-  const smoothedHeading =
-    smoothHeading(heading);
-
-  const target =
-    calculateForwardCameraPosition(
-      lat,
-      lng,
-      smoothedHeading,
+  const targetCenter =
+    calculateRoadAheadCenter(
+      position,
+      heading,
       speed
     );
 
-  state.camera.targetZoom =
-    zoom;
-
-  state.camera.targetBearing =
-    smoothedHeading;
-
-  if (navigationAnimationFrame) {
-    cancelAnimationFrame(
-      navigationAnimationFrame
-    );
-  }
-
-  navigationAnimationFrame =
-    requestAnimationFrame(() => {
-
-      state.map.flyTo(
-        [
-          target.lat,
-          target.lng
-        ],
-        zoom,
-        {
-          animate: true,
-          duration: 0.9,
-          easeLinearity: 0.18
-        }
-      );
-
-    });
+  smoothMoveCamera({
+    lat: targetCenter.lat,
+    lng: targetCenter.lng,
+    zoom,
+    heading
+  });
 }
 
-/* =========================
-   CAMERA OFFSET
-========================= */
-
-function calculateForwardCameraPosition(
+function smoothMoveCamera({
   lat,
   lng,
-  heading,
-  speed
-) {
+  zoom,
+  heading
+}) {
 
-  const distanceMeters =
-    Math.min(
-      140,
-      Math.max(
-        45,
-        speed * 1.5
-      )
+  if (!state.map) {
+    return;
+  }
+
+  cancelAnimationFrame(
+    smoothAnimationFrame
+  );
+
+  const startCenter =
+    state.map.getCenter();
+
+  const startZoom =
+    state.map.getZoom();
+
+  const startHeading =
+    state.smoothCameraBearing || 0;
+
+  const targetHeading =
+    normalizeHeading(
+      heading
     );
 
-  const radians =
-    heading * Math.PI / 180;
+  const duration = 380;
 
-  const latOffset =
-    (Math.cos(radians) * distanceMeters) /
-    111320;
+  const start =
+    performance.now();
 
-  const lngOffset =
-    (Math.sin(radians) * distanceMeters) /
-    (
-      111320 *
-      Math.cos(lat * Math.PI / 180)
+  function animate(now) {
+
+    const progress =
+      Math.min(
+        1,
+        (now - start) / duration
+      );
+
+    const eased =
+      easeOutCubic(progress);
+
+    const currentLat =
+      lerp(
+        startCenter.lat,
+        lat,
+        eased
+      );
+
+    const currentLng =
+      lerp(
+        startCenter.lng,
+        lng,
+        eased
+      );
+
+    const currentZoom =
+      lerp(
+        startZoom,
+        zoom,
+        eased
+      );
+
+    const currentHeading =
+      interpolateHeading(
+        startHeading,
+        targetHeading,
+        eased
+      );
+
+    state.map.setView(
+      [currentLat, currentLng],
+      currentZoom,
+      {
+        animate: false
+      }
     );
 
-  return {
-    lat: lat + latOffset,
-    lng: lng + lngOffset
-  };
+    rotateMap(
+      currentHeading
+    );
+
+    if (progress < 1) {
+      smoothAnimationFrame =
+        requestAnimationFrame(
+          animate
+        );
+    } else {
+      state.smoothCameraBearing =
+        currentHeading;
+    }
+  }
+
+  smoothAnimationFrame =
+    requestAnimationFrame(
+      animate
+    );
 }
 
 /* =========================
-   DYNAMIC ZOOM
+   ROTATION
 ========================= */
 
-function calculateDynamicZoom(
+function rotateMap(
+  heading
+) {
+
+  const pane =
+    state.map
+      ?.getPane("mapPane");
+
+  if (!pane) {
+    return;
+  }
+
+  pane.style.transformOrigin =
+    "50% 50%";
+
+  pane.style.transition =
+    "transform 0.12s linear";
+
+  pane.style.transform =
+    `rotate(${-heading}deg) scale(1.25)`;
+}
+
+export function resetMapBearing() {
+
+  const pane =
+    state.map
+      ?.getPane("mapPane");
+
+  if (!pane) {
+    return;
+  }
+
+  pane.style.transform =
+    "rotate(0deg) scale(1)";
+}
+
+/* =========================
+   ZOOM
+========================= */
+
+function getDynamicZoom(
   speed
 ) {
 
@@ -312,47 +471,85 @@ function calculateDynamicZoom(
     return 16;
   }
 
-  if (speed < 20) {
-    return 18;
-  }
+  if (speed < 15) return 17.8;
+  if (speed < 30) return 17.2;
+  if (speed < 50) return 16.7;
+  if (speed < 70) return 16.1;
+  if (speed < 90) return 15.5;
 
-  if (speed < 40) {
-    return 17;
-  }
-
-  if (speed < 70) {
-    return 16;
-  }
-
-  if (speed < 100) {
-    return 15;
-  }
-
-  return 14;
+  return 14.8;
 }
 
 /* =========================
-   HEADING SMOOTHING
+   ROAD AHEAD
 ========================= */
 
-function smoothHeading(
-  newHeading
+function calculateRoadAheadCenter(
+  position,
+  heading,
+  speed
 ) {
 
-  if (
-    !Number.isFinite(
-      newHeading
-    )
-  ) {
-    return state.lastHeading || 0;
+  const distance =
+    Math.max(
+      0.0007,
+      speed * 0.000012
+    );
+
+  const radians =
+    heading * Math.PI / 180;
+
+  return {
+    lat:
+      position.lat +
+      Math.cos(radians) *
+      distance,
+
+    lng:
+      position.lng +
+      Math.sin(radians) *
+      distance
+  };
+}
+
+/* =========================
+   HELPERS
+========================= */
+
+function lerp(
+  start,
+  end,
+  t
+) {
+  return start + (end - start) * t;
+}
+
+function easeOutCubic(t) {
+  return 1 - Math.pow(1 - t, 3);
+}
+
+function normalizeHeading(
+  value
+) {
+
+  let heading =
+    value % 360;
+
+  if (heading < 0) {
+    heading += 360;
   }
 
-  const current =
-    state.smoothedHeading ??
-    newHeading;
+  return heading;
+}
+
+function interpolateHeading(
+  start,
+  end,
+  t
+) {
 
   let delta =
-    newHeading - current;
+    end - start;
 
   while (delta > 180) {
     delta -= 360;
@@ -362,72 +559,14 @@ function smoothHeading(
     delta += 360;
   }
 
-  const result =
-    current + delta * 0.18;
-
-  state.smoothedHeading =
-    result;
-
-  return result;
+  return start + delta * t;
 }
 
 /* =========================
-   MAP ROTATION
-========================= */
-
-export function setMapBearing(
-  bearing
-) {
-
-  if (
-    !Number.isFinite(
-      bearing
-    )
-  ) {
-    return;
-  }
-
-  const current =
-    state.camera.lastBearing || 0;
-
-  const smoothed =
-    smoothValue(
-      current,
-      bearing,
-      0.12
-    );
-
-  state.camera.lastBearing =
-    smoothed;
-
-  document.documentElement
-    .style
-    .setProperty(
-      "--map-bearing",
-      `${-smoothed}deg`
-    );
-}
-
-export function resetMapBearing() {
-
-  document.documentElement
-    .style
-    .setProperty(
-      "--map-bearing",
-      `0deg`
-    );
-
-  state.camera.lastBearing = 0;
-}
-
-/* =========================
-   NAVIGATION VIEW
+   VIEW MODES
 ========================= */
 
 export function enterNavigationView() {
-
-  state.camera.mode =
-    "navigation";
 
   document.body.classList.add(
     "navigation-active"
@@ -436,30 +575,11 @@ export function enterNavigationView() {
 
 export function exitNavigationView() {
 
-  state.camera.mode =
-    "overview";
-
   document.body.classList.remove(
     "navigation-active"
   );
 
-  if (
-    state.routeLine
-  ) {
-    try {
-
-      state.map.fitBounds(
-        state.routeLine.getBounds(),
-        {
-          padding: [50, 50],
-          animate: true
-        }
-      );
-
-    } catch (error) {
-      console.warn(error);
-    }
-  }
+  resetMapBearing();
 }
 
 /* =========================
@@ -475,17 +595,14 @@ export function recenterMap() {
     return;
   }
 
-  const {
-    lat,
-    lng
-  } = state.currentPosition;
-
   state.map.flyTo(
-    [lat, lng],
-    state.camera.targetZoom || 16,
+    [
+      state.currentPosition.lat,
+      state.currentPosition.lng
+    ],
+    16,
     {
-      animate: true,
-      duration: 0.9
+      duration: 1
     }
   );
 }
