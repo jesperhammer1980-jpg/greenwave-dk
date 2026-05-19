@@ -24,10 +24,10 @@ let watchId = null;
 let lastRerouteTime = 0;
 
 const REROUTE_COOLDOWN = 12000;
-const REROUTE_DISTANCE = 80;
+const REROUTE_DISTANCE = 90;
 
 export async function startLiveNavigation() {
-  if (!state.routeData) {
+  if (!state.routeData?.geometry?.length) {
     alert("Beregn en rute først.");
     return;
   }
@@ -36,6 +36,8 @@ export async function startLiveNavigation() {
     alert("GPS understøttes ikke.");
     return;
   }
+
+  prepareRouteMeasurements();
 
   state.isNavigating = true;
 
@@ -136,6 +138,8 @@ async function handleGpsUpdate(position) {
 
   updateUserMarker?.(lat, lng);
 
+  const progress = getRouteProgress({ lat, lng });
+
   followNavigationCamera?.(
     {
       lat,
@@ -144,6 +148,7 @@ async function handleGpsUpdate(position) {
       heading
     },
     {
+      routeProgress: progress,
       snap: false
     }
   );
@@ -153,10 +158,11 @@ async function handleGpsUpdate(position) {
   }
 
   updateSpeedDisplay(speed);
-  updateNavigationProgress({ lat, lng });
+  updateNavigationProgress({ lat, lng }, progress);
+  updateTurnInstruction(progress);
   updateEcoScore(speed);
 
-  await maybeReroute({ lat, lng });
+  await maybeReroute({ lat, lng }, progress);
 }
 
 function handleGpsError(error) {
@@ -169,9 +175,344 @@ function handleGpsError(error) {
   );
 }
 
+/* =========================
+   ROUTE MEASUREMENTS
+========================= */
+
+function prepareRouteMeasurements() {
+  const geometry = state.routeData?.geometry || [];
+
+  const cumulative = [0];
+  let total = 0;
+
+  for (let i = 1; i < geometry.length; i++) {
+    const prev = geometry[i - 1];
+    const curr = geometry[i];
+
+    total += haversine(
+      prev[1],
+      prev[0],
+      curr[1],
+      curr[0]
+    );
+
+    cumulative.push(total);
+  }
+
+  state.routeData._cumulativeMeters = cumulative;
+  state.routeData._measuredDistance = total;
+}
+
+function getRouteProgress(current) {
+  const geometry = state.routeData?.geometry || [];
+  const cumulative = state.routeData?._cumulativeMeters || [];
+
+  if (geometry.length < 2 || cumulative.length !== geometry.length) {
+    prepareRouteMeasurements();
+  }
+
+  let best = {
+    distanceToRoute: Infinity,
+    alongMeters: 0,
+    segmentIndex: 0,
+    t: 0
+  };
+
+  for (let i = 1; i < geometry.length; i++) {
+    const start = geometry[i - 1];
+    const end = geometry[i];
+
+    const projected = projectPointToSegment(
+      current.lat,
+      current.lng,
+      start[1],
+      start[0],
+      end[1],
+      end[0]
+    );
+
+    if (projected.distanceMeters < best.distanceToRoute) {
+      const startAlong =
+        state.routeData._cumulativeMeters?.[i - 1] || 0;
+
+      const segmentLength =
+        haversine(
+          start[1],
+          start[0],
+          end[1],
+          end[0]
+        );
+
+      best = {
+        distanceToRoute: projected.distanceMeters,
+        alongMeters:
+          startAlong +
+          segmentLength * projected.t,
+        segmentIndex: i,
+        t: projected.t
+      };
+    }
+  }
+
+  const totalDistance =
+    state.routeData.distance ||
+    state.routeData._measuredDistance ||
+    0;
+
+  const remainingMeters =
+    Math.max(0, totalDistance - best.alongMeters);
+
+  const progressRatio =
+    totalDistance > 0
+      ? Math.max(0, Math.min(1, best.alongMeters / totalDistance))
+      : 0;
+
+  return {
+    ...best,
+    totalDistance,
+    remainingMeters,
+    progressRatio
+  };
+}
+
+function projectPointToSegment(
+  lat,
+  lng,
+  lat1,
+  lng1,
+  lat2,
+  lng2
+) {
+  const metersPerDegreeLat = 111320;
+  const metersPerDegreeLng =
+    111320 * Math.cos(lat * Math.PI / 180);
+
+  const px = lng * metersPerDegreeLng;
+  const py = lat * metersPerDegreeLat;
+
+  const ax = lng1 * metersPerDegreeLng;
+  const ay = lat1 * metersPerDegreeLat;
+
+  const bx = lng2 * metersPerDegreeLng;
+  const by = lat2 * metersPerDegreeLat;
+
+  const dx = bx - ax;
+  const dy = by - ay;
+
+  const lengthSquared = dx * dx + dy * dy;
+
+  if (lengthSquared === 0) {
+    return {
+      t: 0,
+      distanceMeters: Math.hypot(px - ax, py - ay)
+    };
+  }
+
+  let t =
+    ((px - ax) * dx + (py - ay) * dy) /
+    lengthSquared;
+
+  t = Math.max(0, Math.min(1, t));
+
+  const projectedX = ax + t * dx;
+  const projectedY = ay + t * dy;
+
+  return {
+    t,
+    distanceMeters:
+      Math.hypot(px - projectedX, py - projectedY)
+  };
+}
+
+/* =========================
+   NAVIGATION DISPLAY
+========================= */
+
+function updateNavigationProgress(current, progress) {
+  if (!state.routeData?.geometry?.length || !progress) {
+    return;
+  }
+
+  const remainingMeters =
+    progress.remainingMeters;
+
+  const routeDuration =
+    Number(state.routeData.duration || 0);
+
+  const remainingSeconds =
+    routeDuration > 0
+      ? routeDuration * (1 - progress.progressRatio)
+      : null;
+
+  if (els.driveRemainingDistance) {
+    els.driveRemainingDistance.textContent =
+      formatDistance(remainingMeters);
+  }
+
+  if (els.driveRemainingTime) {
+    els.driveRemainingTime.textContent =
+      Number.isFinite(remainingSeconds)
+        ? formatDuration(remainingSeconds)
+        : "—";
+  }
+
+  if (els.driveEtaValue) {
+    if (Number.isFinite(remainingSeconds)) {
+      const eta = new Date(
+        Date.now() + remainingSeconds * 1000
+      );
+
+      els.driveEtaValue.textContent =
+        eta.toLocaleTimeString("da-DK", {
+          hour: "2-digit",
+          minute: "2-digit"
+        });
+    } else {
+      els.driveEtaValue.textContent = "—";
+    }
+  }
+}
+
+function updateTurnInstruction(progress) {
+  const steps = state.routeSteps || [];
+
+  if (!steps.length) {
+    setDefaultTurnInstruction();
+    return;
+  }
+
+  let activeStep = steps[0];
+  let activeIndex = 0;
+  let accumulated = 0;
+
+  for (let i = 0; i < steps.length; i++) {
+    const stepDistance = Number(steps[i].distance || 0);
+
+    if (accumulated + stepDistance >= progress.alongMeters) {
+      activeStep = steps[i];
+      activeIndex = i;
+      break;
+    }
+
+    accumulated += stepDistance;
+  }
+
+  state.currentStepIndex = activeIndex;
+
+  const distanceIntoStep =
+    Math.max(0, progress.alongMeters - accumulated);
+
+  const distanceToNext =
+    Math.max(
+      0,
+      Number(activeStep.distance || 0) - distanceIntoStep
+    );
+
+  if (els.nextTurnInstruction) {
+    els.nextTurnInstruction.textContent =
+      getInstruction(activeStep);
+  }
+
+  if (els.nextTurnDistance) {
+    els.nextTurnDistance.textContent =
+      formatDistance(distanceToNext);
+  }
+
+  if (els.nextTurnRoad) {
+    els.nextTurnRoad.textContent = "";
+  }
+
+  if (els.turnIcon) {
+    els.turnIcon.textContent =
+      getTurnSymbol(activeStep);
+  }
+
+  if (els.turnProgressBar) {
+    const stepDistance = Number(activeStep.distance || 0);
+
+    const pct =
+      stepDistance > 0
+        ? Math.max(
+            8,
+            Math.min(100, (distanceIntoStep / stepDistance) * 100)
+          )
+        : 12;
+
+    els.turnProgressBar.style.width =
+      `${pct}%`;
+  }
+}
+
+function setDefaultTurnInstruction() {
+  if (els.nextTurnInstruction) {
+    els.nextTurnInstruction.textContent = "Fortsæt";
+  }
+
+  if (els.nextTurnDistance) {
+    els.nextTurnDistance.textContent = "—";
+  }
+
+  if (els.nextTurnRoad) {
+    els.nextTurnRoad.textContent = "";
+  }
+
+  if (els.turnIcon) {
+    els.turnIcon.textContent = "↑";
+  }
+}
+
+function getInstruction(step) {
+  const modifier =
+    String(step.maneuverModifier || "").toLowerCase();
+
+  const type =
+    String(step.maneuverType || "").toLowerCase();
+
+  if (type.includes("arrive")) {
+    return "Du er fremme";
+  }
+
+  if (
+    type.includes("roundabout") ||
+    type.includes("rotary")
+  ) {
+    return "Kør gennem rundkørslen";
+  }
+
+  if (modifier.includes("left")) {
+    return "Drej til venstre";
+  }
+
+  if (modifier.includes("right")) {
+    return "Drej til højre";
+  }
+
+  if (modifier.includes("straight")) {
+    return "Fortsæt ligeud";
+  }
+
+  return "Fortsæt";
+}
+
+function getTurnSymbol(step) {
+  const modifier =
+    String(step.maneuverModifier || "").toLowerCase();
+
+  if (modifier.includes("left")) {
+    return "←";
+  }
+
+  if (modifier.includes("right")) {
+    return "→";
+  }
+
+  return "↑";
+}
+
 function updateSpeedDisplay(speed) {
   if (els.currentSpeedValue) {
-    els.currentSpeedValue.textContent = Math.round(speed);
+    els.currentSpeedValue.textContent =
+      Math.round(speed);
   }
 
   const limit =
@@ -216,120 +557,12 @@ function updateSpeedDisplay(speed) {
   }
 }
 
-function updateNavigationProgress(current) {
-  if (!state.routeData?.geometry?.length) {
-    return;
-  }
+/* =========================
+   REROUTE
+========================= */
 
-  const route = state.routeData.geometry;
-  const destination = route[route.length - 1];
-
-  const remainingMeters = haversine(
-    current.lat,
-    current.lng,
-    destination[1],
-    destination[0]
-  );
-
-  const remainingSeconds = remainingMeters / 18;
-
-  if (els.driveRemainingDistance) {
-    els.driveRemainingDistance.textContent =
-      formatDistance(remainingMeters);
-  }
-
-  if (els.driveRemainingTime) {
-    els.driveRemainingTime.textContent =
-      formatDuration(remainingSeconds);
-  }
-
-  if (els.driveEtaValue) {
-    const eta = new Date(
-      Date.now() + remainingSeconds * 1000
-    );
-
-    els.driveEtaValue.textContent =
-      eta.toLocaleTimeString("da-DK", {
-        hour: "2-digit",
-        minute: "2-digit"
-      });
-  }
-
-  updateTurnInstruction();
-}
-
-function updateTurnInstruction() {
-  const steps = state.routeSteps || [];
-
-  if (!steps.length) {
-    return;
-  }
-
-  const step = steps[state.currentStepIndex || 0];
-
-  if (!step) {
-    return;
-  }
-
-  if (els.nextTurnInstruction) {
-    els.nextTurnInstruction.textContent =
-      getInstruction(step);
-  }
-
-  if (els.nextTurnDistance) {
-    els.nextTurnDistance.textContent =
-      formatDistance(step.distance || 0);
-  }
-
-  if (els.nextTurnRoad) {
-    els.nextTurnRoad.textContent = "";
-  }
-
-  if (els.turnIcon) {
-    els.turnIcon.textContent =
-      getTurnSymbol(step);
-  }
-}
-
-function getInstruction(step) {
-  const modifier = String(step.maneuverModifier || "").toLowerCase();
-  const type = String(step.maneuverType || "").toLowerCase();
-
-  if (type.includes("arrive")) {
-    return "Du er fremme";
-  }
-
-  if (modifier.includes("left")) {
-    return "Drej til venstre";
-  }
-
-  if (modifier.includes("right")) {
-    return "Drej til højre";
-  }
-
-  if (modifier.includes("straight")) {
-    return "Fortsæt ligeud";
-  }
-
-  return "Fortsæt";
-}
-
-function getTurnSymbol(step) {
-  const modifier = String(step.maneuverModifier || "").toLowerCase();
-
-  if (modifier.includes("left")) {
-    return "←";
-  }
-
-  if (modifier.includes("right")) {
-    return "→";
-  }
-
-  return "↑";
-}
-
-async function maybeReroute(current) {
-  if (!state.routeData?.geometry?.length) {
+async function maybeReroute(current, progress) {
+  if (!state.routeData?.geometry?.length || !progress) {
     return;
   }
 
@@ -339,23 +572,7 @@ async function maybeReroute(current) {
     return;
   }
 
-  const route = state.routeData.geometry;
-  let minDistance = Infinity;
-
-  for (const point of route) {
-    const distance = haversine(
-      current.lat,
-      current.lng,
-      point[1],
-      point[0]
-    );
-
-    if (distance < minDistance) {
-      minDistance = distance;
-    }
-  }
-
-  if (minDistance > REROUTE_DISTANCE) {
+  if (progress.distanceToRoute > REROUTE_DISTANCE) {
     lastRerouteTime = now;
 
     setStatus(
@@ -367,6 +584,8 @@ async function maybeReroute(current) {
     try {
       await recalculateRouteFromCurrentPosition(current);
 
+      prepareRouteMeasurements();
+
       setStatus(
         "GPS: live",
         "Navigation: aktiv",
@@ -377,6 +596,10 @@ async function maybeReroute(current) {
     }
   }
 }
+
+/* =========================
+   ECO SCORE
+========================= */
 
 function updateEcoScore(speed) {
   if (!state.ecoScore) {
@@ -446,7 +669,8 @@ function updateEcoBadge(score) {
     return;
   }
 
-  els.ecoScoreBadge.textContent = `Eco ${score}`;
+  els.ecoScoreBadge.textContent =
+    `Eco ${score}`;
 
   els.ecoScoreBadge.classList.remove(
     "eco-ok",
@@ -516,7 +740,8 @@ function formatDuration(seconds) {
     return "—";
   }
 
-  const minutes = Math.max(1, Math.round(seconds / 60));
+  const minutes =
+    Math.max(1, Math.round(seconds / 60));
 
   if (minutes < 60) {
     return `${minutes} min`;
