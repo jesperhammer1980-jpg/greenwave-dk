@@ -36,6 +36,16 @@ const elementIds = [
 
   "ecoScoreBadge",
 
+  "ecoScoreBackdrop",
+  "ecoScoreModal",
+  "closeEcoScoreBtn",
+  "ecoScoreSubtitle",
+  "ecoScoreTotalValue",
+  "ecoScoreAccelerationValue",
+  "ecoScoreBrakingValue",
+  "ecoScoreSteadyValue",
+  "ecoScoreComment",
+
   "turnIcon",
   "nextTurnDistance",
   "nextTurnInstruction",
