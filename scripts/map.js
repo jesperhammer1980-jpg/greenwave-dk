@@ -1,294 +1,491 @@
 import { state } from "./state.js";
 
-export function initMap() {
-  state.map = L.map("map", {
-    zoomControl: true,
-    inertia: true,
-    inertiaDeceleration: 2600
-  }).setView([56.2, 9.5], 7);
+import {
+  smoothValue
+} from "./utils.js";
 
-  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    maxZoom: 19,
-    attribution: "© OpenStreetMap"
-  }).addTo(state.map);
-}
+let navigationAnimationFrame = null;
 
-export function drawRoute(geometry) {
-  if (!state.map || !Array.isArray(geometry)) {
-    return;
-  }
+export async function initMap() {
 
-  if (state.routeLine) {
-    state.map.removeLayer(state.routeLine);
-    state.routeLine = null;
-  }
-
-  const latlngs = geometry.map(point => [
-    point[1],
-    point[0]
-  ]);
-
-  state.routeLine = L.polyline(latlngs, {
-    color: "#62a8ff",
-    weight: 7,
-    opacity: 0.95,
-    lineCap: "round",
-    lineJoin: "round"
-  }).addTo(state.map);
-
-  state.map.fitBounds(state.routeLine.getBounds(), {
-    padding: [30, 30]
-  });
-}
-
-export function updateUserMarker(lat, lng) {
-  if (!state.map) {
-    return;
-  }
-
-  const icon = L.divIcon({
-    className: "",
-    html: `<div class="user-marker-dot"></div>`,
-    iconSize: [28, 28],
-    iconAnchor: [14, 14]
-  });
-
-  if (!state.userMarker) {
-    state.userMarker = L.marker([lat, lng], { icon })
-      .addTo(state.map);
-  } else {
-    state.userMarker.setLatLng([lat, lng]);
-  }
-}
-
-export function updateDestinationMarker(lat, lng) {
-  if (!state.map) {
-    return;
-  }
-
-  const icon = L.divIcon({
-    className: "",
-    html: `<div class="dest-marker-dot"></div>`,
-    iconSize: [26, 26],
-    iconAnchor: [13, 13]
-  });
-
-  if (!state.destMarker) {
-    state.destMarker = L.marker([lat, lng], { icon })
-      .addTo(state.map);
-  } else {
-    state.destMarker.setLatLng([lat, lng]);
-  }
-}
-
-export function recenterMap() {
-  if (!state.map) {
-    return;
-  }
-
-  if (state.currentPosition) {
-    state.map.setView(
-      [
-        state.currentPosition.lat,
-        state.currentPosition.lng
-      ],
-      15
-    );
-
-    return;
-  }
-
-  if (state.routeLine) {
-    state.map.fitBounds(state.routeLine.getBounds(), {
-      padding: [30, 30]
-    });
-  }
-}
-
-export function enterNavigationView() {
-  document.body.classList.add("navigation-active");
-
-  document.body.classList.toggle(
-    "navigation-3d",
-    Boolean(state.navigationView?.pseudo3d)
+  state.map = L.map(
+    "map",
+    {
+      zoomControl: false,
+      attributionControl: false,
+      preferCanvas: true
+    }
   );
 
-  document.body.classList.toggle(
-    "navigation-dark",
-    Boolean(state.navigationView?.darkMode)
+  const darkTiles = L.tileLayer(
+    "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
+    {
+      maxZoom: 20,
+      subdomains: "abcd"
+    }
   );
 
-  setTimeout(() => {
-    state.map?.invalidateSize();
-  }, 250);
-}
-
-export function exitNavigationView() {
-  document.body.classList.remove(
-    "navigation-active",
-    "navigation-3d",
-    "navigation-dark",
-    "navigation-motorway",
-    "navigation-night"
-  );
-
-  resetMapBearing();
-
-  setTimeout(() => {
-    state.map?.invalidateSize();
-  }, 250);
-}
-
-export function followNavigationCamera(position, options = {}) {
-  if (!state.map || !position) {
-    return;
-  }
-
-  const now = Date.now();
-
-  const speedKmh =
-    typeof position.speed === "number" &&
-    Number.isFinite(position.speed)
-      ? position.speed * 3.6
-      : 0;
-
-  const zoom = getAdaptiveNavigationZoom(speedKmh, options);
-
-  state.navigationView.lastZoom = zoom;
-
-  /*
-    Recovery mode:
-    Når appen kommer tilbage fra baggrund, skal kortet ikke animere
-    gennem gamle positioner. Det skal hoppe direkte til første gode fix.
-  */
-  if (options.snap || state.isRecoveringPosition) {
-    state.map.setView(
-      [position.lat, position.lng],
-      zoom,
-      {
-        animate: false
-      }
-    );
-
-    state.lastCameraMoveAt = now;
-    return;
-  }
-
-  /*
-    Begræns hvor ofte kameraet animerer.
-    Det reducerer hakken på iPhone.
-  */
-  if (
-    state.lastCameraMoveAt &&
-    now - state.lastCameraMoveAt < 650
-  ) {
-    return;
-  }
-
-  state.lastCameraMoveAt = now;
+  darkTiles.addTo(state.map);
 
   state.map.setView(
-    [position.lat, position.lng],
-    zoom,
-    {
-      animate: true,
-      duration: 0.55
+    [55.6761, 12.5683],
+    12
+  );
+
+  state.map.on(
+    "movestart",
+    () => {
+      state.camera.lastMoveAt = Date.now();
     }
   );
 }
 
-function getAdaptiveNavigationZoom(speedKmh, options = {}) {
-  if (!state.navigationView?.adaptiveZoom) {
-    return Math.max(state.map?.getZoom?.() || 17, 17);
-  }
+/* =========================
+   ROUTE
+========================= */
 
-  if (options.forceZoom) {
-    return options.forceZoom;
-  }
+export function drawRoute(geometry = []) {
 
-  if (speedKmh >= 95) {
-    document.body.classList.add("navigation-motorway");
-    return 15.8;
-  }
-
-  document.body.classList.remove("navigation-motorway");
-
-  if (speedKmh >= 70) {
-    return 16.2;
-  }
-
-  if (speedKmh >= 40) {
-    return 16.7;
-  }
-
-  return 17.3;
-}
-
-export function setMapBearing(headingDegrees, options = {}) {
-  const inner = document.getElementById("map-rotation-inner");
-
-  if (!inner) {
-    return;
-  }
-
-  if (
-    typeof headingDegrees !== "number" ||
-    !Number.isFinite(headingDegrees)
-  ) {
-    inner.style.setProperty("--map-bearing", "0deg");
-    return;
-  }
-
-  const normalized =
-    ((headingDegrees % 360) + 360) % 360;
-
-  state.navigationView.lastBearing = normalized;
-
-  inner.style.setProperty(
-    "--map-bearing",
-    `${-normalized}deg`
-  );
-
-  if (options.snap) {
-    inner.classList.add("bearing-snap");
-
-    window.setTimeout(() => {
-      inner.classList.remove("bearing-snap");
-    }, 100);
-  }
-}
-
-export function resetMapBearing() {
-  const inner = document.getElementById("map-rotation-inner");
-
-  if (!inner) {
-    return;
-  }
-
-  inner.style.setProperty("--map-bearing", "0deg");
-}
-
-export function setNavigationNightMode(isNight) {
-  state.navigationView.nightMode = Boolean(isNight);
-
-  document.body.classList.toggle(
-    "navigation-night",
-    state.navigationView.nightMode
-  );
-}
-
-export function clearMapRouteAndMarkers() {
   if (!state.map) {
     return;
   }
 
   if (state.routeLine) {
-    state.map.removeLayer(state.routeLine);
-    state.routeLine = null;
+    state.map.removeLayer(
+      state.routeLine
+    );
   }
 
-  if (state.destMarker) {
-    state.map.removeLayer(state.destMarker);
-    state.destMarker = null;
+  const latlngs = geometry.map(
+    point => [
+      point[1],
+      point[0]
+    ]
+  );
+
+  state.routeLine = L.polyline(
+    latlngs,
+    {
+      color: "#4da3ff",
+      weight: 8,
+      opacity: 0.92,
+      lineJoin: "round",
+      lineCap: "round"
+    }
+  );
+
+  state.routeLine.addTo(
+    state.map
+  );
+
+  try {
+    state.map.fitBounds(
+      state.routeLine.getBounds(),
+      {
+        padding: [50, 50],
+        animate: true
+      }
+    );
+  } catch (error) {
+    console.warn(
+      "fitBounds fejl",
+      error
+    );
   }
+}
+
+/* =========================
+   USER MARKER
+========================= */
+
+export function updateUserMarker(
+  lat,
+  lng
+) {
+
+  if (!state.map) {
+    return;
+  }
+
+  const icon = L.divIcon({
+    className: "user-marker-wrap",
+
+    html: `
+      <div class="user-marker">
+        <div class="user-marker-inner"></div>
+      </div>
+    `,
+
+    iconSize: [26, 26],
+    iconAnchor: [13, 13]
+  });
+
+  if (!state.userMarker) {
+
+    state.userMarker = L.marker(
+      [lat, lng],
+      {
+        icon,
+        zIndexOffset: 10000
+      }
+    );
+
+    state.userMarker.addTo(
+      state.map
+    );
+
+    return;
+  }
+
+  state.userMarker.setLatLng(
+    [lat, lng]
+  );
+}
+
+/* =========================
+   DESTINATION MARKER
+========================= */
+
+export function updateDestinationMarker(
+  lat,
+  lng
+) {
+
+  if (!state.map) {
+    return;
+  }
+
+  const icon = L.divIcon({
+    className: "destination-marker-wrap",
+
+    html: `
+      <div class="destination-marker">
+        <div class="destination-marker-inner"></div>
+      </div>
+    `,
+
+    iconSize: [30, 30],
+    iconAnchor: [15, 15]
+  });
+
+  if (!state.destMarker) {
+
+    state.destMarker = L.marker(
+      [lat, lng],
+      {
+        icon,
+        zIndexOffset: 9000
+      }
+    );
+
+    state.destMarker.addTo(
+      state.map
+    );
+
+    return;
+  }
+
+  state.destMarker.setLatLng(
+    [lat, lng]
+  );
+}
+
+/* =========================
+   NAVIGATION CAMERA
+========================= */
+
+export function followNavigationCamera(
+  position,
+  options = {}
+) {
+
+  if (
+    !state.map ||
+    !position
+  ) {
+    return;
+  }
+
+  const {
+    lat,
+    lng,
+    speed = 0,
+    heading = 0
+  } = position;
+
+  const zoom =
+    calculateDynamicZoom(speed);
+
+  const smoothedHeading =
+    smoothHeading(heading);
+
+  const target =
+    calculateForwardCameraPosition(
+      lat,
+      lng,
+      smoothedHeading,
+      speed
+    );
+
+  state.camera.targetZoom =
+    zoom;
+
+  state.camera.targetBearing =
+    smoothedHeading;
+
+  if (navigationAnimationFrame) {
+    cancelAnimationFrame(
+      navigationAnimationFrame
+    );
+  }
+
+  navigationAnimationFrame =
+    requestAnimationFrame(() => {
+
+      state.map.flyTo(
+        [
+          target.lat,
+          target.lng
+        ],
+        zoom,
+        {
+          animate: true,
+          duration: 0.9,
+          easeLinearity: 0.18
+        }
+      );
+
+    });
+}
+
+/* =========================
+   CAMERA OFFSET
+========================= */
+
+function calculateForwardCameraPosition(
+  lat,
+  lng,
+  heading,
+  speed
+) {
+
+  const distanceMeters =
+    Math.min(
+      140,
+      Math.max(
+        45,
+        speed * 1.5
+      )
+    );
+
+  const radians =
+    heading * Math.PI / 180;
+
+  const latOffset =
+    (Math.cos(radians) * distanceMeters) /
+    111320;
+
+  const lngOffset =
+    (Math.sin(radians) * distanceMeters) /
+    (
+      111320 *
+      Math.cos(lat * Math.PI / 180)
+    );
+
+  return {
+    lat: lat + latOffset,
+    lng: lng + lngOffset
+  };
+}
+
+/* =========================
+   DYNAMIC ZOOM
+========================= */
+
+function calculateDynamicZoom(
+  speed
+) {
+
+  if (
+    !state.settings.dynamicZoomEnabled
+  ) {
+    return 16;
+  }
+
+  if (speed < 20) {
+    return 18;
+  }
+
+  if (speed < 40) {
+    return 17;
+  }
+
+  if (speed < 70) {
+    return 16;
+  }
+
+  if (speed < 100) {
+    return 15;
+  }
+
+  return 14;
+}
+
+/* =========================
+   HEADING SMOOTHING
+========================= */
+
+function smoothHeading(
+  newHeading
+) {
+
+  if (
+    !Number.isFinite(
+      newHeading
+    )
+  ) {
+    return state.lastHeading || 0;
+  }
+
+  const current =
+    state.smoothedHeading ??
+    newHeading;
+
+  let delta =
+    newHeading - current;
+
+  while (delta > 180) {
+    delta -= 360;
+  }
+
+  while (delta < -180) {
+    delta += 360;
+  }
+
+  const result =
+    current + delta * 0.18;
+
+  state.smoothedHeading =
+    result;
+
+  return result;
+}
+
+/* =========================
+   MAP ROTATION
+========================= */
+
+export function setMapBearing(
+  bearing
+) {
+
+  if (
+    !Number.isFinite(
+      bearing
+    )
+  ) {
+    return;
+  }
+
+  const current =
+    state.camera.lastBearing || 0;
+
+  const smoothed =
+    smoothValue(
+      current,
+      bearing,
+      0.12
+    );
+
+  state.camera.lastBearing =
+    smoothed;
+
+  document.documentElement
+    .style
+    .setProperty(
+      "--map-bearing",
+      `${-smoothed}deg`
+    );
+}
+
+export function resetMapBearing() {
+
+  document.documentElement
+    .style
+    .setProperty(
+      "--map-bearing",
+      `0deg`
+    );
+
+  state.camera.lastBearing = 0;
+}
+
+/* =========================
+   NAVIGATION VIEW
+========================= */
+
+export function enterNavigationView() {
+
+  state.camera.mode =
+    "navigation";
+
+  document.body.classList.add(
+    "navigation-active"
+  );
+}
+
+export function exitNavigationView() {
+
+  state.camera.mode =
+    "overview";
+
+  document.body.classList.remove(
+    "navigation-active"
+  );
+
+  if (
+    state.routeLine
+  ) {
+    try {
+
+      state.map.fitBounds(
+        state.routeLine.getBounds(),
+        {
+          padding: [50, 50],
+          animate: true
+        }
+      );
+
+    } catch (error) {
+      console.warn(error);
+    }
+  }
+}
+
+/* =========================
+   RECENTER
+========================= */
+
+export function recenterMap() {
+
+  if (
+    !state.currentPosition ||
+    !state.map
+  ) {
+    return;
+  }
+
+  const {
+    lat,
+    lng
+  } = state.currentPosition;
+
+  state.map.flyTo(
+    [lat, lng],
+    state.camera.targetZoom || 16,
+    {
+      animate: true,
+      duration: 0.9
+    }
+  );
 }
