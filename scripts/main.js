@@ -4,22 +4,18 @@ import { els, cacheDom } from "./dom.js";
 document.addEventListener("DOMContentLoaded", init);
 
 async function init() {
-  try {
-    cacheDom();
-    bindCoreEvents();
+  cacheDom();
+  bindCoreEvents();
 
-    await safeCall("./settings.js", "loadSettings");
-    await safeCall("./map.js", "initMap");
-    await safeCall("./settings.js", "applySettingsToUI");
-    await safeCall("./history.js", "renderHistory");
-    await safeCall("./utils.js", "setStatus", "GPS: klar", "Navigation: inaktiv", "Kort: klar");
-    await safeCall("./fuel.js", "loadFuelPrices");
-    await safeCall("./fuel.js", "updateFuelBox");
+  await safeCall("./settings.js", "loadSettings");
+  await safeCall("./map.js", "initMap");
+  await safeCall("./settings.js", "applySettingsToUI");
+  await safeCall("./history.js", "renderHistory");
+  await safeCall("./utils.js", "setStatus", "GPS: klar", "Navigation: inaktiv", "Kort: klar");
+  await safeCall("./fuel.js", "loadFuelPrices");
+  await safeCall("./fuel.js", "updateFuelBox");
 
-    console.log("GreenWave emergency main loaded");
-  } catch (error) {
-    console.error("GreenWave init fejl:", error);
-  }
+  console.log("GreenWave main loaded");
 }
 
 function bindCoreEvents() {
@@ -37,7 +33,27 @@ function bindCoreEvents() {
   });
 
   els.startNavBtn?.addEventListener("click", async () => {
-    await safeCall("./navigation.js", "startLiveNavigation");
+    try {
+      if (!state.routeData) {
+        alert("Der er ingen rute endnu. Beregn rute først.");
+        return;
+      }
+
+      const nav = await import("./navigation.js?v=" + Date.now());
+
+      if (typeof nav.startLiveNavigation !== "function") {
+        alert("Fejl: startLiveNavigation findes ikke i navigation.js");
+        return;
+      }
+
+      await nav.startLiveNavigation();
+    } catch (error) {
+      console.error("START NAVIGATION FEJL:", error);
+      alert(
+        "Start navigation fejlede:\n\n" +
+        (error.message || error)
+      );
+    }
   });
 
   els.stopNavBtn?.addEventListener("click", async () => {
@@ -90,22 +106,7 @@ function bindCoreEvents() {
     await safeCall("./fuel.js", "renderFuelList");
   });
 
-  els.fuelHistoryBtn?.addEventListener("click", async () => {
-    await safeCall("./fuel.js", "openFuelHistory");
-  });
-
-  els.closeFuelHistoryBtn?.addEventListener("click", async () => {
-    await safeCall("./fuel.js", "closeFuelHistory");
-  });
-
-  els.fuelHistoryBackdrop?.addEventListener("click", async () => {
-    await safeCall("./fuel.js", "closeFuelHistory");
-  });
-
-  els.ecoScoreBadge?.addEventListener("click", () => {
-    openEcoScoreModal();
-  });
-
+  els.ecoScoreBadge?.addEventListener("click", openEcoScoreModal);
   els.closeEcoScoreBtn?.addEventListener("click", closeEcoScoreModal);
   els.ecoScoreBackdrop?.addEventListener("click", closeEcoScoreModal);
 
@@ -114,20 +115,11 @@ function bindCoreEvents() {
       await safeCall("./autocomplete.js", "hideAutocomplete");
     }
   });
-
-  document.addEventListener("keydown", async event => {
-    if (event.key === "Escape") {
-      await safeCall("./settings.js", "closeSettings");
-      await safeCall("./fuel.js", "closeFuelList");
-      await safeCall("./fuel.js", "closeFuelHistory");
-      closeEcoScoreModal();
-    }
-  });
 }
 
 async function safeCall(modulePath, exportName, ...args) {
   try {
-    const mod = await import(modulePath + "?safe=" + Date.now());
+    const mod = await import(modulePath + "?v=" + Date.now());
 
     if (typeof mod[exportName] !== "function") {
       console.warn(`${exportName} findes ikke i ${modulePath}`);
@@ -143,7 +135,6 @@ async function safeCall(modulePath, exportName, ...args) {
 
 function openEcoScoreModal() {
   updateEcoScoreModal();
-
   els.ecoScoreModal?.classList.remove("hidden");
   els.ecoScoreBackdrop?.classList.remove("hidden");
 }
@@ -154,25 +145,11 @@ function closeEcoScoreModal() {
 }
 
 function updateEcoScoreModal() {
-  const eco = state.ecoScore;
+  const eco = state.ecoScore || {};
 
-  const acceleration = average(
-    eco?.accelerationQualitySum,
-    eco?.accelerationEvents,
-    70
-  );
-
-  const braking = average(
-    eco?.brakingQualitySum,
-    eco?.brakingEvents,
-    70
-  );
-
-  const steady = average(
-    eco?.steadyQualitySum,
-    eco?.steadySamples,
-    70
-  );
+  const acceleration = average(eco.accelerationQualitySum, eco.accelerationEvents, 70);
+  const braking = average(eco.brakingQualitySum, eco.brakingEvents, 70);
+  const steady = average(eco.steadyQualitySum, eco.steadySamples, 70);
 
   const total = Math.round(
     acceleration * 0.3 +
@@ -180,25 +157,11 @@ function updateEcoScoreModal() {
     steady * 0.4
   );
 
-  if (els.ecoScoreTotalValue) {
-    els.ecoScoreTotalValue.textContent = `${total}/100`;
-  }
-
-  if (els.ecoScoreAccelerationValue) {
-    els.ecoScoreAccelerationValue.textContent = `${Math.round(acceleration)}/100`;
-  }
-
-  if (els.ecoScoreBrakingValue) {
-    els.ecoScoreBrakingValue.textContent = `${Math.round(braking)}/100`;
-  }
-
-  if (els.ecoScoreSteadyValue) {
-    els.ecoScoreSteadyValue.textContent = `${Math.round(steady)}/100`;
-  }
-
-  if (els.ecoScoreComment) {
-    els.ecoScoreComment.textContent = getEcoComment(total);
-  }
+  if (els.ecoScoreTotalValue) els.ecoScoreTotalValue.textContent = `${total}/100`;
+  if (els.ecoScoreAccelerationValue) els.ecoScoreAccelerationValue.textContent = `${Math.round(acceleration)}/100`;
+  if (els.ecoScoreBrakingValue) els.ecoScoreBrakingValue.textContent = `${Math.round(braking)}/100`;
+  if (els.ecoScoreSteadyValue) els.ecoScoreSteadyValue.textContent = `${Math.round(steady)}/100`;
+  if (els.ecoScoreComment) els.ecoScoreComment.textContent = getEcoComment(total);
 }
 
 function average(sum, count, fallback) {
