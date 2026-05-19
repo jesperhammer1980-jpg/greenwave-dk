@@ -1,17 +1,8 @@
 import { state } from "./state.js";
 import { els } from "./dom.js";
 
-import {
-  getPosition,
-  setStatus
-} from "./utils.js";
-
-import {
-  drawRoute,
-  updateUserMarker,
-  updateDestinationMarker
-} from "./map.js";
-
+import { getPosition, setStatus } from "./utils.js";
+import { drawRoute, updateUserMarker, updateDestinationMarker } from "./map.js";
 import {
   loadFuelStations,
   computeRouteDistances,
@@ -19,31 +10,14 @@ import {
   updateFuelBox,
   updateFuelMarkers
 } from "./fuel.js";
-
-import {
-  loadTrafficSignals
-} from "./greenwave.js";
-
-import {
-  loadMaxSpeedZones
-} from "./maxspeed.js";
-
-import {
-  prepareRouteSteps
-} from "./route-progress.js";
-
-import {
-  saveHistory,
-  renderHistory
-} from "./history.js";
-
-import {
-  fetchTomTomRoute
-} from "./tomtom.js";
+import { loadTrafficSignals } from "./greenwave.js";
+import { loadMaxSpeedZones } from "./maxspeed.js";
+import { prepareRouteSteps } from "./route-progress.js";
+import { saveHistory, renderHistory } from "./history.js";
+import { fetchTomTomRoute } from "./tomtom.js";
 
 export async function calculateRoute() {
-  const input =
-    els.destinationInput?.value.trim();
+  const input = els.destinationInput?.value.trim();
 
   if (!input) {
     alert("Indtast en destination først.");
@@ -53,138 +27,48 @@ export async function calculateRoute() {
   try {
     setRouteBusy(true);
 
-    setStatus(
-      "GPS: henter position",
-      "Navigation: beregner",
-      "Kort: beregner"
-    );
+    setStatus("GPS: henter position", "Navigation: beregner", "Kort: beregner");
 
-    state.currentPosition =
-      await getPosition();
+    state.currentPosition = await getPosition();
 
-    updateUserMarker(
-      state.currentPosition.lat,
-      state.currentPosition.lng
-    );
+    updateUserMarker(state.currentPosition.lat, state.currentPosition.lng);
 
     state.destination =
-      state.selectedAutocompleteItem ||
-      await geocode(input);
+      state.selectedAutocompleteItem || await geocode(input);
 
-    updateDestinationMarker(
-      state.destination.lat,
-      state.destination.lng
+    updateDestinationMarker(state.destination.lat, state.destination.lng);
+
+    const route = await fetchBestRoute(
+      state.currentPosition,
+      state.destination
     );
 
-    const route =
-      await fetchBestRoute(
-        state.currentPosition,
-        state.destination
-      );
+    await applyRoute(route, true);
 
-    await applyNewRoute(
-      route,
-      {
-        saveToHistory: true,
-        refreshFuel: true
-      }
-    );
-
-    setRouteReady(true);
-
-    setStatus(
-      "GPS: klar",
-      route.provider === "tomtom"
-        ? "Navigation: TomTom rute klar"
-        : "Navigation: OSRM fallback klar",
-      "Kort: klar"
-    );
+    setStatus("GPS: klar", "Navigation: rute klar", "Kort: klar");
   } catch (error) {
-    console.error(
-      "Rutefejl",
-      error
-    );
-
+    console.error("Rutefejl", error);
+    alert("Kunne ikke beregne rute:\n\n" + (error.message || error));
+    setStatus("GPS: fejl", "Navigation: fejl", "Kort: fejl");
     setRouteReady(false);
-
-    alert(
-      "Kunne ikke beregne rute:\n\n" +
-      (error.message || error)
-    );
-
-    setStatus(
-      "GPS: fejl",
-      "Navigation: fejl",
-      "Kort: fejl"
-    );
   } finally {
     setRouteBusy(false);
   }
 }
 
 export async function recalculateRouteFromCurrentPosition(position) {
-  if (
-    !position ||
-    !state.destination
-  ) {
-    throw new Error(
-      "Mangler aktuel position eller destination"
-    );
+  if (!position || !state.destination) {
+    throw new Error("Mangler aktuel position eller destination");
   }
 
-  const from = {
-    lat: position.lat,
-    lng: position.lng
-  };
+  const route = await fetchBestRoute(position, state.destination);
 
-  const route =
-    await fetchBestRoute(
-      from,
-      state.destination
-    );
-
-  state.currentPosition = {
-    ...state.currentPosition,
-    lat: from.lat,
-    lng: from.lng
-  };
-
-  updateUserMarker(
-    from.lat,
-    from.lng
-  );
-
-  updateDestinationMarker(
-    state.destination.lat,
-    state.destination.lng
-  );
-
-  await applyNewRoute(
-    route,
-    {
-      saveToHistory: false,
-      refreshFuel: true
-    }
-  );
-
-  setRouteReady(true);
+  await applyRoute(route, false);
 
   return route;
 }
 
-/* =========================
-   APPLY ROUTE
-========================= */
-
-async function applyNewRoute(
-  route,
-  options = {}
-) {
-  const {
-    saveToHistory = false,
-    refreshFuel = true
-  } = options;
-
+async function applyRoute(route, saveToHistory) {
   state.routeData = route;
   state.routeSteps = route.steps || [];
   state.currentStepIndex = 0;
@@ -194,112 +78,45 @@ async function applyNewRoute(
     remainingMeters: route.distance || 0,
     remainingSeconds: route.duration || 0,
     progressRatio: 0,
-    distanceToRoute: Infinity,
     segmentIndex: 0,
+    distanceToRoute: Infinity,
     isOffRoute: false
   };
 
-  state.maxSpeedZones = [];
-  state.currentMaxSpeed = null;
-  state.trafficSignals = [];
+  drawRoute(route.geometry);
+  prepareRouteSteps();
 
-  drawRoute(
-    state.routeData.geometry
-  );
-
-  try {
-    prepareRouteSteps();
-  } catch (error) {
-    console.warn(
-      "Route steps kunne ikke forberedes",
-      error
-    );
-  }
-
-  if (
-    saveToHistory &&
-    state.destination
-  ) {
-    try {
-      saveHistory(
-        state.destination
-      );
-
-      renderHistory();
-    } catch (error) {
-      console.warn(
-        "Historik kunne ikke gemmes",
-        error
-      );
-    }
+  if (saveToHistory && state.destination) {
+    saveHistory(state.destination);
+    renderHistory();
   }
 
   setRouteReady(true);
 
-  if (refreshFuel) {
-    await Promise.allSettled([
-      loadFuelStations(
-        state.routeData.geometry
-      ),
+  await Promise.allSettled([
+    loadFuelStations(route.geometry),
+    loadTrafficSignals(route.geometry),
+    loadMaxSpeedZones()
+  ]);
 
-      loadTrafficSignals(
-        state.routeData.geometry
-      ),
-
-      loadMaxSpeedZones()
-    ]);
-
-    try {
-      computeRouteDistances();
-      applyPricesToStations();
-      updateFuelBox();
-      updateFuelMarkers();
-    } catch (error) {
-      console.warn(
-        "Fuel-opdatering fejlede",
-        error
-      );
-    }
-  } else {
-    await Promise.allSettled([
-      loadTrafficSignals(
-        state.routeData.geometry
-      ),
-
-      loadMaxSpeedZones()
-    ]);
-  }
-
-  setRouteReady(true);
+  computeRouteDistances();
+  applyPricesToStations();
+  updateFuelBox();
+  updateFuelMarkers();
 }
-
-/* =========================
-   ROUTE PROVIDERS
-========================= */
 
 async function fetchBestRoute(from, to) {
   try {
-    const route =
-      await fetchTomTomRoute(
-        from,
-        to
-      );
+    const route = await fetchTomTomRoute(from, to);
 
     return {
       ...route,
       provider: "tomtom"
     };
   } catch (error) {
-    console.warn(
-      "TomTom fejlede, bruger OSRM fallback",
-      error
-    );
+    console.warn("TomTom fejlede. Bruger OSRM.", error);
 
-    const route =
-      await fetchOsrmRoute(
-        from,
-        to
-      );
+    const route = await fetchOsrmRoute(from, to);
 
     return {
       ...route,
@@ -309,182 +126,91 @@ async function fetchBestRoute(from, to) {
 }
 
 export async function geocode(query) {
-  const country =
-    state.settings.region === "us"
-      ? "us"
-      : "dk";
+  const country = state.settings.region === "us" ? "us" : "dk";
 
   const url =
     `https://nominatim.openstreetmap.org/search` +
-    `?format=jsonv2` +
-    `&limit=1` +
-    `&addressdetails=1` +
+    `?format=jsonv2&limit=1&addressdetails=1` +
     `&countrycodes=${country}` +
     `&q=${encodeURIComponent(query)}`;
 
-  const response =
-    await fetch(url);
+  const response = await fetch(url);
 
   if (!response.ok) {
-    throw new Error(
-      "Geocoding fejlede"
-    );
+    throw new Error("Geocoding fejlede");
   }
 
-  const data =
-    await response.json();
+  const data = await response.json();
 
-  if (
-    !Array.isArray(data) ||
-    !data.length
-  ) {
-    throw new Error(
-      "Destination ikke fundet"
-    );
+  if (!Array.isArray(data) || !data.length) {
+    throw new Error("Destination ikke fundet");
   }
 
-  const item =
-    data[0];
+  const item = data[0];
 
   return {
     lat: Number(item.lat),
     lng: Number(item.lon),
-
-    displayName:
-      item.display_name ||
-      query,
-
     inputLabel:
       item.name ||
       item.address?.road ||
       item.address?.city ||
-      item.address?.town ||
-      query
+      query,
+    displayName: item.display_name || query
   };
 }
 
 export async function fetchOsrmRoute(from, to) {
-  if (!from || !to) {
-    throw new Error(
-      "Mangler start eller destination"
-    );
-  }
-
   const url =
     `https://router.project-osrm.org/route/v1/driving/` +
     `${from.lng},${from.lat};${to.lng},${to.lat}` +
-    `?overview=full` +
-    `&geometries=geojson` +
-    `&steps=true`;
+    `?overview=full&geometries=geojson&steps=true`;
 
-  const response =
-    await fetch(url);
+  const response = await fetch(url);
 
   if (!response.ok) {
-    throw new Error(
-      "OSRM kunne ikke kontaktes"
-    );
+    throw new Error("OSRM kunne ikke kontaktes");
   }
 
-  const data =
-    await response.json();
+  const data = await response.json();
 
   if (!data.routes?.length) {
-    throw new Error(
-      "Ingen rute fundet"
-    );
+    throw new Error("Ingen rute fundet");
   }
 
-  const route =
-    data.routes[0];
+  const route = data.routes[0];
 
   return {
-    geometry:
-      route.geometry.coordinates,
-
-    distance:
-      Number(route.distance || 0),
-
-    duration:
-      Number(route.duration || 0),
-
-    trafficDelay:
-      0,
-
-    steps:
-      extractOsrmRouteSteps(route)
+    geometry: route.geometry.coordinates,
+    distance: Number(route.distance || 0),
+    duration: Number(route.duration || 0),
+    trafficDelay: 0,
+    steps: extractOsrmSteps(route)
   };
 }
 
-/* =========================
-   OSRM STEPS
-========================= */
-
-function extractOsrmRouteSteps(route) {
+function extractOsrmSteps(route) {
   const steps = [];
 
-  const legs =
-    Array.isArray(route.legs)
-      ? route.legs
-      : [];
+  (route.legs || []).forEach(leg => {
+    (leg.steps || []).forEach(step => {
+      const maneuver = step.maneuver || {};
+      const location = maneuver.location;
 
-  legs.forEach(leg => {
-    const legSteps =
-      Array.isArray(leg.steps)
-        ? leg.steps
-        : [];
-
-    legSteps.forEach(step => {
-      const maneuver =
-        step.maneuver || {};
-
-      const location =
-        Array.isArray(
-          maneuver.location
-        )
-          ? maneuver.location
-          : null;
-
-      if (!location) {
-        return;
-      }
+      if (!Array.isArray(location)) return;
 
       steps.push({
-        distance:
-          Number(step.distance || 0),
-
-        duration:
-          Number(step.duration || 0),
-
-        name:
-          step.name || "",
-
-        mode:
-          step.mode || "driving",
-
-        geometry:
-          step.geometry?.coordinates ||
-          [],
-
-        maneuverType:
-          maneuver.type ||
-          "continue",
-
-        maneuverModifier:
-          maneuver.modifier ||
-          "",
-
-        message:
-          "",
-
+        distance: Number(step.distance || 0),
+        duration: Number(step.duration || 0),
+        name: step.name || "",
+        geometry: step.geometry?.coordinates || [],
+        maneuverType: maneuver.type || "continue",
+        maneuverModifier: maneuver.modifier || "",
         location: {
           lng: Number(location[0]),
           lat: Number(location[1])
         },
-
-        roundaboutExit:
-          maneuver.exit ||
-          null
+        roundaboutExit: maneuver.exit || null
       });
     });
   });
@@ -492,35 +218,12 @@ function extractOsrmRouteSteps(route) {
   return steps;
 }
 
-/* =========================
-   BUTTON STATE
-========================= */
-
 function setRouteBusy(isBusy) {
-  if (els.calcRouteBtn) {
-    els.calcRouteBtn.disabled =
-      isBusy;
-  }
-
-  if (isBusy) {
-    if (els.startNavBtn) {
-      els.startNavBtn.disabled = true;
-    }
-
-    if (els.openFuelListBtn) {
-      els.openFuelListBtn.disabled = true;
-    }
-  }
+  if (els.calcRouteBtn) els.calcRouteBtn.disabled = isBusy;
+  if (isBusy && els.startNavBtn) els.startNavBtn.disabled = true;
 }
 
 function setRouteReady(isReady) {
-  if (els.startNavBtn) {
-    els.startNavBtn.disabled =
-      !isReady;
-  }
-
-  if (els.openFuelListBtn) {
-    els.openFuelListBtn.disabled =
-      !isReady;
-  }
+  if (els.startNavBtn) els.startNavBtn.disabled = !isReady;
+  if (els.openFuelListBtn) els.openFuelListBtn.disabled = !isReady;
 }
