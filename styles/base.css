@@ -1,39 +1,19 @@
-:root {
+@import url("./navigation.css?v=210");
+@import url("./navigation-overlay.css?v=210");
+@import url("./navigation-bottom.css?v=210");
+@import url("./modals.css?v=210");
+@import url("./fuel.css?v=210");
+@import url("./eco.css?v=210");
 
-  --bg-primary: #07101b;
-  --bg-secondary: #0c1724;
-  --bg-card: rgba(13,22,34,0.92);
-
-  --border-primary: rgba(255,255,255,0.08);
-
-  --text-primary: #ffffff;
-  --text-secondary: rgba(255,255,255,0.72);
-  --text-muted: rgba(255,255,255,0.5);
-
-  --accent-blue: #2b91ff;
-  --accent-blue-dark: #0f57d9;
-
-  --accent-green: #00c853;
-  --accent-orange: #ff9800;
-  --accent-red: #ff3b30;
-
-  --shadow-soft:
-    0 12px 28px rgba(0,0,0,0.28);
-
-  --shadow-heavy:
-    0 24px 60px rgba(0,0,0,0.42);
-
-  --radius-card: 24px;
-  --radius-button: 16px;
-
-  --safe-top: env(safe-area-inset-top);
-  --safe-bottom: env(safe-area-inset-bottom);
-
-  --map-bearing: 0deg;
-}
+/* =========================
+   RESET
+========================= */
 
 * {
   box-sizing: border-box;
+
+  -webkit-tap-highlight-color:
+    transparent;
 }
 
 html,
@@ -42,33 +22,32 @@ body {
   padding: 0;
 
   width: 100%;
-  min-height: 100%;
+  height: 100%;
 
-  overflow-x: hidden;
-
-  background:
-    linear-gradient(
-      180deg,
-      #07101b,
-      #0d1623
-    );
-
-  color: var(--text-primary);
+  overflow: hidden;
 
   font-family:
     Inter,
+    SF Pro Display,
     system-ui,
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
     sans-serif;
 
-  -webkit-font-smoothing: antialiased;
-  text-rendering: optimizeLegibility;
+  background: #07111d;
+
+  color: white;
 }
 
-body {
-  min-height: 100vh;
+/* =========================
+   TYPOGRAPHY
+========================= */
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  margin: 0;
 }
 
 button,
@@ -78,630 +57,192 @@ textarea {
   font: inherit;
 }
 
-button {
-  cursor: pointer;
+/* =========================
+   INPUTS
+========================= */
+
+input,
+select,
+textarea {
+  appearance: none;
+  -webkit-appearance: none;
 }
+
+/* =========================
+   LINKS
+========================= */
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* =========================
+   HIDDEN
+========================= */
 
 .hidden {
   display: none !important;
 }
 
 /* =========================
-   APP GRID
+   DISABLED
 ========================= */
 
-.app-grid {
-  display: grid;
-
-  grid-template-columns:
-    minmax(320px, 420px)
-    1fr;
-
-  gap: 18px;
-
-  min-height: 100vh;
-
-  padding:
-    calc(var(--safe-top) + 18px)
-    18px
-    calc(var(--safe-bottom) + 18px);
-}
-
-.left-column {
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-}
-
-.center-column {
-  min-width: 0;
+button:disabled {
+  opacity: 0.45;
+  pointer-events: none;
 }
 
 /* =========================
-   HERO
+   ANIMATIONS
 ========================= */
 
-.hero {
-  padding: 10px 4px;
+.fade-in {
+  animation:
+    fadeIn 0.28s ease;
 }
 
-.hero h1 {
-  margin: 0;
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform:
+      translateY(10px);
+  }
 
-  font-size: 42px;
-  font-weight: 950;
-  letter-spacing: -0.04em;
-
-  color: white;
-}
-
-.hero .muted {
-  margin-top: 12px;
-
-  color: var(--text-secondary);
-
-  line-height: 1.5;
+  to {
+    opacity: 1;
+    transform:
+      translateY(0);
+  }
 }
 
 /* =========================
-   PANELS
+   SAFE AREAS
 ========================= */
 
-.panel {
-  position: relative;
+body {
+  padding-top:
+    env(safe-area-inset-top);
 
-  background: var(--bg-card);
-
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-card);
-
-  padding: 18px;
-
-  box-shadow: var(--shadow-soft);
-
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
-}
-
-.panel h3 {
-  margin-top: 0;
-  margin-bottom: 14px;
-
-  font-size: 22px;
-  font-weight: 900;
+  padding-bottom:
+    env(safe-area-inset-bottom);
 }
 
 /* =========================
-   STATUS
+   LEAFLET FIXES
 ========================= */
 
-.status-grid {
-  display: grid;
-
-  grid-template-columns: repeat(3, 1fr);
-
-  gap: 12px;
+.leaflet-control-container {
+  display: none;
 }
 
-.status-item {
-  background: rgba(255,255,255,0.04);
-
-  border: 1px solid rgba(255,255,255,0.05);
-  border-radius: 18px;
-
-  padding: 12px;
+.leaflet-pane,
+.leaflet-top,
+.leaflet-bottom {
+  z-index: 1 !important;
 }
 
-.status-label {
-  display: block;
-
-  font-size: 12px;
-  font-weight: 800;
-
-  color: var(--text-muted);
-
-  margin-bottom: 4px;
-
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.status-value {
-  font-size: 16px;
-  font-weight: 900;
-
-  color: white;
-}
-
-/* =========================
-   SEARCH
-========================= */
-
-.search-wrap {
-  position: relative;
-}
-
-.label {
-  display: block;
-
-  margin-bottom: 10px;
-
-  font-size: 14px;
-  font-weight: 850;
-
-  color: var(--text-secondary);
-}
-
-input[type="text"] {
-  width: 100%;
-  height: 58px;
-
-  border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 18px;
-
-  padding: 0 18px;
-
-  background: rgba(255,255,255,0.05);
-
-  color: white;
-
-  outline: none;
-
-  transition:
-    border-color 0.2s ease,
-    background 0.2s ease,
-    transform 0.2s ease;
-}
-
-input[type="text"]:focus {
-  border-color: rgba(43,145,255,0.5);
-
-  background: rgba(255,255,255,0.08);
-
-  transform: translateY(-1px);
-}
-
-input::placeholder {
-  color: rgba(255,255,255,0.42);
+.leaflet-marker-icon {
+  will-change:
+    transform;
 }
 
 /* =========================
    AUTOCOMPLETE
 ========================= */
 
-.autocomplete-box,
 .autocomplete-results {
   position: absolute;
 
   left: 0;
   right: 0;
 
-  top: calc(100% + 10px);
+  top:
+    calc(100% + 12px);
 
-  z-index: 5000;
-
-  background: rgba(8,14,22,0.98);
-
-  border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 20px;
+  z-index: 1500;
 
   overflow: hidden;
 
-  box-shadow: var(--shadow-heavy);
+  border-radius: 26px;
 
-  backdrop-filter: blur(18px);
+  background:
+    rgba(10,18,29,0.96);
+
+  border:
+    1px solid rgba(255,255,255,0.08);
+
+  backdrop-filter: blur(20px);
+
+  box-shadow:
+    0 25px 60px rgba(0,0,0,0.4);
 }
 
 .autocomplete-item {
-  padding: 14px 16px;
+  padding:
+    18px 20px;
 
-  border-bottom: 1px solid rgba(255,255,255,0.04);
+  border-bottom:
+    1px solid rgba(255,255,255,0.05);
 
   cursor: pointer;
-
-  transition: background 0.15s ease;
-}
-
-.autocomplete-item:hover {
-  background: rgba(255,255,255,0.06);
 }
 
 .autocomplete-item:last-child {
   border-bottom: 0;
 }
 
-.autocomplete-primary {
-  font-size: 15px;
-  font-weight: 850;
+.autocomplete-item-title {
+  font-size: 17px;
+  font-weight: 800;
 
   color: white;
 }
 
-.autocomplete-secondary {
-  margin-top: 3px;
+.autocomplete-item-subtitle {
+  margin-top: 5px;
 
   font-size: 13px;
 
-  color: var(--text-secondary);
-}
-
-/* =========================
-   BUTTONS
-========================= */
-
-.button-row {
-  display: flex;
-  gap: 12px;
-
-  margin-top: 16px;
-}
-
-.button-row.single {
-  justify-content: stretch;
-}
-
-button {
-  height: 54px;
-
-  border: 0;
-  border-radius: var(--radius-button);
-
-  padding: 0 18px;
-
-  background:
-    linear-gradient(
-      180deg,
-      #2b91ff,
-      #0f57d9
-    );
-
-  color: white;
-
-  font-size: 15px;
-  font-weight: 900;
-
-  box-shadow:
-    0 8px 20px rgba(15,87,217,0.28);
-
-  transition:
-    transform 0.18s ease,
-    opacity 0.18s ease,
-    filter 0.18s ease;
-}
-
-button:hover {
-  filter: brightness(1.06);
-}
-
-button:active {
-  transform: scale(0.98);
-}
-
-button:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-.button-row button {
-  flex: 1;
-}
-
-/* =========================
-   MAP
-========================= */
-
-.map-panel {
-  position: relative;
-
-  min-height: calc(100vh - 36px);
-
-  overflow: hidden;
-
-  border-radius: 32px;
-
-  border: 1px solid rgba(255,255,255,0.06);
-
-  background: #09131d;
-
-  box-shadow: var(--shadow-heavy);
-}
-
-#map-rotation-wrap,
-#map-rotation-inner,
-#map {
-  width: 100%;
-  height: 100%;
-}
-
-#map {
-  min-height: calc(100vh - 36px);
-}
-
-/* =========================
-   HISTORY
-========================= */
-
-.history-title {
-  font-size: 14px;
-  font-weight: 850;
-
-  color: var(--text-secondary);
-
-  margin-bottom: 12px;
-}
-
-.history-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.history-item {
-  padding: 14px 16px;
-
-  border-radius: 18px;
-
-  background: rgba(255,255,255,0.04);
-
-  border: 1px solid rgba(255,255,255,0.05);
-
-  cursor: pointer;
-
-  transition:
-    background 0.18s ease,
-    transform 0.18s ease;
-}
-
-.history-item:hover {
-  background: rgba(255,255,255,0.08);
-  transform: translateY(-1px);
-}
-
-.history-item-title {
-  font-size: 15px;
-  font-weight: 850;
-
-  color: white;
-}
-
-.history-item-subtitle {
-  margin-top: 4px;
-
-  font-size: 13px;
-
-  color: var(--text-secondary);
-}
-
-/* =========================
-   FUEL
-========================= */
-
-.fuel-disclaimer {
-  margin-bottom: 12px;
-
-  font-size: 13px;
-  font-weight: 700;
-
-  color: var(--text-muted);
-}
-
-.fuel-content {
-  color: var(--text-secondary);
-}
-
-.fuel-station-card {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-
-  padding: 14px;
-
-  border-radius: 18px;
-
-  background: rgba(255,255,255,0.04);
-
-  border: 1px solid rgba(255,255,255,0.05);
-
-  margin-bottom: 12px;
-}
-
-.fuel-brand-logo {
-  width: 42px;
-  height: 42px;
-
-  border-radius: 12px;
-
-  overflow: hidden;
-
-  flex-shrink: 0;
-
-  background: rgba(255,255,255,0.08);
-
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.fuel-brand-logo img {
-  width: 100%;
-  height: 100%;
-
-  object-fit: cover;
-}
-
-.fuel-info {
-  flex: 1;
-  min-width: 0;
-}
-
-.fuel-name {
-  font-size: 15px;
-  font-weight: 900;
-
-  color: white;
-}
-
-.fuel-meta {
-  margin-top: 3px;
-
-  font-size: 13px;
-
-  color: var(--text-secondary);
-}
-
-.fuel-price {
-  font-size: 20px;
-  font-weight: 950;
-
-  color: #6ee7b7;
-}
-
-/* =========================
-   MODALS
-========================= */
-
-.modal-backdrop,
-.settings-backdrop {
-  position: fixed;
-  inset: 0;
-
-  z-index: 4000;
-
-  background: rgba(0,0,0,0.52);
-
-  backdrop-filter: blur(6px);
-}
-
-.settings-panel,
-.fuel-list-modal {
-  position: fixed;
-
-  left: 50%;
-  top: 50%;
-
-  transform: translate(-50%, -50%);
-
-  width: min(94vw, 720px);
-  max-height: 88vh;
-
-  overflow: hidden;
-
-  z-index: 5000;
-
-  background: rgba(10,16,25,0.98);
-
-  border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 28px;
-
-  box-shadow: var(--shadow-heavy);
-}
-
-.settings-header,
-.fuel-list-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-
-  padding: 22px;
-
-  border-bottom: 1px solid rgba(255,255,255,0.06);
-}
-
-.settings-header h2,
-.fuel-list-header h2 {
-  margin: 0;
-
-  font-size: 28px;
-  font-weight: 950;
-}
-
-.settings-body,
-.fuel-list-content {
-  padding: 22px;
-
-  overflow-y: auto;
-  max-height: calc(88vh - 120px);
-}
-
-.settings-footer {
-  padding: 18px 22px;
-
-  border-top: 1px solid rgba(255,255,255,0.06);
-}
-
-.fuel-list-controls {
-  display: flex;
-  gap: 12px;
-
-  padding: 18px 22px 0;
-}
-
-/* =========================
-   LEAFLET
-========================= */
-
-.leaflet-control-container {
-  display: none !important;
-}
-
-.leaflet-pane {
-  transition:
-    filter 0.2s linear;
+  color:
+    rgba(255,255,255,0.48);
 }
 
 /* =========================
    MOBILE
 ========================= */
 
-@media (max-width: 1100px) {
-
-  .app-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .map-panel,
-  #map {
-    min-height: 70vh;
-  }
-
-}
-
 @media (max-width: 768px) {
 
-  .app-grid {
-    padding:
-      calc(var(--safe-top) + 10px)
-      10px
-      calc(var(--safe-bottom) + 10px);
-
-    gap: 12px;
-  }
-
-  .hero h1 {
+  .hero-search h1 {
     font-size: 34px;
   }
 
-  .panel {
-    padding: 14px;
-    border-radius: 22px;
+  .nav-instruction {
+    font-size: 30px;
   }
 
-  .button-row {
-    flex-direction: column;
+  .speed-widget {
+    width: 96px;
   }
 
-  .status-grid {
-    grid-template-columns: 1fr;
+  .speed-circle {
+    width: 74px;
+    height: 74px;
   }
 
-  .map-panel {
-    border-radius: 24px;
+  .speed-value {
+    font-size: 28px;
+  }
+
+  .nav-stat strong {
+    font-size: 22px;
   }
 
   .settings-panel,
-  .fuel-list-modal {
-    width: calc(100vw - 12px);
-    max-height: 94vh;
+  .fuel-list-modal,
+  .eco-modal {
+    width: 96vw;
   }
-
 }
