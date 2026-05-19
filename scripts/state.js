@@ -1,89 +1,84 @@
-export const SETTINGS_KEY = "greenwave_settings_v6";
-export const HISTORY_KEY = "greenwave_history_v6";
-export const FUEL_DATA_URL = "./fuel-prices.json";
+export const SETTINGS_KEY =
+  "greenwave_settings_v3";
+
+export const HISTORY_KEY =
+  "greenwave_history_v3";
 
 export const state = {
+
+  /* =========================
+     MAP
+  ========================== */
+
   map: null,
 
-  currentPosition: null,
-  rawPosition: null,
-  smoothedPosition: null,
-  previousPosition: null,
+  mapReady: false,
 
-  currentHeading: null,
-  smoothedHeading: null,
-  lastHeading: 0,
+  mapRotation: 0,
 
-  isRecoveringPosition: false,
-  lastVisibilityChangeAt: null,
-  lastGoodGpsAt: null,
-  lastCameraMoveAt: null,
-
-  destination: null,
-  selectedAutocompleteItem: null,
-  autocompleteTimer: null,
-  autocompleteAbortController: null,
-
-  routeData: null,
-  routeSteps: [],
-  currentStepIndex: 0,
+  currentZoom: 16,
 
   routeLine: null,
+
   userMarker: null,
-  destMarker: null,
+
+  destinationMarker: null,
+
+  fuelMarkers: [],
+
+  trafficLightMarkers: [],
+
+  /* =========================
+     ROUTE
+  ========================== */
+
+  routeData: null,
+
+  routeSteps: [],
+
+  currentStepIndex: 0,
+
+  destination: null,
+
+  currentPosition: null,
+
+  selectedAutocompleteItem: null,
 
   routeProgress: {
     alongMeters: 0,
     remainingMeters: 0,
     remainingSeconds: 0,
     progressRatio: 0,
-    distanceToRoute: Infinity,
     segmentIndex: 0,
+    distanceToRoute: Infinity,
     isOffRoute: false
   },
 
-  camera: {
-    lastZoom: 16,
-    targetZoom: 16,
-    lastBearing: 0,
-    targetBearing: 0,
-    lastMoveAt: null,
-    mode: "overview"
-  },
+  /* =========================
+     NAVIGATION
+  ========================== */
 
-  fuelPriceOverrides: [],
-  osmFuelStations: [],
-  fuelMarkers: [],
-  fuelOverviewMarkers: [],
-  fuelListSort: "price",
+  navigationActive: false,
 
-  trafficSignals: [],
-  maxSpeedZones: [],
+  navigationWatcherId: null,
+
+  smoothCameraBearing: 0,
+
+  smoothCameraZoom: 16,
+
+  lastKnownHeading: 0,
+
+  currentSpeed: 0,
+
   currentMaxSpeed: null,
 
-  wakeLock: null,
-  watchId: null,
-  isNavigating: false,
+  recommendedSpeed: null,
 
-  reroute: {
-    isRerouting: false,
-    offRouteSince: null,
-    lastRerouteAt: null,
-    offRouteDistanceLimitMeters: 90,
-    offRouteDelayMs: 7000,
-    rerouteCooldownMs: 22000
-  },
+  /* =========================
+     ECO SCORE
+  ========================== */
 
   ecoScore: {
-    value: 70,
-
-    samples: 0,
-    movingSamples: 0,
-
-    lastSpeed: null,
-    lastSpeedKmh: null,
-    lastTimestamp: null,
-
     accelerationQualitySum: 0,
     accelerationEvents: 0,
 
@@ -93,42 +88,73 @@ export const state = {
     steadyQualitySum: 0,
     steadySamples: 0,
 
-    tripStartedAt: null,
-    tripEndedAt: null
+    currentScore: 78
   },
 
-  navigationView: {
-    mode: "standard",
-    pseudo3d: true,
-    darkMode: true,
-    cinematicCamera: true,
-    adaptiveZoom: true,
-    motorwayMode: false,
-    nightMode: false,
-    laneGuidance: true,
-    curveSpeedAssist: true
-  },
+  /* =========================
+     GREENWAVE
+  ========================== */
+
+  trafficSignals: [],
+
+  maxSpeedZones: [],
+
+  /* =========================
+     FUEL
+  ========================== */
+
+  fuelStations: [],
+
+  fuelListSort: "price",
+
+  fuelPricesLoaded: false,
+
+  /* =========================
+     SETTINGS
+  ========================== */
 
   settings: {
+
     language: "da",
+
     region: "dk",
 
     routeMode: "fast",
 
     fuelType: "benzin95",
+
     searchRadiusBase: 100000,
 
-    favoriteFuelBrand: "all",
-    favoriteFuelMode: "boost",
-
     ecoScoreEnabled: true,
+
     autoRerouteEnabled: true,
 
     dynamicZoomEnabled: true,
+
     smoothCameraEnabled: true,
+
     laneGuidanceEnabled: true,
+
     greenWaveEnabled: true,
 
+    favoriteFuelBrand: "all",
+
+    favoriteFuelMode: "boost",
+
     mapStyleMode: "navigation"
-  }
+  },
+
+  /* =========================
+     UI
+  ========================== */
+
+  autocompleteTimer: null,
+
+  uiMode: "home",
+
+  /* =========================
+     HISTORY
+  ========================== */
+
+  history: []
 };
