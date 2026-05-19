@@ -42,11 +42,6 @@ import {
 } from "./history.js";
 
 import {
-  startLiveNavigation,
-  stopLiveNavigation
-} from "./navigation.js";
-
-import {
   setStatus
 } from "./utils.js";
 
@@ -56,27 +51,36 @@ document.addEventListener(
 );
 
 async function init() {
-  cacheDom();
+  try {
+    cacheDom();
 
-  loadSettings();
+    loadSettings();
 
-  initMap();
+    initMap();
 
-  bindEvents();
+    bindEvents();
 
-  applySettingsToUI();
+    applySettingsToUI();
 
-  renderHistory();
+    renderHistory();
 
-  setStatus(
-    "GPS: klar",
-    "Navigation: inaktiv",
-    "Kort: klar"
-  );
+    setStatus(
+      "GPS: klar",
+      "Navigation: inaktiv",
+      "Kort: klar"
+    );
 
-  await loadFuelPrices();
+    await loadFuelPrices();
 
-  updateFuelBox();
+    updateFuelBox();
+
+    console.log("GreenWave init OK");
+  } catch (error) {
+    console.error(
+      "INIT FEJL:",
+      error
+    );
+  }
 }
 
 function bindEvents() {
@@ -103,7 +107,9 @@ function bindSearchEvents() {
     () => {
       state.selectedAutocompleteItem = null;
 
-      clearTimeout(state.autocompleteTimer);
+      clearTimeout(
+        state.autocompleteTimer
+      );
 
       state.autocompleteTimer =
         setTimeout(
@@ -126,17 +132,56 @@ function bindNavigationEvents() {
 
   els.startNavBtn?.addEventListener(
     "click",
-    startLiveNavigation
+    async () => {
+      try {
+        const nav = await import("./navigation.js");
+
+        if (nav.startLiveNavigation) {
+          nav.startLiveNavigation();
+        }
+      } catch (error) {
+        console.error(
+          "Start navigation fejl",
+          error
+        );
+      }
+    }
   );
 
   els.stopNavBtn?.addEventListener(
     "click",
-    stopLiveNavigation
+    async () => {
+      try {
+        const nav = await import("./navigation.js");
+
+        if (nav.stopLiveNavigation) {
+          nav.stopLiveNavigation();
+        }
+      } catch (error) {
+        console.error(
+          "Stop navigation fejl",
+          error
+        );
+      }
+    }
   );
 
   els.overlayStopBtn?.addEventListener(
     "click",
-    stopLiveNavigation
+    async () => {
+      try {
+        const nav = await import("./navigation.js");
+
+        if (nav.stopLiveNavigation) {
+          nav.stopLiveNavigation();
+        }
+      } catch (error) {
+        console.error(
+          "Overlay stop fejl",
+          error
+        );
+      }
+    }
   );
 
   els.centerBtn?.addEventListener(
@@ -232,13 +277,14 @@ function bindFuelEvents() {
 function bindEcoScoreEvents() {
   els.ecoScoreBadge?.addEventListener(
     "click",
-    () => {
-      if (
-        els.ecoScoreModal?.classList.contains("hidden")
-      ) {
-        openEcoScoreModal();
-      } else {
-        closeEcoScoreModal();
+    async () => {
+      try {
+        toggleEcoScoreModal();
+      } catch (error) {
+        console.error(
+          "Eco modal fejl",
+          error
+        );
       }
     }
   );
@@ -254,96 +300,106 @@ function bindEcoScoreEvents() {
   );
 }
 
-export function openEcoScoreModal() {
+function toggleEcoScoreModal() {
+  if (
+    els.ecoScoreModal?.classList.contains(
+      "hidden"
+    )
+  ) {
+    openEcoScoreModal();
+  } else {
+    closeEcoScoreModal();
+  }
+}
+
+function openEcoScoreModal() {
   updateEcoScoreModal();
 
-  els.ecoScoreModal?.classList.remove("hidden");
+  els.ecoScoreModal?.classList.remove(
+    "hidden"
+  );
 
-  els.ecoScoreBackdrop?.classList.remove("hidden");
+  els.ecoScoreBackdrop?.classList.remove(
+    "hidden"
+  );
 }
 
-export function closeEcoScoreModal() {
-  els.ecoScoreModal?.classList.add("hidden");
+function closeEcoScoreModal() {
+  els.ecoScoreModal?.classList.add(
+    "hidden"
+  );
 
-  els.ecoScoreBackdrop?.classList.add("hidden");
+  els.ecoScoreBackdrop?.classList.add(
+    "hidden"
+  );
 }
 
-export function updateEcoScoreModal(summary = null) {
-  const eco =
-    summary ||
-    getEcoSummary();
+function updateEcoScoreModal() {
+  const eco = state.ecoScore;
 
   if (!eco) {
     return;
   }
 
+  const acceleration =
+    calculateAverage(
+      eco.accelerationQualitySum,
+      eco.accelerationEvents,
+      70
+    );
+
+  const braking =
+    calculateAverage(
+      eco.brakingQualitySum,
+      eco.brakingEvents,
+      70
+    );
+
+  const steady =
+    calculateAverage(
+      eco.steadyQualitySum,
+      eco.steadySamples,
+      70
+    );
+
+  const total =
+    Math.round(
+      acceleration * 0.30 +
+      braking * 0.30 +
+      steady * 0.40
+    );
+
   if (els.ecoScoreTotalValue) {
     els.ecoScoreTotalValue.textContent =
-      `${eco.total}/100`;
+      `${total}/100`;
   }
 
   if (els.ecoScoreAccelerationValue) {
     els.ecoScoreAccelerationValue.textContent =
-      `${eco.acceleration}/100`;
+      `${Math.round(acceleration)}/100`;
   }
 
   if (els.ecoScoreBrakingValue) {
     els.ecoScoreBrakingValue.textContent =
-      `${eco.braking}/100`;
+      `${Math.round(braking)}/100`;
   }
 
   if (els.ecoScoreSteadyValue) {
     els.ecoScoreSteadyValue.textContent =
-      `${eco.steady}/100`;
+      `${Math.round(steady)}/100`;
   }
 
   if (els.ecoScoreComment) {
     els.ecoScoreComment.textContent =
-      getEcoComment(eco.total);
+      getEcoComment(total);
   }
 }
 
-function getEcoSummary() {
-  const eco = state.ecoScore;
-
-  if (!eco) {
-    return null;
-  }
-
-  return {
-    total:
-      Math.round(eco.value || 0),
-
-    acceleration:
-      Math.round(
-        calculateAverage(
-          eco.accelerationQualitySum,
-          eco.accelerationEvents,
-          70
-        )
-      ),
-
-    braking:
-      Math.round(
-        calculateAverage(
-          eco.brakingQualitySum,
-          eco.brakingEvents,
-          70
-        )
-      ),
-
-    steady:
-      Math.round(
-        calculateAverage(
-          eco.steadyQualitySum,
-          eco.steadySamples,
-          70
-        )
-      )
-  };
-}
-
-function calculateAverage(sum, count, fallback) {
+function calculateAverage(
+  sum,
+  count,
+  fallback
+) {
   if (!count || count <= 0) {
     return fallback;
   }
@@ -384,7 +440,9 @@ function bindGlobalEvents() {
     "click",
     event => {
       if (
-        !event.target.closest(".search-wrap")
+        !event.target.closest(
+          ".search-wrap"
+        )
       ) {
         hideAutocomplete();
       }
