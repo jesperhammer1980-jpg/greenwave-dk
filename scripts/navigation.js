@@ -90,6 +90,8 @@ export async function startLiveNavigation() {
 }
 
 export async function stopLiveNavigation() {
+  const finalEcoScore = calculateEcoScoreSummary();
+
   state.isNavigating = false;
 
   if (state.watchId !== null) {
@@ -126,6 +128,8 @@ export async function stopLiveNavigation() {
   );
 
   recenterMap();
+
+  showEcoScoreSummary(finalEcoScore);
 }
 
 function resetNavigationPositionState() {
@@ -152,18 +156,25 @@ function resetRerouteState() {
 
 function resetEcoScore() {
   state.ecoScore = {
-    value: 70,
+    value: 0,
+
     samples: 0,
+    movingSamples: 0,
+
     lastSpeedKmh: null,
     lastTimestamp: null,
-    hardAccelerationCount: 0,
-    hardBrakeCount: 0,
-    speedingCount: 0,
-    greenWaveMissCount: 0,
-    smoothDrivingBonus: 0,
-    calmDecelerationBonus: 0,
-    stableSpeedBonus: 0,
-    lastEcoFeedback: ""
+
+    accelerationEvents: 0,
+    accelerationQualitySum: 0,
+
+    brakingEvents: 0,
+    brakingQualitySum: 0,
+
+    steadySamples: 0,
+    steadyQualitySum: 0,
+
+    tripStartedAt: Date.now(),
+    tripEndedAt: null
   };
 
   updateEcoScoreBadge();
@@ -848,6 +859,10 @@ function getRoadName(step) {
   return "";
 }
 
+/* =========================
+   TRIP-BASED ECO SCORE
+========================= */
+
 function updateEcoScore(current) {
   if (!state.settings?.ecoScoreEnabled) {
     return;
@@ -861,8 +876,6 @@ function updateEcoScore(current) {
 
   const now = current.timestamp || Date.now();
   const speedKmh = getCurrentSpeedKmh(current);
-  const maxSpeed = getCurrentMaxSpeed();
-  const recommendation = getGreenWaveRecommendation(current);
 
   if (
     typeof score.lastSpeedKmh !== "number" ||
@@ -886,93 +899,121 @@ function updateEcoScore(current) {
   const acceleration =
     deltaSpeed / deltaSeconds;
 
-  let change = 0;
-  let feedback = "";
-
   const isMoving =
     speedKmh > 8 || score.lastSpeedKmh > 8;
 
+  score.samples += 1;
+
   if (isMoving) {
-    if (Math.abs(acceleration) <= 1.2 && speedKmh >= 25) {
-      change += 0.08;
-      score.stableSpeedBonus += 0.08;
-      feedback = "+ stabil fart";
+    score.movingSamples += 1;
+
+    if (acceleration > 0.7) {
+      score.accelerationEvents += 1;
+      score.accelerationQualitySum += rateAcceleration(acceleration);
     }
 
-    if (acceleration > 1.2 && acceleration <= 3.8) {
-      change += 0.06;
-      feedback = "+ rolig acceleration";
+    if (acceleration < -0.7) {
+      score.brakingEvents += 1;
+      score.brakingQualitySum += rateBraking(acceleration);
     }
 
-    if (acceleration < -1.0 && acceleration >= -5.2) {
-      change += 0.08;
-      score.calmDecelerationBonus += 0.08;
-      feedback = "+ rolig nedbremsning";
-    }
-
-    if (acceleration > 6.5) {
-      change -= 1.8;
-      score.hardAccelerationCount += 1;
-      feedback = "- hård acceleration";
-    }
-
-    if (acceleration < -8.5) {
-      change -= 2.1;
-      score.hardBrakeCount += 1;
-      feedback = "- hård bremsning";
-    }
-
-    if (maxSpeed && speedKmh > maxSpeed + 4) {
-      const overSpeed = speedKmh - maxSpeed;
-
-      change -= overSpeed > 12 ? 1.7 : 0.9;
-      score.speedingCount += 1;
-      feedback = "- for høj fart";
-    }
-
-    if (Number.isFinite(recommendation.speedKmh)) {
-      const greenDiff =
-        speedKmh - recommendation.speedKmh;
-
-      if (Math.abs(greenDiff) <= 6 && speedKmh > 15) {
-        change += 0.07;
-        feedback = feedback || "+ følger GreenWave";
-      }
-
-      if (greenDiff > 16 && speedKmh > 20) {
-        change -= 0.7;
-        score.greenWaveMissCount += 1;
-        feedback = "- over GreenWave";
-      }
-
-      /*
-        Vigtigt:
-        Lavere fart end GreenWave giver IKKE minus.
-        Det kan skyldes kø, kryds, hensyn eller økonomisk kørsel.
-      */
+    if (
+      speedKmh >= 20 &&
+      Math.abs(acceleration) <= 1.2
+    ) {
+      score.steadySamples += 1;
+      score.steadyQualitySum += rateSteadySpeed(acceleration);
+    } else if (speedKmh >= 20) {
+      score.steadySamples += 1;
+      score.steadyQualitySum += Math.max(
+        0,
+        100 - Math.abs(acceleration) * 18
+      );
     }
   }
 
-  score.samples += 1;
   score.lastSpeedKmh = speedKmh;
   score.lastTimestamp = now;
-  score.lastEcoFeedback = feedback;
 
-  const currentValue =
-    Number.isFinite(score.value)
-      ? score.value
-      : 70;
+  const summary = calculateEcoScoreSummary();
 
-  score.value =
-    Math.max(
-      0,
-      Math.min(
-        100,
-        Math.round((currentValue + change) * 10) / 10
-      )
-    );
+  score.value = summary.total;
 
   updateEcoScoreBadge();
+}
+
+function rateAcceleration(acceleration) {
+  const a = Math.abs(acceleration);
+
+  if (a <= 1.8) return 100;
+  if (a <= 2.8) return 90;
+  if (a <= 4.0) return 75;
+  if (a <= 5.5) return 55;
+  if (a <= 7.0) return 35;
+
+  return 15;
+}
+
+function rateBraking(acceleration) {
+  const a = Math.abs(acceleration);
+
+  if (a <= 1.8) return 100;
+  if (a <= 3.0) return 90;
+  if (a <= 4.5) return 75;
+  if (a <= 6.0) return 55;
+  if (a <= 8.0) return 35;
+
+  return 15;
+}
+
+function rateSteadySpeed(acceleration) {
+  const a = Math.abs(acceleration);
+
+  if (a <= 0.4) return 100;
+  if (a <= 0.8) return 92;
+  if (a <= 1.2) return 82;
+
+  return Math.max(0, 100 - a * 22);
+}
+
+function calculateEcoScoreSummary() {
+  const score = state.ecoScore;
+
+  if (!score) {
+    return {
+      acceleration: 0,
+      braking: 0,
+      steady: 0,
+      total: 0
+    };
+  }
+
+  const accelerationScore =
+    score.accelerationEvents > 0
+      ? score.accelerationQualitySum / score.accelerationEvents
+      : 70;
+
+  const brakingScore =
+    score.brakingEvents > 0
+      ? score.brakingQualitySum / score.brakingEvents
+      : 70;
+
+  const steadyScore =
+    score.steadySamples > 0
+      ? score.steadyQualitySum / score.steadySamples
+      : 70;
+
+  const total =
+    accelerationScore * 0.30 +
+    brakingScore * 0.30 +
+    steadyScore * 0.40;
+
+  return {
+    acceleration: Math.round(accelerationScore),
+    braking: Math.round(brakingScore),
+    steady: Math.round(steadyScore),
+    total: Math.round(total)
+  };
 }
 
 function updateEcoScoreBadge() {
@@ -980,13 +1021,8 @@ function updateEcoScoreBadge() {
     return;
   }
 
-  const rawValue =
-    Number.isFinite(state.ecoScore?.value)
-      ? state.ecoScore.value
-      : 70;
-
-  const value =
-    Math.round(rawValue);
+  const summary = calculateEcoScoreSummary();
+  const value = summary.total;
 
   els.ecoScoreBadge.textContent =
     `Eco ${value}`;
@@ -1005,6 +1041,24 @@ function updateEcoScoreBadge() {
     els.ecoScoreBadge.classList.add("eco-low");
   }
 }
+
+function showEcoScoreSummary(summary) {
+  if (!summary || state.ecoScore?.movingSamples < 5) {
+    return;
+  }
+
+  window.alert(
+    `EcoScore for turen\n\n` +
+    `Samlet score: ${summary.total}/100\n\n` +
+    `Acceleration: ${summary.acceleration}/100\n` +
+    `Nedbremsning: ${summary.braking}/100\n` +
+    `Jævn hastighed: ${summary.steady}/100`
+  );
+}
+
+/* =========================
+   AUTO REROUTE
+========================= */
 
 async function maybeAutoReroute(current) {
   if (!state.settings?.autoRerouteEnabled) {
