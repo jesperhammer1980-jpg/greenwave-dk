@@ -1,107 +1,196 @@
-import { state, HISTORY_KEY } from "./state.js";
+import {
+  state,
+  HISTORY_KEY
+} from "./state.js";
+
 import { els } from "./dom.js";
 
-export function saveHistory(destination) {
+import {
+  escapeHtml
+} from "./utils.js";
+
+export function loadHistory() {
+
+  try {
+
+    const raw =
+      JSON.parse(
+        localStorage.getItem(
+          HISTORY_KEY
+        ) || "[]"
+      );
+
+    state.history =
+      Array.isArray(raw)
+        ? raw
+        : [];
+
+  } catch (error) {
+
+    console.error(
+      "Historik fejl",
+      error
+    );
+
+    state.history = [];
+  }
+}
+
+export function saveHistory(
+  destination
+) {
+
   if (!destination) {
     return;
   }
 
   const entry = {
-    label:
+    id:
+      Date.now(),
+
+    title:
       destination.inputLabel ||
       destination.displayName ||
-      destination.label ||
-      "Ukendt destination",
+      "Destination",
 
-    displayName:
+    subtitle:
       destination.displayName ||
-      destination.label ||
-      destination.inputLabel ||
-      "Ukendt destination",
+      "",
 
-    lat: Number(destination.lat),
-    lng: Number(destination.lng),
-    savedAt: new Date().toISOString()
+    lat:
+      destination.lat,
+
+    lng:
+      destination.lng
   };
 
-  if (!Number.isFinite(entry.lat) || !Number.isFinite(entry.lng)) {
-    return;
-  }
+  state.history =
+    [
+      entry,
+      ...state.history.filter(
+        item =>
+          normalize(item.title) !==
+          normalize(entry.title)
+      )
+    ].slice(0, 12);
 
-  const list = getHistory();
-
-  const next = [
-    entry,
-    ...list.filter(item =>
-      Math.abs(Number(item.lat) - entry.lat) > 0.00001 ||
-      Math.abs(Number(item.lng) - entry.lng) > 0.00001
+  localStorage.setItem(
+    HISTORY_KEY,
+    JSON.stringify(
+      state.history
     )
-  ].slice(0, 8);
-
-  localStorage.setItem(HISTORY_KEY, JSON.stringify(next));
-}
-
-export function getHistory() {
-  try {
-    const raw = JSON.parse(
-      localStorage.getItem(HISTORY_KEY) || "[]"
-    );
-
-    if (!Array.isArray(raw)) {
-      return [];
-    }
-
-    return raw.filter(item =>
-      item &&
-      typeof item === "object" &&
-      Number.isFinite(Number(item.lat)) &&
-      Number.isFinite(Number(item.lng))
-    );
-  } catch {
-    return [];
-  }
+  );
 }
 
 export function renderHistory() {
+
   if (!els.historyList) {
     return;
   }
 
-  els.historyList.innerHTML = "";
+  if (
+    !state.history.length
+  ) {
 
-  const history = getHistory();
+    els.historyList.innerHTML = `
+      <div class="history-chip">
+        <div class="history-chip-title">
+          Ingen historik endnu
+        </div>
 
-  if (!history.length) {
-    const empty = document.createElement("div");
-    empty.className = "autocomplete-empty";
-    empty.textContent = "Ingen historik endnu.";
-    els.historyList.appendChild(empty);
+        <div class="history-chip-subtitle">
+          Beregn en rute for at gemme destinationer
+        </div>
+      </div>
+    `;
+
     return;
   }
 
-  history.forEach(item => {
-    const button = document.createElement("button");
+  els.historyList.innerHTML =
+    state.history
+      .map(renderHistoryItem)
+      .join("");
 
-    button.type = "button";
-    button.className = "history-chip";
-    button.textContent = item.label || item.displayName || "Destination";
+  bindHistoryClicks();
+}
 
-    button.addEventListener("click", () => {
-      state.selectedAutocompleteItem = {
-        lat: Number(item.lat),
-        lng: Number(item.lng),
-        displayName: item.displayName || item.label,
-        inputLabel: item.label || item.displayName
-      };
+function renderHistoryItem(
+  item
+) {
 
-      if (els.destinationInput) {
-        els.destinationInput.value =
-          item.label || item.displayName || "";
-      }
+  return `
+    <button
+      class="history-chip"
+      data-history-id="${item.id}"
+    >
 
-      els.historyBox?.classList.add("hidden");
+      <div class="history-chip-title">
+        ${escapeHtml(item.title)}
+      </div>
+
+      <div class="history-chip-subtitle">
+        ${escapeHtml(item.subtitle)}
+      </div>
+
+    </button>
+  `;
+}
+
+function bindHistoryClicks() {
+
+  document
+    .querySelectorAll(
+      ".history-chip[data-history-id]"
+    )
+    .forEach(button => {
+
+      button.addEventListener(
+        "click",
+        () => {
+
+          const id =
+            Number(
+              button.dataset.historyId
+            );
+
+          const item =
+            state.history.find(
+              entry =>
+                entry.id === id
+            );
+
+          if (!item) {
+            return;
+          }
+
+          if (
+            els.destinationInput
+          ) {
+            els.destinationInput.value =
+              item.title;
+          }
+
+          state.selectedAutocompleteItem = {
+            lat: item.lat,
+            lng: item.lng,
+
+            displayName:
+              item.subtitle,
+
+            inputLabel:
+              item.title
+          };
+        }
+      );
     });
+}
 
-    els.historyList.appendChild(button);
-  });
+function normalize(
+  value
+) {
+
+  return String(value || "")
+    .toLowerCase()
+    .trim();
 }
