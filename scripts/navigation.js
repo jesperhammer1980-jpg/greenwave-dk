@@ -20,11 +20,16 @@ import {
   recalculateRouteFromCurrentPosition
 } from "./routing.js";
 
+import {
+  getGreenWaveRecommendation
+} from "./greenwave.js";
+
 let watchId = null;
 let lastRerouteTime = 0;
 
-const REROUTE_COOLDOWN = 12000;
-const REROUTE_DISTANCE = 90;
+const REROUTE_COOLDOWN = 22000;
+const OFF_ROUTE_DISTANCE = 90;
+const OFF_ROUTE_DELAY = 7000;
 
 export async function startLiveNavigation() {
   if (!state.routeData?.geometry?.length) {
@@ -38,12 +43,11 @@ export async function startLiveNavigation() {
   }
 
   prepareRouteMeasurements();
+  resetTripEcoScore();
 
   state.isNavigating = true;
 
-  document.body.classList.add("navigation-active");
-
-  enterNavigationView?.();
+  enterNavigationView();
 
   els.navOverlay?.classList.remove("hidden");
 
@@ -72,12 +76,10 @@ export function stopLiveNavigation() {
 
   state.isNavigating = false;
 
-  document.body.classList.remove("navigation-active");
-
   els.navOverlay?.classList.add("hidden");
 
-  resetMapBearing?.();
-  exitNavigationView?.();
+  resetMapBearing();
+  exitNavigationView();
 
   if (els.startNavBtn) {
     els.startNavBtn.disabled = !state.routeData;
@@ -106,63 +108,62 @@ function startGpsWatch() {
     handleGpsError,
     {
       enableHighAccuracy: true,
-      maximumAge: 1000,
+      maximumAge: 700,
       timeout: 10000
     }
   );
 }
 
 async function handleGpsUpdate(position) {
-  const lat = position.coords.latitude;
-  const lng = position.coords.longitude;
-
-  const speed =
-    position.coords.speed != null
-      ? Math.max(0, position.coords.speed * 3.6)
-      : 0;
-
-  const heading =
-    position.coords.heading != null &&
-    Number.isFinite(position.coords.heading)
-      ? position.coords.heading
-      : state.lastHeading || 0;
-
-  state.lastHeading = heading;
-
-  state.currentPosition = {
-    lat,
-    lng,
-    speed,
-    heading
+  const raw = {
+    lat: position.coords.latitude,
+    lng: position.coords.longitude,
+    speed:
+      position.coords.speed != null
+        ? Math.max(0, position.coords.speed * 3.6)
+        : 0,
+    heading:
+      position.coords.heading != null &&
+      Number.isFinite(position.coords.heading)
+        ? position.coords.heading
+        : state.lastHeading || 0,
+    accuracy: position.coords.accuracy,
+    timestamp: position.timestamp || Date.now()
   };
 
-  updateUserMarker?.(lat, lng);
+  const smooth = smoothGpsPosition(raw);
 
-  const progress = getRouteProgress({ lat, lng });
+  state.lastHeading = smooth.heading;
+  state.currentPosition = smooth;
 
-  followNavigationCamera?.(
-    {
-      lat,
-      lng,
-      speed,
-      heading
-    },
+  updateUserMarker(
+    smooth.lat,
+    smooth.lng
+  );
+
+  const progress =
+    getRouteProgress(smooth);
+
+  state.routeProgress = progress;
+
+  followNavigationCamera(
+    smooth,
     {
       routeProgress: progress,
       snap: false
     }
   );
 
-  if (speed > 5) {
-    setMapBearing?.(heading);
+  if (smooth.speed > 5) {
+    setMapBearing(smooth.heading);
   }
 
-  updateSpeedDisplay(speed);
-  updateNavigationProgress({ lat, lng }, progress);
+  updateSpeedDisplay(smooth);
+  updateNavigationProgress(progress);
   updateTurnInstruction(progress);
-  updateEcoScore(speed);
+  updateEcoScore(smooth);
 
-  await maybeReroute({ lat, lng }, progress);
+  await maybeReroute(smooth, progress);
 }
 
 function handleGpsError(error) {
@@ -176,11 +177,104 @@ function handleGpsError(error) {
 }
 
 /* =========================
+   GPS SMOOTHING
+========================= */
+
+function smoothGpsPosition(raw) {
+  if (!state.smoothedPosition) {
+    state.smoothedPosition = raw;
+    return raw;
+  }
+
+  const previous = state.smoothedPosition;
+
+  const distance = haversine(
+    previous.lat,
+    previous.lng,
+    raw.lat,
+    raw.lng
+  );
+
+  let alpha = 0.36;
+
+  if (raw.speed > 20) {
+    alpha = 0.46;
+  }
+
+  if (raw.speed > 50) {
+    alpha = 0.56;
+  }
+
+  if (raw.speed > 85) {
+    alpha = 0.64;
+  }
+
+  if (distance > 180) {
+    alpha = 0.85;
+  }
+
+  const heading =
+    getSmoothedHeading(
+      previous.heading || raw.heading || 0,
+      raw.heading || previous.heading || 0,
+      raw.speed
+    );
+
+  const smooth = {
+    ...raw,
+    lat:
+      previous.lat +
+      (raw.lat - previous.lat) * alpha,
+    lng:
+      previous.lng +
+      (raw.lng - previous.lng) * alpha,
+    heading
+  };
+
+  state.smoothedPosition = smooth;
+
+  return smooth;
+}
+
+function getSmoothedHeading(
+  current,
+  target,
+  speed
+) {
+  let delta = target - current;
+
+  while (delta > 180) {
+    delta -= 360;
+  }
+
+  while (delta < -180) {
+    delta += 360;
+  }
+
+  let alpha = 0.20;
+
+  if (speed > 15) {
+    alpha = 0.34;
+  }
+
+  if (speed > 40) {
+    alpha = 0.42;
+  }
+
+  if (Math.abs(delta) > 45 && speed > 10) {
+    alpha = 0.58;
+  }
+
+  return (current + delta * alpha + 360) % 360;
+}
+
+/* =========================
    ROUTE MEASUREMENTS
 ========================= */
 
 function prepareRouteMeasurements() {
-  const geometry = state.routeData?.geometry || [];
+  const geometry =
+    state.routeData?.geometry || [];
 
   const cumulative = [0];
   let total = 0;
@@ -199,15 +293,33 @@ function prepareRouteMeasurements() {
     cumulative.push(total);
   }
 
-  state.routeData._cumulativeMeters = cumulative;
-  state.routeData._measuredDistance = total;
+  state.routeData._cumulativeMeters =
+    cumulative;
+
+  state.routeData._measuredDistance =
+    total;
 }
 
 function getRouteProgress(current) {
-  const geometry = state.routeData?.geometry || [];
-  const cumulative = state.routeData?._cumulativeMeters || [];
+  const geometry =
+    state.routeData?.geometry || [];
 
-  if (geometry.length < 2 || cumulative.length !== geometry.length) {
+  if (geometry.length < 2) {
+    return {
+      alongMeters: 0,
+      remainingMeters: 0,
+      remainingSeconds: 0,
+      progressRatio: 0,
+      distanceToRoute: Infinity,
+      segmentIndex: 0,
+      isOffRoute: false
+    };
+  }
+
+  if (
+    !state.routeData._cumulativeMeters ||
+    state.routeData._cumulativeMeters.length !== geometry.length
+  ) {
     prepareRouteMeasurements();
   }
 
@@ -222,18 +334,22 @@ function getRouteProgress(current) {
     const start = geometry[i - 1];
     const end = geometry[i];
 
-    const projected = projectPointToSegment(
-      current.lat,
-      current.lng,
-      start[1],
-      start[0],
-      end[1],
-      end[0]
-    );
+    const projected =
+      projectPointToSegment(
+        current.lat,
+        current.lng,
+        start[1],
+        start[0],
+        end[1],
+        end[0]
+      );
 
-    if (projected.distanceMeters < best.distanceToRoute) {
+    if (
+      projected.distanceMeters <
+      best.distanceToRoute
+    ) {
       const startAlong =
-        state.routeData._cumulativeMeters?.[i - 1] || 0;
+        state.routeData._cumulativeMeters[i - 1] || 0;
 
       const segmentLength =
         haversine(
@@ -244,7 +360,8 @@ function getRouteProgress(current) {
         );
 
       best = {
-        distanceToRoute: projected.distanceMeters,
+        distanceToRoute:
+          projected.distanceMeters,
         alongMeters:
           startAlong +
           segmentLength * projected.t,
@@ -260,18 +377,39 @@ function getRouteProgress(current) {
     0;
 
   const remainingMeters =
-    Math.max(0, totalDistance - best.alongMeters);
+    Math.max(
+      0,
+      totalDistance - best.alongMeters
+    );
 
   const progressRatio =
     totalDistance > 0
-      ? Math.max(0, Math.min(1, best.alongMeters / totalDistance))
+      ? Math.max(
+          0,
+          Math.min(
+            1,
+            best.alongMeters / totalDistance
+          )
+        )
+      : 0;
+
+  const routeDuration =
+    Number(state.routeData.duration || 0);
+
+  const remainingSeconds =
+    routeDuration > 0
+      ? routeDuration * (1 - progressRatio)
       : 0;
 
   return {
     ...best,
     totalDistance,
     remainingMeters,
-    progressRatio
+    remainingSeconds,
+    progressRatio,
+    isOffRoute:
+      best.distanceToRoute >
+      OFF_ROUTE_DISTANCE
   };
 }
 
@@ -284,8 +422,10 @@ function projectPointToSegment(
   lng2
 ) {
   const metersPerDegreeLat = 111320;
+
   const metersPerDegreeLng =
-    111320 * Math.cos(lat * Math.PI / 180);
+    111320 *
+    Math.cos(lat * Math.PI / 180);
 
   const px = lng * metersPerDegreeLng;
   const py = lat * metersPerDegreeLat;
@@ -299,17 +439,20 @@ function projectPointToSegment(
   const dx = bx - ax;
   const dy = by - ay;
 
-  const lengthSquared = dx * dx + dy * dy;
+  const lengthSquared =
+    dx * dx + dy * dy;
 
   if (lengthSquared === 0) {
     return {
       t: 0,
-      distanceMeters: Math.hypot(px - ax, py - ay)
+      distanceMeters:
+        Math.hypot(px - ax, py - ay)
     };
   }
 
   let t =
-    ((px - ax) * dx + (py - ay) * dy) /
+    ((px - ax) * dx +
+      (py - ay) * dy) /
     lengthSquared;
 
   t = Math.max(0, Math.min(1, t));
@@ -320,63 +463,57 @@ function projectPointToSegment(
   return {
     t,
     distanceMeters:
-      Math.hypot(px - projectedX, py - projectedY)
+      Math.hypot(
+        px - projectedX,
+        py - projectedY
+      )
   };
 }
 
 /* =========================
-   NAVIGATION DISPLAY
+   DISPLAY
 ========================= */
 
-function updateNavigationProgress(current, progress) {
-  if (!state.routeData?.geometry?.length || !progress) {
+function updateNavigationProgress(progress) {
+  if (!progress) {
     return;
   }
 
-  const remainingMeters =
-    progress.remainingMeters;
-
-  const routeDuration =
-    Number(state.routeData.duration || 0);
-
-  const remainingSeconds =
-    routeDuration > 0
-      ? routeDuration * (1 - progress.progressRatio)
-      : null;
-
   if (els.driveRemainingDistance) {
     els.driveRemainingDistance.textContent =
-      formatDistance(remainingMeters);
+      formatDistance(
+        progress.remainingMeters
+      );
   }
 
   if (els.driveRemainingTime) {
     els.driveRemainingTime.textContent =
-      Number.isFinite(remainingSeconds)
-        ? formatDuration(remainingSeconds)
-        : "—";
+      formatDuration(
+        progress.remainingSeconds
+      );
   }
 
   if (els.driveEtaValue) {
-    if (Number.isFinite(remainingSeconds)) {
-      const eta = new Date(
-        Date.now() + remainingSeconds * 1000
-      );
+    const eta = new Date(
+      Date.now() +
+      progress.remainingSeconds * 1000
+    );
 
-      els.driveEtaValue.textContent =
-        eta.toLocaleTimeString("da-DK", {
+    els.driveEtaValue.textContent =
+      eta.toLocaleTimeString(
+        "da-DK",
+        {
           hour: "2-digit",
           minute: "2-digit"
-        });
-    } else {
-      els.driveEtaValue.textContent = "—";
-    }
+        }
+      );
   }
 }
 
 function updateTurnInstruction(progress) {
   const steps = state.routeSteps || [];
 
-  if (!steps.length) {
+  if (!steps.length || !progress) {
     setDefaultTurnInstruction();
     return;
   }
@@ -386,9 +523,13 @@ function updateTurnInstruction(progress) {
   let accumulated = 0;
 
   for (let i = 0; i < steps.length; i++) {
-    const stepDistance = Number(steps[i].distance || 0);
+    const stepDistance =
+      Number(steps[i].distance || 0);
 
-    if (accumulated + stepDistance >= progress.alongMeters) {
+    if (
+      accumulated + stepDistance >=
+      progress.alongMeters
+    ) {
       activeStep = steps[i];
       activeIndex = i;
       break;
@@ -400,12 +541,16 @@ function updateTurnInstruction(progress) {
   state.currentStepIndex = activeIndex;
 
   const distanceIntoStep =
-    Math.max(0, progress.alongMeters - accumulated);
+    Math.max(
+      0,
+      progress.alongMeters - accumulated
+    );
 
   const distanceToNext =
     Math.max(
       0,
-      Number(activeStep.distance || 0) - distanceIntoStep
+      Number(activeStep.distance || 0) -
+        distanceIntoStep
     );
 
   if (els.nextTurnInstruction) {
@@ -415,11 +560,14 @@ function updateTurnInstruction(progress) {
 
   if (els.nextTurnDistance) {
     els.nextTurnDistance.textContent =
-      formatDistance(distanceToNext);
+      distanceToNext < 8
+        ? "Nu"
+        : formatDistance(distanceToNext);
   }
 
   if (els.nextTurnRoad) {
-    els.nextTurnRoad.textContent = "";
+    els.nextTurnRoad.textContent =
+      getLaneGuidanceText(activeStep);
   }
 
   if (els.turnIcon) {
@@ -428,13 +576,19 @@ function updateTurnInstruction(progress) {
   }
 
   if (els.turnProgressBar) {
-    const stepDistance = Number(activeStep.distance || 0);
+    const stepDistance =
+      Number(activeStep.distance || 0);
 
     const pct =
       stepDistance > 0
         ? Math.max(
             8,
-            Math.min(100, (distanceIntoStep / stepDistance) * 100)
+            Math.min(
+              100,
+              (distanceIntoStep /
+                stepDistance) *
+                100
+            )
           )
         : 12;
 
@@ -445,7 +599,8 @@ function updateTurnInstruction(progress) {
 
 function setDefaultTurnInstruction() {
   if (els.nextTurnInstruction) {
-    els.nextTurnInstruction.textContent = "Fortsæt";
+    els.nextTurnInstruction.textContent =
+      "Fortsæt";
   }
 
   if (els.nextTurnDistance) {
@@ -463,10 +618,14 @@ function setDefaultTurnInstruction() {
 
 function getInstruction(step) {
   const modifier =
-    String(step.maneuverModifier || "").toLowerCase();
+    String(
+      step.maneuverModifier || ""
+    ).toLowerCase();
 
   const type =
-    String(step.maneuverType || "").toLowerCase();
+    String(
+      step.maneuverType || ""
+    ).toLowerCase();
 
   if (type.includes("arrive")) {
     return "Du er fremme";
@@ -479,15 +638,21 @@ function getInstruction(step) {
     return "Kør gennem rundkørslen";
   }
 
-  if (modifier.includes("left")) {
+  if (
+    modifier.includes("left")
+  ) {
     return "Drej til venstre";
   }
 
-  if (modifier.includes("right")) {
+  if (
+    modifier.includes("right")
+  ) {
     return "Drej til højre";
   }
 
-  if (modifier.includes("straight")) {
+  if (
+    modifier.includes("straight")
+  ) {
     return "Fortsæt ligeud";
   }
 
@@ -496,20 +661,50 @@ function getInstruction(step) {
 
 function getTurnSymbol(step) {
   const modifier =
-    String(step.maneuverModifier || "").toLowerCase();
+    String(
+      step.maneuverModifier || ""
+    ).toLowerCase();
 
-  if (modifier.includes("left")) {
+  if (
+    modifier.includes("left")
+  ) {
     return "←";
   }
 
-  if (modifier.includes("right")) {
+  if (
+    modifier.includes("right")
+  ) {
     return "→";
   }
 
   return "↑";
 }
 
-function updateSpeedDisplay(speed) {
+function getLaneGuidanceText(step) {
+  if (!state.settings.laneGuidanceEnabled) {
+    return "";
+  }
+
+  const modifier =
+    String(
+      step.maneuverModifier || ""
+    ).toLowerCase();
+
+  if (modifier.includes("left")) {
+    return "Hold venstre vognbane";
+  }
+
+  if (modifier.includes("right")) {
+    return "Hold højre vognbane";
+  }
+
+  return "";
+}
+
+function updateSpeedDisplay(position) {
+  const speed =
+    position.speed || 0;
+
   if (els.currentSpeedValue) {
     els.currentSpeedValue.textContent =
       Math.round(speed);
@@ -523,14 +718,16 @@ function updateSpeedDisplay(speed) {
       limit ? String(limit) : "?";
   }
 
-  const recommended =
-    limit
-      ? Math.max(30, Math.round(limit * 0.92))
-      : null;
+  const recommendation =
+    getGreenWaveRecommendation(position);
 
   if (els.recommendedSpeedValue) {
     els.recommendedSpeedValue.textContent =
-      recommended ? String(recommended) : "?";
+      Number.isFinite(
+        recommendation.speedKmh
+      )
+        ? String(recommendation.speedKmh)
+        : "--";
   }
 
   if (!els.currentSpeedSign) {
@@ -543,17 +740,31 @@ function updateSpeedDisplay(speed) {
     "speed-danger"
   );
 
-  if (!recommended) {
-    els.currentSpeedSign.classList.add("speed-warning");
-    return;
-  }
+  if (
+    Number.isFinite(
+      recommendation.speedKmh
+    )
+  ) {
+    const diff =
+      speed - recommendation.speedKmh;
 
-  if (speed <= recommended + 3) {
-    els.currentSpeedSign.classList.add("speed-ok");
-  } else if (speed <= recommended + 10) {
-    els.currentSpeedSign.classList.add("speed-warning");
+    if (diff <= 5) {
+      els.currentSpeedSign.classList.add(
+        "speed-ok"
+      );
+    } else if (diff <= 12) {
+      els.currentSpeedSign.classList.add(
+        "speed-warning"
+      );
+    } else {
+      els.currentSpeedSign.classList.add(
+        "speed-danger"
+      );
+    }
   } else {
-    els.currentSpeedSign.classList.add("speed-danger");
+    els.currentSpeedSign.classList.add(
+      "speed-warning"
+    );
   }
 }
 
@@ -561,39 +772,74 @@ function updateSpeedDisplay(speed) {
    REROUTE
 ========================= */
 
-async function maybeReroute(current, progress) {
-  if (!state.routeData?.geometry?.length || !progress) {
+async function maybeReroute(
+  current,
+  progress
+) {
+  if (
+    !state.settings.autoRerouteEnabled ||
+    !progress
+  ) {
     return;
   }
 
   const now = Date.now();
 
-  if (now - lastRerouteTime < REROUTE_COOLDOWN) {
+  if (!progress.isOffRoute) {
+    state.reroute.offRouteSince = null;
     return;
   }
 
-  if (progress.distanceToRoute > REROUTE_DISTANCE) {
-    lastRerouteTime = now;
+  if (!state.reroute.offRouteSince) {
+    state.reroute.offRouteSince = now;
+    return;
+  }
+
+  const offRouteDuration =
+    now - state.reroute.offRouteSince;
+
+  const cooldownPassed =
+    now - lastRerouteTime >
+    REROUTE_COOLDOWN;
+
+  if (
+    offRouteDuration < OFF_ROUTE_DELAY ||
+    !cooldownPassed
+  ) {
+    return;
+  }
+
+  lastRerouteTime = now;
+
+  setStatus(
+    "GPS: live",
+    "Navigation: omberegner",
+    "Kort: navigation"
+  );
+
+  try {
+    await recalculateRouteFromCurrentPosition(
+      current
+    );
+
+    prepareRouteMeasurements();
 
     setStatus(
       "GPS: live",
-      "Navigation: omberegner",
+      "Navigation: aktiv",
       "Kort: navigation"
     );
+  } catch (error) {
+    console.error(
+      "Omberegning fejlede",
+      error
+    );
 
-    try {
-      await recalculateRouteFromCurrentPosition(current);
-
-      prepareRouteMeasurements();
-
-      setStatus(
-        "GPS: live",
-        "Navigation: aktiv",
-        "Kort: navigation"
-      );
-    } catch (error) {
-      console.error("Omberegning fejlede", error);
-    }
+    setStatus(
+      "GPS: live",
+      "Navigation: fejl",
+      "Kort: navigation"
+    );
   }
 }
 
@@ -601,67 +847,124 @@ async function maybeReroute(current, progress) {
    ECO SCORE
 ========================= */
 
-function updateEcoScore(speed) {
-  if (!state.ecoScore) {
-    state.ecoScore = {
-      value: 70,
-      accelerationQualitySum: 0,
-      accelerationEvents: 0,
-      brakingQualitySum: 0,
-      brakingEvents: 0,
-      steadyQualitySum: 0,
-      steadySamples: 0,
-      lastSpeed: speed
-    };
+function resetTripEcoScore() {
+  state.ecoScore = {
+    value: 70,
+
+    samples: 0,
+    movingSamples: 0,
+
+    lastSpeed: null,
+    lastSpeedKmh: null,
+    lastTimestamp: null,
+
+    accelerationQualitySum: 0,
+    accelerationEvents: 0,
+
+    brakingQualitySum: 0,
+    brakingEvents: 0,
+
+    steadyQualitySum: 0,
+    steadySamples: 0,
+
+    tripStartedAt: Date.now(),
+    tripEndedAt: null
+  };
+
+  updateEcoBadge(70);
+}
+
+function updateEcoScore(position) {
+  const speed =
+    position.speed || 0;
+
+  const eco =
+    state.ecoScore;
+
+  if (!eco) {
+    return;
   }
 
-  const eco = state.ecoScore;
-  const delta = speed - eco.lastSpeed;
+  if (
+    eco.lastSpeed === null ||
+    !Number.isFinite(eco.lastSpeed)
+  ) {
+    eco.lastSpeed = speed;
+    return;
+  }
+
+  const delta =
+    speed - eco.lastSpeed;
 
   eco.lastSpeed = speed;
+  eco.samples++;
 
-  if (Math.abs(delta) < 2 && speed >= 20) {
+  if (speed > 8) {
+    eco.movingSamples++;
+  }
+
+  if (
+    Math.abs(delta) < 2 &&
+    speed >= 20
+  ) {
     eco.steadyQualitySum += 100;
     eco.steadySamples++;
   }
 
   if (delta > 0.8) {
-    const score = Math.max(0, 100 - delta * 6);
+    const score =
+      Math.max(
+        0,
+        100 - delta * 6
+      );
+
     eco.accelerationQualitySum += score;
     eco.accelerationEvents++;
   }
 
   if (delta < -0.8) {
-    const braking = Math.abs(delta);
-    const score = Math.max(0, 100 - braking * 5);
+    const braking =
+      Math.abs(delta);
+
+    const score =
+      Math.max(
+        0,
+        100 - braking * 5
+      );
+
     eco.brakingQualitySum += score;
     eco.brakingEvents++;
   }
 
-  const acceleration = average(
-    eco.accelerationQualitySum,
-    eco.accelerationEvents,
-    70
-  );
+  const acceleration =
+    average(
+      eco.accelerationQualitySum,
+      eco.accelerationEvents,
+      70
+    );
 
-  const braking = average(
-    eco.brakingQualitySum,
-    eco.brakingEvents,
-    70
-  );
+  const braking =
+    average(
+      eco.brakingQualitySum,
+      eco.brakingEvents,
+      70
+    );
 
-  const steady = average(
-    eco.steadyQualitySum,
-    eco.steadySamples,
-    70
-  );
+  const steady =
+    average(
+      eco.steadyQualitySum,
+      eco.steadySamples,
+      70
+    );
 
   eco.value =
     acceleration * 0.3 +
     braking * 0.3 +
     steady * 0.4;
 
-  updateEcoBadge(Math.round(eco.value));
+  updateEcoBadge(
+    Math.round(eco.value)
+  );
 }
 
 function updateEcoBadge(score) {
@@ -678,45 +981,59 @@ function updateEcoBadge(score) {
     "eco-low"
   );
 
-  if (score >= 80) {
-    els.ecoScoreBadge.classList.add("eco-ok");
-  } else if (score >= 60) {
-    els.ecoScoreBadge.classList.add("eco-mid");
+  if (score >= 82) {
+    els.ecoScoreBadge.classList.add(
+      "eco-ok"
+    );
+  } else if (score >= 58) {
+    els.ecoScoreBadge.classList.add(
+      "eco-mid"
+    );
   } else {
-    els.ecoScoreBadge.classList.add("eco-low");
+    els.ecoScoreBadge.classList.add(
+      "eco-low"
+    );
   }
 }
 
 function showEcoScoreSummary() {
-  const eco = state.ecoScore;
+  const eco =
+    state.ecoScore;
 
-  if (!eco) {
+  if (
+    !eco ||
+    eco.samples < 4
+  ) {
     return;
   }
 
-  const acceleration = average(
-    eco.accelerationQualitySum,
-    eco.accelerationEvents,
-    70
-  );
+  const acceleration =
+    average(
+      eco.accelerationQualitySum,
+      eco.accelerationEvents,
+      70
+    );
 
-  const braking = average(
-    eco.brakingQualitySum,
-    eco.brakingEvents,
-    70
-  );
+  const braking =
+    average(
+      eco.brakingQualitySum,
+      eco.brakingEvents,
+      70
+    );
 
-  const steady = average(
-    eco.steadyQualitySum,
-    eco.steadySamples,
-    70
-  );
+  const steady =
+    average(
+      eco.steadyQualitySum,
+      eco.steadySamples,
+      70
+    );
 
-  const total = Math.round(
-    acceleration * 0.3 +
-    braking * 0.3 +
-    steady * 0.4
-  );
+  const total =
+    Math.round(
+      acceleration * 0.3 +
+      braking * 0.3 +
+      steady * 0.4
+    );
 
   alert(
     `EcoScore for turen\n\n` +
@@ -727,7 +1044,11 @@ function showEcoScoreSummary() {
   );
 }
 
-function average(sum, count, fallback) {
+function average(
+  sum,
+  count,
+  fallback
+) {
   if (!count || count <= 0) {
     return fallback;
   }
@@ -741,14 +1062,20 @@ function formatDuration(seconds) {
   }
 
   const minutes =
-    Math.max(1, Math.round(seconds / 60));
+    Math.max(
+      1,
+      Math.round(seconds / 60)
+    );
 
   if (minutes < 60) {
     return `${minutes} min`;
   }
 
-  const hours = Math.floor(minutes / 60);
-  const rest = minutes % 60;
+  const hours =
+    Math.floor(minutes / 60);
+
+  const rest =
+    minutes % 60;
 
   if (rest === 0) {
     return `${hours} t`;
