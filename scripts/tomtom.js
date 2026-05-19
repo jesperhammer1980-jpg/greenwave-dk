@@ -1,30 +1,29 @@
-import {
-  TOMTOM_API_KEY,
-  TOMTOM_ROUTING_BASE
-} from "./config.js";
+const TOMTOM_API_KEY = "";
 
 export async function fetchTomTomRoute(from, to) {
-  const locations =
-    `${from.lat},${from.lng}:${to.lat},${to.lng}`;
+  if (!TOMTOM_API_KEY) {
+    throw new Error("TomTom API-key mangler");
+  }
 
-  const params = new URLSearchParams({
-    key: TOMTOM_API_KEY,
-    traffic: "true",
-    travelMode: "car",
-    routeType: "fastest",
-    instructionsType: "text",
-    language: "da-DK",
-    routeRepresentation: "polyline",
-    computeTravelTimeFor: "all"
-  });
+  if (!from || !to) {
+    throw new Error("Mangler start eller destination");
+  }
 
   const url =
-    `${TOMTOM_ROUTING_BASE}/calculateRoute/${locations}/json?${params.toString()}`;
+    `https://api.tomtom.com/routing/1/calculateRoute/` +
+    `${from.lat},${from.lng}:${to.lat},${to.lng}/json` +
+    `?key=${encodeURIComponent(TOMTOM_API_KEY)}` +
+    `&traffic=true` +
+    `&travelMode=car` +
+    `&routeType=fastest` +
+    `&instructionsType=text` +
+    `&language=da-DK` +
+    `&computeTravelTimeFor=all`;
 
   const response = await fetch(url);
 
   if (!response.ok) {
-    throw new Error("TomTom rute kunne ikke hentes");
+    throw new Error("TomTom route request fejlede");
   }
 
   const data = await response.json();
@@ -33,151 +32,68 @@ export async function fetchTomTomRoute(from, to) {
     throw new Error("TomTom fandt ingen rute");
   }
 
-  return normalizeTomTomRoute(data.routes[0]);
-}
-
-function normalizeTomTomRoute(route) {
-  const points = [];
-
-  route.legs?.forEach(leg => {
-    leg.points?.forEach(point => {
-      points.push([
-        point.longitude,
-        point.latitude
-      ]);
-    });
-  });
-
-  const steps =
-    route.guidance?.instructions?.map((instruction, index) => {
-      const point = instruction.point || {};
-
-      return {
-        stepIndex: index,
-        distance: Number(instruction.routeOffsetInMeters || 0),
-        duration: 0,
-
-        name:
-          instruction.street ||
-          instruction.roadNumbers?.join(", ") ||
-          "",
-
-        mode: "driving",
-
-        maneuverType:
-          normalizeManeuverType(instruction.maneuver),
-
-        maneuverModifier:
-          normalizeManeuverModifier(instruction.maneuver),
-
-        message:
-          instruction.message ||
-          "",
-
-        location: {
-          lat: Number(point.latitude),
-          lng: Number(point.longitude)
-        },
-
-        roundaboutExit:
-          instruction.roundaboutExitNumber ||
-          instruction.exitNumber ||
-          null,
-
-        rawManeuver:
-          instruction.maneuver || "",
-
-        rawInstruction:
-          instruction
-      };
-    }).filter(step =>
-      Number.isFinite(step.location.lat) &&
-      Number.isFinite(step.location.lng)
-    ) || [];
+  const route = data.routes[0];
 
   return {
-    geometry: points,
-    distance: route.summary?.lengthInMeters || 0,
-    duration: route.summary?.travelTimeInSeconds || 0,
-    trafficDelay:
-      route.summary?.trafficDelayInSeconds || 0,
-    steps
+    geometry: extractTomTomGeometry(route),
+    distance: Number(route.summary?.lengthInMeters || 0),
+    duration: Number(route.summary?.travelTimeInSeconds || 0),
+    trafficDelay: Number(route.summary?.trafficDelayInSeconds || 0),
+    steps: extractTomTomSteps(route)
   };
 }
 
-function normalizeManeuverType(value) {
-  const text = String(value || "").toLowerCase();
+function extractTomTomGeometry(route) {
+  const points = route.legs
+    ?.flatMap(leg => leg.points || [])
+    ?.map(point => [
+      Number(point.longitude),
+      Number(point.latitude)
+    ]);
 
-  if (text.includes("arrive")) {
-    return "arrive";
+  if (!Array.isArray(points) || !points.length) {
+    throw new Error("TomTom geometri mangler");
   }
 
-  if (text.includes("depart")) {
-    return "depart";
-  }
-
-  if (
-    text.includes("roundabout") ||
-    text.includes("rotary")
-  ) {
-    return "roundabout";
-  }
-
-  if (text.includes("uturn")) {
-    return "turn";
-  }
-
-  if (text.includes("turn")) {
-    return "turn";
-  }
-
-  if (text.includes("fork")) {
-    return "fork";
-  }
-
-  if (text.includes("ramp")) {
-    return "ramp";
-  }
-
-  if (text.includes("merge")) {
-    return "merge";
-  }
-
-  if (text.includes("keep")) {
-    return "fork";
-  }
-
-  return text || "continue";
+  return points;
 }
 
-function normalizeManeuverModifier(value) {
+function extractTomTomSteps(route) {
+  const instructions = route.guidance?.instructions || [];
+
+  return instructions.map(instruction => ({
+    distance: Number(instruction.routeOffsetInMeters || 0),
+    duration: 0,
+    name: instruction.street || "",
+    geometry: [],
+    maneuverType: normalizeTomTomType(instruction.maneuver),
+    maneuverModifier: normalizeTomTomModifier(instruction.maneuver),
+    message: instruction.message || "",
+    location: {
+      lat: Number(instruction.point?.latitude || 0),
+      lng: Number(instruction.point?.longitude || 0)
+    },
+    roundaboutExit: instruction.roundaboutExitNumber || null
+  }));
+}
+
+function normalizeTomTomType(value) {
   const text = String(value || "").toLowerCase();
 
-  if (text.includes("left")) {
-    return "left";
-  }
+  if (text.includes("arrive")) return "arrive";
+  if (text.includes("roundabout")) return "roundabout";
+  if (text.includes("turn")) return "turn";
+  if (text.includes("depart")) return "depart";
 
-  if (text.includes("right")) {
-    return "right";
-  }
+  return "continue";
+}
 
-  if (text.includes("uturn")) {
-    return "uturn";
-  }
+function normalizeTomTomModifier(value) {
+  const text = String(value || "").toLowerCase();
 
-  if (text.includes("straight")) {
-    return "straight";
-  }
-
-  if (text.includes("slight")) {
-    if (text.includes("left")) {
-      return "slight left";
-    }
-
-    if (text.includes("right")) {
-      return "slight right";
-    }
-  }
+  if (text.includes("left")) return "left";
+  if (text.includes("right")) return "right";
+  if (text.includes("straight")) return "straight";
 
   return "";
 }
