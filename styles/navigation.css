@@ -1,5 +1,12 @@
+/* =========================
+   NAVIGATION MODE
+========================= */
+
 .nav-overlay {
+  position: absolute;
+  inset: 0;
   pointer-events: none;
+  z-index: 500;
 }
 
 .navigation-active {
@@ -60,59 +67,69 @@
   pointer-events: none !important;
 }
 
+/* =========================
+   STOP BUTTON
+========================= */
+
 .navigation-active .nav-floating-stop {
   position: absolute !important;
-  top: 18px !important;
+  top: calc(env(safe-area-inset-top) + 18px) !important;
   left: 18px !important;
+
   z-index: 5000 !important;
   pointer-events: auto !important;
-}
 
-.navigation-active .eco-score-badge {
-  position: absolute !important;
-  top: 18px !important;
-  right: 18px !important;
-  z-index: 9999 !important;
-  pointer-events: auto !important;
-  touch-action: manipulation !important;
-  cursor: pointer !important;
-  min-width: 112px !important;
-  min-height: 56px !important;
-  padding: 14px 18px !important;
-  border: 2px solid rgba(255,255,255,0.28) !important;
+  min-width: 92px !important;
+  height: 52px !important;
+
+  border: 0 !important;
   border-radius: 999px !important;
-  color: #fff !important;
+
+  background:
+    linear-gradient(
+      180deg,
+      #e94646,
+      #8f1818
+    ) !important;
+
+  color: #ffffff !important;
+
   font-size: 18px !important;
   font-weight: 950 !important;
-  box-shadow: 0 14px 34px rgba(0,0,0,0.42) !important;
+
+  box-shadow:
+    0 12px 30px rgba(0,0,0,0.46),
+    inset 0 1px 0 rgba(255,255,255,0.22) !important;
 }
 
-.navigation-active .eco-score-badge.eco-ok {
-  background: linear-gradient(180deg, #00c853, #087c37) !important;
-}
-
-.navigation-active .eco-score-badge.eco-mid {
-  background: linear-gradient(180deg, #ff9800, #a85f00) !important;
-}
-
-.navigation-active .eco-score-badge.eco-low {
-  background: linear-gradient(180deg, #ff3b30, #9b1f1b) !important;
-}
+/* =========================
+   TURN CARD
+========================= */
 
 .navigation-active .turn-card {
   position: absolute !important;
-  top: 86px !important;
+
+  top: calc(env(safe-area-inset-top) + 86px) !important;
   left: 50% !important;
+
   transform: translateX(-50%) !important;
-  width: min(92vw, 560px) !important;
+
+  width: min(92vw, 640px) !important;
+
   z-index: 1200 !important;
   pointer-events: none !important;
+
   background: rgba(5,9,15,0.94) !important;
+
   border: 1px solid rgba(255,255,255,0.14) !important;
   border-radius: 28px !important;
+
   padding: 18px 20px 16px !important;
+
   box-shadow: 0 20px 50px rgba(0,0,0,0.45) !important;
+
   backdrop-filter: blur(18px) !important;
+  -webkit-backdrop-filter: blur(18px) !important;
 }
 
 .navigation-active .turn-card-top {
@@ -124,15 +141,28 @@
 .navigation-active .turn-icon {
   width: 74px !important;
   height: 74px !important;
+
   border-radius: 22px !important;
+
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
-  background: linear-gradient(180deg, #2b91ff, #0f57d9) !important;
-  color: #fff !important;
+
+  background:
+    linear-gradient(
+      180deg,
+      #2b91ff,
+      #0f57d9
+    ) !important;
+
+  color: #ffffff !important;
+
   font-size: 36px !important;
   font-weight: 900 !important;
+
   flex-shrink: 0 !important;
+
+  box-shadow: 0 10px 30px rgba(37,99,235,0.35) !important;
 }
 
 .navigation-active .turn-copy {
@@ -142,23 +172,32 @@
 
 .navigation-active .turn-distance {
   font-size: 15px !important;
-  font-weight: 800 !important;
+  font-weight: 850 !important;
+
   color: rgba(255,255,255,0.72) !important;
+
   margin-bottom: 4px !important;
 }
 
 .navigation-active .turn-instruction {
   font-size: 26px !important;
   font-weight: 950 !important;
+
   line-height: 1.05 !important;
+
   color: white !important;
+
+  word-break: break-word !important;
 }
 
 .navigation-active .turn-road {
   margin-top: 8px !important;
+
   font-size: 14px !important;
   font-weight: 650 !important;
+
   color: rgba(255,255,255,0.56) !important;
+
   white-space: nowrap !important;
   overflow: hidden !important;
   text-overflow: ellipsis !important;
@@ -167,24 +206,109 @@
 .navigation-active .turn-progress-wrap {
   width: 100% !important;
   height: 8px !important;
+
   margin-top: 16px !important;
+
   border-radius: 999px !important;
+
   background: rgba(255,255,255,0.08) !important;
+
   overflow: hidden !important;
 }
 
 .navigation-active .turn-progress-bar {
   height: 100% !important;
+
   border-radius: inherit !important;
-  background: linear-gradient(90deg, #2563eb, #60a5fa) !important;
+
+  background:
+    linear-gradient(
+      90deg,
+      #2563eb,
+      #60a5fa
+    ) !important;
+
+  transition: width 0.25s linear !important;
 }
+
+/* =========================
+   ECO SCORE BADGE
+   moved below turn card
+========================= */
+
+.navigation-active .eco-score-badge {
+  position: absolute !important;
+
+  top: calc(env(safe-area-inset-top) + 258px) !important;
+  left: 50% !important;
+  right: auto !important;
+
+  transform: translateX(-50%) !important;
+
+  z-index: 1300 !important;
+  pointer-events: auto !important;
+  touch-action: manipulation !important;
+  cursor: pointer !important;
+
+  min-width: 118px !important;
+  height: 48px !important;
+
+  padding: 10px 18px !important;
+
+  border: 2px solid rgba(255,255,255,0.28) !important;
+  border-radius: 999px !important;
+
+  color: #ffffff !important;
+
+  font-size: 17px !important;
+  font-weight: 950 !important;
+
+  box-shadow: 0 14px 34px rgba(0,0,0,0.42) !important;
+
+  backdrop-filter: blur(14px) !important;
+  -webkit-backdrop-filter: blur(14px) !important;
+}
+
+.navigation-active .eco-score-badge.eco-ok {
+  background:
+    linear-gradient(
+      180deg,
+      #00c853,
+      #087c37
+    ) !important;
+}
+
+.navigation-active .eco-score-badge.eco-mid {
+  background:
+    linear-gradient(
+      180deg,
+      #ff9800,
+      #a85f00
+    ) !important;
+}
+
+.navigation-active .eco-score-badge.eco-low {
+  background:
+    linear-gradient(
+      180deg,
+      #ff3b30,
+      #9b1f1b
+    ) !important;
+}
+
+/* =========================
+   SPEED SIGNS
+========================= */
 
 .navigation-active .speed-sign-stack {
   position: absolute !important;
+
   right: 18px !important;
-  top: 230px !important;
+  top: calc(env(safe-area-inset-top) + 330px) !important;
+
   z-index: 1200 !important;
   pointer-events: none !important;
+
   display: flex !important;
   flex-direction: column !important;
   gap: 14px !important;
@@ -199,39 +323,50 @@
 
 .navigation-active .speed-sign-label {
   font-size: 12px !important;
-  font-weight: 800 !important;
-  color: rgba(255,255,255,0.72) !important;
+  font-weight: 850 !important;
+
+  color: rgba(255,255,255,0.78) !important;
+
+  text-shadow: 0 2px 10px rgba(0,0,0,0.55) !important;
 }
 
 .navigation-active .speed-sign {
   width: 76px !important;
   height: 76px !important;
+
   border-radius: 50% !important;
+
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
+
   font-size: 28px !important;
   font-weight: 950 !important;
+
   color: white !important;
+
   box-shadow: 0 12px 28px rgba(0,0,0,0.38) !important;
 }
 
 .navigation-active .speed-sign-limit {
-  background: #fff !important;
-  color: #111 !important;
+  background: #ffffff !important;
+  color: #111111 !important;
+
   border: 7px solid #e02020 !important;
 }
 
 .navigation-active .speed-sign-current {
-  background: #fff !important;
-  color: #111 !important;
-  border: 7px solid #fff !important;
+  background: #ffffff !important;
+  color: #111111 !important;
+
+  border: 7px solid #ffffff !important;
 }
 
 .navigation-active .speed-sign-recommended {
   background: #1e6bff !important;
-  color: #fff !important;
-  border: 7px solid #fff !important;
+  color: #ffffff !important;
+
+  border: 7px solid #ffffff !important;
 }
 
 .navigation-active .speed-ok {
@@ -246,57 +381,86 @@
   border-color: #ff3b30 !important;
 }
 
+/* =========================
+   BOTTOM BAR
+========================= */
+
 .navigation-active .nav-bottom {
   position: absolute !important;
+
   left: 18px !important;
   right: 18px !important;
-  bottom: 18px !important;
+  bottom: calc(env(safe-area-inset-bottom) + 18px) !important;
+
   z-index: 1200 !important;
   pointer-events: none !important;
 }
 
 .navigation-active .nav-bottom-main {
   display: grid !important;
+
   grid-template-columns: repeat(3, 1fr) !important;
+
   gap: 12px !important;
+
   background: rgba(5,9,15,0.94) !important;
-  border-radius: 24px !important;
-  padding: 16px 18px !important;
-  backdrop-filter: blur(18px) !important;
+
   border: 1px solid rgba(255,255,255,0.10) !important;
+  border-radius: 24px !important;
+
+  padding: 16px 18px !important;
+
   box-shadow: 0 18px 40px rgba(0,0,0,0.45) !important;
+
+  backdrop-filter: blur(18px) !important;
+  -webkit-backdrop-filter: blur(18px) !important;
 }
 
 .navigation-active .nav-meta {
   display: flex !important;
   flex-direction: column !important;
   gap: 4px !important;
+
   text-align: center !important;
 }
 
 .navigation-active .nav-meta span {
   font-size: 12px !important;
-  font-weight: 800 !important;
+  font-weight: 850 !important;
+
   color: rgba(255,255,255,0.58) !important;
 }
 
 .navigation-active .nav-meta strong {
   font-size: 21px !important;
   font-weight: 950 !important;
+
   color: white !important;
 }
 
+/* =========================
+   ECO SCORE MODAL
+========================= */
+
 .eco-score-modal {
   position: fixed !important;
+
   left: 50% !important;
   top: 50% !important;
+
   transform: translate(-50%, -50%) !important;
+
   width: min(92vw, 560px) !important;
+
   z-index: 5001 !important;
+
   background: rgba(8,12,18,0.98) !important;
-  border-radius: 28px !important;
-  padding: 24px !important;
+
   border: 1px solid rgba(255,255,255,0.12) !important;
+  border-radius: 28px !important;
+
+  padding: 24px !important;
+
   box-shadow: 0 40px 90px rgba(0,0,0,0.6) !important;
 }
 
@@ -307,6 +471,23 @@
   gap: 20px !important;
 }
 
+.eco-score-header h2 {
+  margin: 0 !important;
+
+  font-size: 30px !important;
+  font-weight: 950 !important;
+
+  color: white !important;
+}
+
+.eco-score-header p {
+  margin-top: 6px !important;
+
+  color: rgba(255,255,255,0.6) !important;
+
+  font-size: 14px !important;
+}
+
 .eco-score-body {
   margin-top: 24px !important;
 }
@@ -315,43 +496,63 @@
   display: flex !important;
   flex-direction: column !important;
   align-items: center !important;
+
   padding: 28px 20px !important;
-  border-radius: 26px !important;
-  background: rgba(47,140,255,0.15) !important;
+
   border: 1px solid rgba(96,165,250,0.22) !important;
+  border-radius: 26px !important;
+
+  background: rgba(47,140,255,0.15) !important;
 }
 
 .eco-score-total strong {
   margin-top: 8px !important;
+
   font-size: 56px !important;
   font-weight: 950 !important;
+
   color: white !important;
 }
 
 .eco-score-grid {
   display: grid !important;
+
   grid-template-columns: repeat(3, 1fr) !important;
+
   gap: 14px !important;
+
   margin-top: 22px !important;
 }
 
 .eco-score-card {
   background: rgba(255,255,255,0.05) !important;
+
   border: 1px solid rgba(255,255,255,0.08) !important;
   border-radius: 20px !important;
+
   padding: 16px !important;
 }
 
 .eco-score-comment {
   margin-top: 20px !important;
+
   text-align: center !important;
+
   padding: 16px 18px !important;
+
   border-radius: 18px !important;
+
   background: rgba(255,255,255,0.06) !important;
+
   color: rgba(255,255,255,0.82) !important;
+
   font-size: 15px !important;
-  font-weight: 800 !important;
+  font-weight: 850 !important;
 }
+
+/* =========================
+   HIDE FUEL MARKERS DURING NAV
+========================= */
 
 .navigation-active .fuel-price-marker,
 .navigation-active .fuel-price-label,
@@ -360,18 +561,14 @@
   display: none !important;
 }
 
-@media (max-width: 768px) {
-  .navigation-active .eco-score-badge {
-    top: 16px !important;
-    right: 14px !important;
-    min-width: 104px !important;
-    min-height: 54px !important;
-    font-size: 17px !important;
-  }
+/* =========================
+   MOBILE
+========================= */
 
+@media (max-width: 768px) {
   .navigation-active .turn-card {
     width: calc(100vw - 22px) !important;
-    top: 84px !important;
+    top: calc(env(safe-area-inset-top) + 84px) !important;
   }
 
   .navigation-active .turn-instruction {
@@ -381,13 +578,32 @@
   .navigation-active .turn-icon {
     width: 62px !important;
     height: 62px !important;
+
     font-size: 30px !important;
+  }
+
+  .navigation-active .eco-score-badge {
+    top: calc(env(safe-area-inset-top) + 252px) !important;
+
+    min-width: 104px !important;
+    height: 46px !important;
+
+    font-size: 16px !important;
+  }
+
+  .navigation-active .speed-sign-stack {
+    top: calc(env(safe-area-inset-top) + 320px) !important;
   }
 
   .navigation-active .speed-sign {
     width: 64px !important;
     height: 64px !important;
+
     font-size: 24px !important;
+  }
+
+  .navigation-active .nav-bottom-main {
+    grid-template-columns: repeat(3, 1fr) !important;
   }
 
   .eco-score-grid {
