@@ -1,5 +1,5 @@
-export const SETTINGS_KEY = "greenwave_settings_working_v4";
-export const HISTORY_KEY = "greenwave_history_working_v4";
+export const SETTINGS_KEY = "greenwave_settings_v6";
+export const HISTORY_KEY = "greenwave_history_v6";
 export const FUEL_DATA_URL = "./fuel-prices.json";
 
 export const state = {
@@ -12,6 +12,7 @@ export const state = {
 
   currentHeading: null,
   smoothedHeading: null,
+  lastHeading: 0,
 
   isRecoveringPosition: false,
   lastVisibilityChangeAt: null,
@@ -31,18 +32,36 @@ export const state = {
   userMarker: null,
   destMarker: null,
 
+  routeProgress: {
+    alongMeters: 0,
+    remainingMeters: 0,
+    remainingSeconds: 0,
+    progressRatio: 0,
+    distanceToRoute: Infinity,
+    segmentIndex: 0,
+    isOffRoute: false
+  },
+
+  camera: {
+    lastZoom: 16,
+    targetZoom: 16,
+    lastBearing: 0,
+    targetBearing: 0,
+    lastMoveAt: null,
+    mode: "overview"
+  },
+
   fuelPriceOverrides: [],
   osmFuelStations: [],
   fuelMarkers: [],
+  fuelOverviewMarkers: [],
   fuelListSort: "price",
 
   trafficSignals: [],
-
   maxSpeedZones: [],
   currentMaxSpeed: null,
 
   wakeLock: null,
-
   watchId: null,
   isNavigating: false,
 
@@ -50,21 +69,32 @@ export const state = {
     isRerouting: false,
     offRouteSince: null,
     lastRerouteAt: null,
-    offRouteDistanceLimitMeters: 70,
-    offRouteDelayMs: 8000,
-    rerouteCooldownMs: 25000
+    offRouteDistanceLimitMeters: 90,
+    offRouteDelayMs: 7000,
+    rerouteCooldownMs: 22000
   },
 
   ecoScore: {
-    value: 100,
+    value: 70,
+
     samples: 0,
+    movingSamples: 0,
+
+    lastSpeed: null,
     lastSpeedKmh: null,
     lastTimestamp: null,
-    hardAccelerationCount: 0,
-    hardBrakeCount: 0,
-    speedingCount: 0,
-    greenWaveMissCount: 0,
-    smoothDrivingBonus: 0
+
+    accelerationQualitySum: 0,
+    accelerationEvents: 0,
+
+    brakingQualitySum: 0,
+    brakingEvents: 0,
+
+    steadyQualitySum: 0,
+    steadySamples: 0,
+
+    tripStartedAt: null,
+    tripEndedAt: null
   },
 
   navigationView: {
@@ -75,17 +105,30 @@ export const state = {
     adaptiveZoom: true,
     motorwayMode: false,
     nightMode: false,
-    lastZoom: 17,
-    lastBearing: 0
+    laneGuidance: true,
+    curveSpeedAssist: true
   },
 
   settings: {
     language: "da",
     region: "dk",
+
     routeMode: "fast",
+
     fuelType: "benzin95",
     searchRadiusBase: 100000,
+
+    favoriteFuelBrand: "all",
+    favoriteFuelMode: "boost",
+
     ecoScoreEnabled: true,
-    autoRerouteEnabled: true
+    autoRerouteEnabled: true,
+
+    dynamicZoomEnabled: true,
+    smoothCameraEnabled: true,
+    laneGuidanceEnabled: true,
+    greenWaveEnabled: true,
+
+    mapStyleMode: "navigation"
   }
 };
