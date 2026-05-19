@@ -69,17 +69,19 @@
 
 /* =========================
    STOP BUTTON
+   placed under turn card left
 ========================= */
 
 .navigation-active .nav-floating-stop {
   position: absolute !important;
-  top: calc(env(safe-area-inset-top) + 18px) !important;
+
+  top: calc(env(safe-area-inset-top) + 292px) !important;
   left: 18px !important;
 
   z-index: 5000 !important;
   pointer-events: auto !important;
 
-  min-width: 92px !important;
+  min-width: 98px !important;
   height: 52px !important;
 
   border: 0 !important;
@@ -233,37 +235,39 @@
 
 /* =========================
    ECO SCORE BADGE
-   moved below turn card
+   right side near speed stack
 ========================= */
 
 .navigation-active .eco-score-badge {
   position: absolute !important;
 
-  top: calc(env(safe-area-inset-top) + 258px) !important;
-  left: 50% !important;
-  right: auto !important;
+  top: calc(env(safe-area-inset-top) + 322px) !important;
+  right: 18px !important;
 
-  transform: translateX(-50%) !important;
+  left: auto !important;
+  transform: none !important;
 
   z-index: 1300 !important;
+
   pointer-events: auto !important;
   touch-action: manipulation !important;
   cursor: pointer !important;
 
-  min-width: 118px !important;
-  height: 48px !important;
+  min-width: 96px !important;
+  height: 44px !important;
 
-  padding: 10px 18px !important;
+  padding: 8px 14px !important;
 
-  border: 2px solid rgba(255,255,255,0.28) !important;
+  border: 2px solid rgba(255,255,255,0.22) !important;
   border-radius: 999px !important;
 
   color: #ffffff !important;
 
-  font-size: 17px !important;
+  font-size: 16px !important;
   font-weight: 950 !important;
 
-  box-shadow: 0 14px 34px rgba(0,0,0,0.42) !important;
+  box-shadow:
+    0 12px 28px rgba(0,0,0,0.42) !important;
 
   backdrop-filter: blur(14px) !important;
   -webkit-backdrop-filter: blur(14px) !important;
@@ -304,7 +308,7 @@
   position: absolute !important;
 
   right: 18px !important;
-  top: calc(env(safe-area-inset-top) + 330px) !important;
+  top: calc(env(safe-area-inset-top) + 382px) !important;
 
   z-index: 1200 !important;
   pointer-events: none !important;
@@ -331,8 +335,8 @@
 }
 
 .navigation-active .speed-sign {
-  width: 76px !important;
-  height: 76px !important;
+  width: 72px !important;
+  height: 72px !important;
 
   border-radius: 50% !important;
 
@@ -340,7 +344,7 @@
   align-items: center !important;
   justify-content: center !important;
 
-  font-size: 28px !important;
+  font-size: 27px !important;
   font-weight: 950 !important;
 
   color: white !important;
@@ -582,17 +586,23 @@
     font-size: 30px !important;
   }
 
+  .navigation-active .nav-floating-stop {
+    top: calc(env(safe-area-inset-top) + 276px) !important;
+    left: 18px !important;
+  }
+
   .navigation-active .eco-score-badge {
-    top: calc(env(safe-area-inset-top) + 252px) !important;
+    top: calc(env(safe-area-inset-top) + 318px) !important;
+    right: 18px !important;
 
-    min-width: 104px !important;
-    height: 46px !important;
+    min-width: 90px !important;
+    height: 42px !important;
 
-    font-size: 16px !important;
+    font-size: 15px !important;
   }
 
   .navigation-active .speed-sign-stack {
-    top: calc(env(safe-area-inset-top) + 320px) !important;
+    top: calc(env(safe-area-inset-top) + 372px) !important;
   }
 
   .navigation-active .speed-sign {
