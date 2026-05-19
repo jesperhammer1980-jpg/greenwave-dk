@@ -17,7 +17,7 @@
 
   <link
     rel="stylesheet"
-    href="styles/base.css?v=9"
+    href="styles/base.css?v=10"
   />
 
   <link
@@ -189,12 +189,13 @@
             Stop
           </button>
 
-          <div
+          <button
             id="ecoScoreBadge"
             class="eco-score-badge eco-ok"
+            type="button"
           >
-            Eco 100
-          </div>
+            Eco 70
+          </button>
 
           <div class="turn-card">
             <div class="turn-card-top">
@@ -356,6 +357,65 @@
     ></div>
   </div>
 
+  <!-- ECO SCORE MODAL -->
+
+  <div
+    id="ecoScoreBackdrop"
+    class="modal-backdrop hidden"
+  ></div>
+
+  <div
+    id="ecoScoreModal"
+    class="eco-score-modal hidden"
+  >
+    <div class="eco-score-header">
+      <div>
+        <h2>EcoScore</h2>
+        <p id="ecoScoreSubtitle">
+          Turens kørselsanalyse
+        </p>
+      </div>
+
+      <button id="closeEcoScoreBtn">
+        Luk
+      </button>
+    </div>
+
+    <div class="eco-score-body">
+      <div class="eco-score-total">
+        <span>Samlet score</span>
+        <strong id="ecoScoreTotalValue">—</strong>
+      </div>
+
+      <div class="eco-score-grid">
+        <div class="eco-score-card">
+          <span>Acceleration</span>
+          <strong id="ecoScoreAccelerationValue">—</strong>
+          <small>Hvor roligt du bygger fart op.</small>
+        </div>
+
+        <div class="eco-score-card">
+          <span>Nedbremsning</span>
+          <strong id="ecoScoreBrakingValue">—</strong>
+          <small>Hvor blødt du sænker farten.</small>
+        </div>
+
+        <div class="eco-score-card">
+          <span>Jævn hastighed</span>
+          <strong id="ecoScoreSteadyValue">—</strong>
+          <small>Hvor stabilt du holder tempoet.</small>
+        </div>
+      </div>
+
+      <div
+        id="ecoScoreComment"
+        class="eco-score-comment"
+      >
+        Start navigation for at opbygge en score.
+      </div>
+    </div>
+  </div>
+
   <!-- FUEL HISTORY -->
 
   <div
@@ -385,7 +445,7 @@
 
   <script
     type="module"
-    src="scripts/main.js?v=43"
+    src="scripts/main.js?v=44"
   ></script>
 </body>
 </html>
