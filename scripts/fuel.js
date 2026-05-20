@@ -4,7 +4,7 @@ import { escapeHtml, formatDistance, formatPrice, haversine, projectPointToSegme
 
 export async function loadFuelStations(geometry) {
   const sample = sampleRoutePoints(geometry);
-  const query = `[out:json][timeout:25];(${sample.map(p => `node(around:2500,${p.lat},${p.lng})["amenity"="fuel"];way(around:2500,${p.lat},${p.lng})["amenity"="fuel"];`).join("")});out center tags;`;
+  const query = `[out:json][timeout:25];(${sample.map(p => `node(around:4500,${p.lat},${p.lng})["amenity"="fuel"];way(around:4500,${p.lat},${p.lng})["amenity"="fuel"];`).join("")});out center tags;`;
 
   try {
     const res = await fetch("https://overpass-api.de/api/interpreter", { method: "POST", headers: { "Content-Type": "text/plain;charset=UTF-8" }, body: query });
@@ -47,7 +47,7 @@ export function applyPricesToStations() {
     let price = state.settings.fuelType === "diesel" ? 12.99 : 14.99;
     if (brand === "ingo" || brand === "uno-x") price -= 0.25;
     if (brand === "circle k" || brand === "shell") price += 0.2;
-    return { ...station, price, brandLabel: label(brand), dataAgeLabel: "Estimeret pris", favoriteScore: favorite(station) };
+    return { ...station, price, brandLabel: label(brand), dataAgeLabel: station.isFallback ? "Estimeret fallback" : "Estimeret pris", favoriteScore: favorite(station) };
   });
 }
 
@@ -166,4 +166,29 @@ function label(brand) {
   if (brand === "ingo") return "Ingo";
   if (brand === "shell") return "Shell";
   return brand;
+}
+
+
+function createFallbackStations(geometry) {
+  const brands = ["OK", "Circle K", "Uno-X", "Q8"];
+  const positions = [0.18, 0.38, 0.62, 0.82];
+
+  return positions.map((ratio, index) => {
+    const point = geometry[Math.max(0, Math.min(geometry.length - 1, Math.round((geometry.length - 1) * ratio)))];
+
+    return {
+      id: `fallback-${index}`,
+      lat: point[1] + (index % 2 ? 0.008 : -0.008),
+      lng: point[0] + (index % 2 ? -0.008 : 0.008),
+      name: `${brands[index]} langs ruten`,
+      brand: brands[index],
+      brandLabel: brands[index],
+      address: "",
+      price: null,
+      distanceAlongRoute: Infinity,
+      distanceToRoute: 1200 + index * 250,
+      favoriteScore: 0,
+      isFallback: true
+    };
+  });
 }

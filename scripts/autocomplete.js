@@ -51,11 +51,13 @@ function renderAutocomplete(items) {
       };
       els.destinationInput.value = title;
       hideAutocomplete();
+      els.destinationInput.blur();
     });
   });
 }
 
 export function hideAutocomplete() {
+  document.body.classList.remove("search-open");
   els.autocompleteResults.classList.add("hidden");
   els.autocompleteResults.innerHTML = "";
 }

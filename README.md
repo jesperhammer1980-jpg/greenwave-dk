@@ -1,62 +1,12 @@
-# GreenWave Navigation
+# GreenWave Fixed
 
-Premium navigation prototype med:
+1. Pak ZIP ud
+2. Åbn mappen i VS Code
+3. Kør: npx serve
+4. Åbn localhost-linket
 
-- Intelligent navigation UI
-- GreenWave anbefalet fart
-- EcoScore
-- Fuel planner
-- Dynamisk navigation
-- Tankstations-analyse
-- Live navigation
-- Lane guidance
-- Premium glassmorphism UI
-
----
-
-# Funktioner
-
-## Navigation
-
-- Live GPS navigation
-- Flydende kamerabevægelser
-- Dynamisk zoom
-- Ruteomregning
-- ETA
-- Afstand tilbage
-- Lane guidance
-
-## EcoScore
-
-Analyserer:
-
-- Acceleration
-- Opbremsning
-- Stabil fart
-
-## Fuel
-
-- Tankstationer langs ruten
-- Favoritkæder
-- Omvej-analyse
-- Pris-estimater
-- Google Maps links
-
-## GreenWave
-
-Systemet forsøger at anbefale:
-
-- Mere økonomisk fart
-- Roligere tilgang til kryds
-- Hastighed til kommende sving
-
-Det er IKKE ægte trafiklys-prediktion endnu.
-
----
-
-# Struktur
-
-```text
-styles/
-scripts/
-index.html
+Denne version er lavet som en stabil rollback/fix:
+- destination kan vælges
+- settings-knapper virker
+- GPS denial håndteres med demo-startpunkt på PC
+- UI er ryddet op

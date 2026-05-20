@@ -36,7 +36,7 @@ export const state = {
     region: "dk",
     routeMode: "fast",
     fuelType: "benzin95",
-    searchRadiusBase: 100000,
+    searchRadiusBase: 150000,
     favoriteFuelBrand: "all",
     favoriteFuelMode: "boost",
     autoRerouteEnabled: true,
