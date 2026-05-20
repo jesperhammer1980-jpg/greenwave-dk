@@ -1,708 +1,136 @@
 <!DOCTYPE html>
 <html lang="da">
 <head>
-
   <meta charset="UTF-8" />
-
-  <meta
-    name="viewport"
-    content="
-      width=device-width,
-      initial-scale=1,
-      viewport-fit=cover
-    "
-  />
-
-  <title>
-    GreenWave Navigation
-  </title>
-
-  <meta
-    name="theme-color"
-    content="#07111d"
-  />
-
-  <meta
-    name="description"
-    content="
-      Premium navigation med GreenWave,
-      EcoScore og intelligente tankstop.
-    "
-  />
-
-  <!-- =========================
-       LEAFLET
-  ========================== -->
-
-  <link
-    rel="stylesheet"
-    href="
-      https://unpkg.com/leaflet@1.9.4/dist/leaflet.css
-    "
-  />
-
-  <!-- =========================
-       STYLES
-  ========================== -->
-
-  <link
-    rel="stylesheet"
-    href="./styles/base.css?v=500"
-  />
-
-  <link
-    rel="stylesheet"
-    href="./styles/map.css?v=500"
-  />
-
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>GreenWave</title>
+  <meta name="theme-color" content="#07111d" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="./styles/style.css?v=1" />
 </head>
-
 <body>
-
-  <!-- =========================
-       APP
-  ========================== -->
-
-  <div id="app">
-
-    <!-- =========================
-         MAP
-    ========================== -->
-
+  <main id="app">
     <div id="map"></div>
 
-    <!-- =========================
-         TOP BAR
-    ========================== -->
+    <header class="topbar">
+      <div class="brand"><span></span>GreenWave</div>
+      <button id="settingsBtn" class="icon-btn" type="button">⚙</button>
+    </header>
 
-    <div class="top-glass-bar">
-
-      <div class="top-left">
-
-        <div class="app-logo">
-          <div class="logo-dot"></div>
-
-          <span>
-            GreenWave
-          </span>
-        </div>
-
-      </div>
-
-      <div class="top-right">
-
-        <button
-          id="settingsBtn"
-          class="glass-icon-button"
-          aria-label="Settings"
-        >
-          ⚙
-        </button>
-
-      </div>
-
-    </div>
-
-    <!-- =========================
-         HERO SEARCH
-    ========================== -->
-
-    <section class="hero-search fade-in">
-
-      <div class="hero-title-wrap">
-
-        <div class="hero-label">
-          SMART NAVIGATION
-        </div>
-
-        <h1>
-          Drive<br>
-          smartere
-        </h1>
-
-      </div>
+    <section id="homePanel" class="home-panel">
+      <div class="eyebrow">SMART NAVIGATION</div>
+      <h1>Drive<br>smartere</h1>
 
       <div class="search-card">
-
-        <div class="search-icon">
-          ⌕
-        </div>
-
-        <input
-          id="destinationInput"
-          type="text"
-          placeholder="Hvor vil du hen?"
-          autocomplete="off"
-        />
-
-        <button
-          id="calcRouteBtn"
-          class="hero-go-button"
-        >
-          GO
-        </button>
-
-        <div
-          id="autocompleteResults"
-          class="
-            autocomplete-results
-            hidden
-          "
-        ></div>
-
+        <span class="search-symbol">⌕</span>
+        <input id="destinationInput" type="text" placeholder="Hvor vil du hen?" autocomplete="off" />
+        <button id="calcRouteBtn" type="button">GO</button>
+        <div id="autocompleteResults" class="autocomplete-results hidden"></div>
       </div>
 
+      <div class="actions">
+        <button id="centerBtn" type="button">◎<small>Center</small></button>
+        <button id="openFuelListBtn" type="button" disabled>⛽<small>Fuel</small></button>
+        <button id="startNavBtn" type="button" disabled>➜<small>Start</small></button>
+      </div>
+
+      <div class="status-row">
+        <div><span>GPS</span><strong id="gpsStatus">klar</strong></div>
+        <div><span>NAV</span><strong id="navStatus">inaktiv</strong></div>
+        <div><span>KORT</span><strong id="mapStatus">klar</strong></div>
+      </div>
+
+      <section class="mini-panel">
+        <h2>Seneste destinationer</h2>
+        <div id="historyList" class="history-list"></div>
+      </section>
+
+      <section class="mini-panel">
+        <h2>Billigste tank</h2>
+        <div id="fuelContent">Beregn en rute først.</div>
+      </section>
     </section>
 
-    <!-- =========================
-         QUICK ACTIONS
-    ========================== -->
-
-    <div class="quick-actions">
-
-      <button
-        id="centerBtn"
-        class="quick-action-card"
-      >
-        <div class="quick-icon">
-          ⊕
+    <section id="navOverlay" class="nav-overlay hidden">
+      <div class="turn-card">
+        <div id="turnIcon" class="turn-icon">↑</div>
+        <div>
+          <div id="nextTurnDistance" class="turn-distance">—</div>
+          <div id="nextTurnInstruction" class="turn-text">Fortsæt</div>
+          <div id="nextTurnRoad" class="turn-road"></div>
         </div>
+      </div>
 
-        <span>
-          Center
-        </span>
-      </button>
-
-      <button
-        id="openFuelListBtn"
-        class="
-          quick-action-card
-          quick-action-primary
-        "
-        disabled
-      >
-        <div class="quick-icon">
-          ⛽
+      <div class="speed-stack">
+        <button id="ecoScoreBadge" class="eco-badge eco-mid" type="button">Eco 70</button>
+        <div class="speed-card">
+          <div><span>MAX</span><strong id="speedLimitValue">?</strong></div>
+          <div><span>NU</span><strong id="currentSpeedValue">0</strong></div>
+          <div><span>ECO</span><strong id="recommendedSpeedValue">--</strong></div>
         </div>
+      </div>
 
-        <span>
-          Fuel
-        </span>
-      </button>
-
-      <button
-        id="startNavBtn"
-        class="quick-action-card"
-        disabled
-      >
-        <div class="quick-icon">
-          ➜
+      <div class="bottom-nav">
+        <button id="overlayStopBtn" type="button">Stop</button>
+        <div>
+          <span>Afstand</span>
+          <strong id="driveRemainingDistance">—</strong>
         </div>
-
-        <span>
-          Start
-        </span>
-      </button>
-
-    </div>
-
-    <!-- =========================
-         STATUS PILLS
-    ========================== -->
-
-    <div class="status-pills">
-
-      <div class="status-pill">
-        <span>
-          GPS
-        </span>
-
-        <strong id="gpsStatus">
-          Klar
-        </strong>
-      </div>
-
-      <div class="status-pill">
-        <span>
-          NAV
-        </span>
-
-        <strong id="navStatus">
-          Inaktiv
-        </strong>
-      </div>
-
-      <div class="status-pill">
-        <span>
-          MAP
-        </span>
-
-        <strong id="mapStatus">
-          Klar
-        </strong>
-      </div>
-
-    </div>
-
-    <!-- =========================
-         FUEL BOX
-    ========================== -->
-
-    <div class="floating-fuel-widget">
-
-      <div
-        id="fuelContent"
-        class="floating-fuel-content"
-      >
-        Beregn en rute for at se
-        intelligente tankstop.
-      </div>
-
-    </div>
-
-    <!-- =========================
-         HISTORY
-    ========================== -->
-
-    <div class="floating-history">
-
-      <div class="floating-section-title">
-        SENESTE DESTINATIONER
-      </div>
-
-      <div
-        id="historyList"
-        class="history-horizontal"
-      ></div>
-
-    </div>
-
-    <!-- =========================
-         NAVIGATION OVERLAY
-    ========================== -->
-
-    <div
-      id="navOverlay"
-      class="
-        nav-overlay
-        hidden
-      "
-    >
-
-      <!-- =========================
-           TOP NAV
-      ========================== -->
-
-      <div class="nav-top-card">
-
-        <div
-          id="turnIcon"
-          class="nav-turn-icon"
-        >
-          ↑
+        <div>
+          <span>Tid</span>
+          <strong id="driveRemainingTime">—</strong>
         </div>
-
-        <div class="nav-main-info">
-
-          <div
-            id="nextTurnDistance"
-            class="nav-distance"
-          >
-            —
-          </div>
-
-          <div
-            id="nextTurnInstruction"
-            class="nav-instruction"
-          >
-            Fortsæt
-          </div>
-
-          <div
-            id="nextTurnRoad"
-            class="nav-road"
-          ></div>
-
+        <div>
+          <span>ETA</span>
+          <strong id="driveEtaValue">—</strong>
         </div>
-
       </div>
+    </section>
 
-      <!-- =========================
-           SPEED CLUSTER
-      ========================== -->
+    <div id="settingsBackdrop" class="modal-backdrop hidden"></div>
+    <section id="settingsPanel" class="modal hidden">
+      <header>
+        <h2>Settings</h2>
+        <button id="closeSettingsBtn" type="button">✕</button>
+      </header>
+      <div id="settingsBody" class="settings-body"></div>
+      <footer>
+        <button id="saveSettingsBtn" type="button">Gem settings</button>
+      </footer>
+    </section>
 
-      <div class="speed-cluster">
+    <div id="fuelListBackdrop" class="modal-backdrop hidden"></div>
+    <section id="fuelListModal" class="modal hidden">
+      <header>
+        <h2>Tankstationer</h2>
+        <button id="closeFuelListBtn" type="button">✕</button>
+      </header>
+      <div class="fuel-controls">
+        <button id="sortFuelByPriceBtn" type="button">Billigste</button>
+        <button id="sortFuelByDetourBtn" type="button">Mindst omvej</button>
+      </div>
+      <div id="fuelListContent" class="modal-list"></div>
+    </section>
 
-        <button
-          id="ecoScoreBadge"
-          class="
-            eco-floating-badge
-            eco-mid
-          "
-        >
-          Eco 70
-        </button>
-
-        <div class="speed-widget">
-
-          <div
-            class="
-              speed-circle
-              max-speed
-            "
-          >
-            <div class="speed-label">
-              MAX
-            </div>
-
-            <div
-              id="speedLimitValue"
-              class="speed-value"
-            >
-              ?
-            </div>
-          </div>
-
-          <div
-            class="
-              speed-circle
-              current-speed
-            "
-          >
-            <div class="speed-label">
-              NU
-            </div>
-
-            <div
-              id="currentSpeedValue"
-              class="speed-value"
-            >
-              0
-            </div>
-          </div>
-
-          <div
-            class="
-              speed-circle
-              recommended-speed
-            "
-          >
-            <div class="speed-label">
-              ECO
-            </div>
-
-            <div
-              id="recommendedSpeedValue"
-              class="speed-value"
-            >
-              --
-            </div>
-          </div>
-
+    <div id="ecoScoreBackdrop" class="modal-backdrop hidden"></div>
+    <section id="ecoScoreModal" class="modal hidden">
+      <header>
+        <h2>EcoScore</h2>
+        <button id="closeEcoScoreBtn" type="button">✕</button>
+      </header>
+      <div class="eco-modal-content">
+        <div id="ecoScoreTotalValue" class="eco-total">70/100</div>
+        <div class="eco-grid">
+          <div><span>Acceleration</span><strong id="ecoScoreAccelerationValue">70/100</strong></div>
+          <div><span>Opbremsning</span><strong id="ecoScoreBrakingValue">70/100</strong></div>
+          <div><span>Stabil fart</span><strong id="ecoScoreSteadyValue">70/100</strong></div>
         </div>
-
+        <p id="ecoScoreComment">Start navigation for at analysere kørestil.</p>
       </div>
-
-      <!-- =========================
-           BOTTOM BAR
-      ========================== -->
-
-      <div class="nav-bottom-bar">
-
-        <button
-          id="overlayStopBtn"
-          class="stop-navigation-button"
-        >
-          ■
-        </button>
-
-        <div class="nav-stats">
-
-          <div class="nav-stat">
-
-            <span>
-              AFSTAND
-            </span>
-
-            <strong
-              id="driveRemainingDistance"
-            >
-              —
-            </strong>
-
-          </div>
-
-          <div class="nav-stat">
-
-            <span>
-              TID
-            </span>
-
-            <strong
-              id="driveRemainingTime"
-            >
-              —
-            </strong>
-
-          </div>
-
-          <div class="nav-stat">
-
-            <span>
-              ETA
-            </span>
-
-            <strong
-              id="driveEtaValue"
-            >
-              —
-            </strong>
-
-          </div>
-
-        </div>
-
-      </div>
-
-    </div>
-
-  </div>
-
-  <!-- =========================
-       SETTINGS
-  ========================== -->
-
-  <div
-    id="settingsBackdrop"
-    class="
-      settings-backdrop
-      hidden
-    "
-  ></div>
-
-  <div
-    id="settingsPanel"
-    class="
-      settings-panel
-      hidden
-    "
-  >
-
-    <div class="settings-header">
-
-      <h2>
-        Settings
-      </h2>
-
-      <button
-        id="closeSettingsBtn"
-        class="glass-icon-button"
-      >
-        ✕
-      </button>
-
-    </div>
-
-    <div
-      id="settingsBody"
-      class="settings-body"
-    ></div>
-
-    <div class="settings-footer">
-
-      <button
-        id="saveSettingsBtn"
-        class="save-settings-button"
-      >
-        Gem settings
-      </button>
-
-    </div>
-
-  </div>
-
-  <!-- =========================
-       FUEL LIST
-  ========================== -->
-
-  <div
-    id="fuelListBackdrop"
-    class="
-      settings-backdrop
-      hidden
-    "
-  ></div>
-
-  <div
-    id="fuelListModal"
-    class="
-      fuel-list-modal
-      hidden
-    "
-  >
-
-    <div class="fuel-list-header">
-
-      <h2>
-        Tankstationer
-      </h2>
-
-      <button
-        id="closeFuelListBtn"
-        class="glass-icon-button"
-      >
-        ✕
-      </button>
-
-    </div>
-
-    <div class="fuel-list-controls">
-
-      <button
-        id="sortFuelByPriceBtn"
-        class="small-pill-button"
-      >
-        Billigste
-      </button>
-
-      <button
-        id="sortFuelByDetourBtn"
-        class="small-pill-button"
-      >
-        Mindst omvej
-      </button>
-
-    </div>
-
-    <div
-      id="fuelListContent"
-      class="fuel-list-content"
-    ></div>
-
-  </div>
-
-  <!-- =========================
-       ECO SCORE
-  ========================== -->
-
-  <div
-    id="ecoScoreBackdrop"
-    class="
-      settings-backdrop
-      hidden
-    "
-  ></div>
-
-  <div
-    id="ecoScoreModal"
-    class="
-      eco-modal
-      hidden
-    "
-  >
-
-    <div class="settings-header">
-
-      <h2>
-        EcoScore
-      </h2>
-
-      <button
-        id="closeEcoScoreBtn"
-        class="glass-icon-button"
-      >
-        ✕
-      </button>
-
-    </div>
-
-    <div class="eco-modal-content">
-
-      <div class="eco-total-score">
-
-        <span
-          id="ecoScoreTotalValue"
-        >
-          70/100
-        </span>
-
-      </div>
-
-      <div class="eco-grid">
-
-        <div class="eco-card">
-
-          <span>
-            Acceleration
-          </span>
-
-          <strong
-            id="ecoScoreAccelerationValue"
-          >
-            70/100
-          </strong>
-
-        </div>
-
-        <div class="eco-card">
-
-          <span>
-            Opbremsning
-          </span>
-
-          <strong
-            id="ecoScoreBrakingValue"
-          >
-            70/100
-          </strong>
-
-        </div>
-
-        <div class="eco-card">
-
-          <span>
-            Stabil fart
-          </span>
-
-          <strong
-            id="ecoScoreSteadyValue"
-          >
-            70/100
-          </strong>
-
-        </div>
-
-      </div>
-
-      <div
-        id="ecoScoreComment"
-        class="eco-comment"
-      >
-        Generelt rolig og effektiv kørestil.
-      </div>
-
-    </div>
-
-  </div>
-
-  <!-- =========================
-       LEAFLET
-  ========================== -->
-
-  <script
-    src="
-      https://unpkg.com/leaflet@1.9.4/dist/leaflet.js
-    "
-  ></script>
-
-  <!-- =========================
-       APP
-  ========================== -->
-
-  <script
-    type="module"
-    src="./scripts/main.js?v=500"
-  ></script>
-
+    </section>
+  </main>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script type="module" src="./scripts/main.js?v=1"></script>
 </body>
 </html>

@@ -1,273 +1,99 @@
 import { state, SETTINGS_KEY } from "./state.js";
 import { els } from "./dom.js";
-
-import {
-  applyPricesToStations,
-  updateFuelBox,
-  updateFuelMarkers
-} from "./fuel.js";
+import { updateFuelBox, applyPricesToStations, updateFuelMarkers } from "./fuel.js";
 
 export function loadSettings() {
   try {
-    const saved = JSON.parse(
-      localStorage.getItem(SETTINGS_KEY) || "{}"
-    );
-
-    state.settings = {
-      ...state.settings,
-      ...saved
-    };
-  } catch (error) {
-    console.error("Settings load fejl", error);
-  }
+    state.settings = { ...state.settings, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}") };
+  } catch {}
 }
 
-export function saveSettings() {
-  localStorage.setItem(
-    SETTINGS_KEY,
-    JSON.stringify(state.settings)
-  );
-}
-
-export function applySettingsToUI() {
-  renderSettingsBody();
-  syncSettingsControls();
-}
-
-export function openSettings() {
-  renderSettingsBody();
-  syncSettingsControls();
-
-  els.settingsPanel?.classList.remove("hidden");
-  els.settingsBackdrop?.classList.remove("hidden");
-}
-
-export function closeSettings() {
-  els.settingsPanel?.classList.add("hidden");
-  els.settingsBackdrop?.classList.add("hidden");
-}
-
-export function saveSettingsFromControls() {
-  state.settings.region =
-    getControl("regionUS")?.checked ? "us" : "dk";
-
-  state.settings.routeMode =
-    getControl("settingsRouteEco")?.checked ? "eco" : "fast";
-
-  state.settings.fuelType =
-    getControl("settingsFuelType")?.value || "benzin95";
-
-  state.settings.searchRadiusBase =
-    Number(getControl("settingsSearchRadius")?.value || 100000);
-
-  state.settings.favoriteFuelBrand =
-    getControl("settingsFavoriteFuelBrand")?.value || "all";
-
-  state.settings.favoriteFuelMode =
-    getControl("settingsFavoriteFuelMode")?.value || "boost";
-
-  state.settings.mapStyleMode =
-    getControl("settingsMapStyleMode")?.value || "navigation";
-
-  state.settings.ecoScoreEnabled =
-    getControl("settingsEcoScoreEnabled")?.checked !== false;
-
-  state.settings.autoRerouteEnabled =
-    getControl("settingsAutoRerouteEnabled")?.checked !== false;
-
-  state.settings.dynamicZoomEnabled =
-    getControl("settingsDynamicZoomEnabled")?.checked !== false;
-
-  state.settings.smoothCameraEnabled =
-    getControl("settingsSmoothCameraEnabled")?.checked !== false;
-
-  state.settings.laneGuidanceEnabled =
-    getControl("settingsLaneGuidanceEnabled")?.checked !== false;
-
-  state.settings.greenWaveEnabled =
-    getControl("settingsGreenWaveEnabled")?.checked !== false;
-
-  saveSettings();
-  closeSettings();
-
-  if (state.routeData) {
-    try {
-      applyPricesToStations();
-      updateFuelBox();
-      updateFuelMarkers();
-    } catch (error) {
-      console.warn("Settings refresh fejl", error);
-    }
-  }
-}
-
-function renderSettingsBody() {
-  if (!els.settingsBody) {
-    return;
-  }
-
+export function renderSettings() {
+  if (!els.settingsBody) return;
   els.settingsBody.innerHTML = `
-    <div class="settings-section">
+    <section class="setting-section">
       <h3>Område</h3>
+      <label class="setting-option"><input id="regionDK" name="region" type="radio" value="dk"> Danmark</label>
+      <label class="setting-option"><input id="regionUS" name="region" type="radio" value="us"> USA</label>
+    </section>
 
-      <label class="settings-option">
-        <input id="regionDK" type="radio" name="region">
-        <span>Danmark</span>
-      </label>
-
-      <label class="settings-option">
-        <input id="regionUS" type="radio" name="region">
-        <span>USA</span>
-      </label>
-    </div>
-
-    <div class="settings-section">
+    <section class="setting-section">
       <h3>Rute</h3>
+      <label class="setting-option"><input id="routeFast" name="routeMode" type="radio" value="fast"> Hurtigste rute</label>
+      <label class="setting-option"><input id="routeEco" name="routeMode" type="radio" value="eco"> Økonomisk rute</label>
+    </section>
 
-      <label class="settings-option">
-        <input id="settingsRouteFast" type="radio" name="routeMode">
-        <span>Hurtigste rute</span>
-      </label>
-
-      <label class="settings-option">
-        <input id="settingsRouteEco" type="radio" name="routeMode">
-        <span>Økonomisk rute</span>
-      </label>
-    </div>
-
-    <div class="settings-section">
+    <section class="setting-section">
       <h3>Navigation</h3>
+      <label class="setting-option"><input id="autoReroute" type="checkbox"> Automatisk omdirigering</label>
+      <label class="setting-option"><input id="dynamicZoom" type="checkbox"> Dynamisk zoom</label>
+      <label class="setting-option"><input id="laneGuidance" type="checkbox"> Simpel lane guidance</label>
+      <label class="setting-option"><input id="greenWave" type="checkbox"> Anbefalet fart / GreenWave</label>
+    </section>
 
-      <label class="settings-option">
-        <input id="settingsAutoRerouteEnabled" type="checkbox">
-        <span>Automatisk omdirigering</span>
-      </label>
-
-      <label class="settings-option">
-        <input id="settingsDynamicZoomEnabled" type="checkbox">
-        <span>Dynamisk zoom</span>
-      </label>
-
-      <label class="settings-option">
-        <input id="settingsSmoothCameraEnabled" type="checkbox">
-        <span>Flydende kamera</span>
-      </label>
-
-      <label class="settings-option">
-        <input id="settingsLaneGuidanceEnabled" type="checkbox">
-        <span>Simpel lane guidance</span>
-      </label>
-
-      <label class="settings-option">
-        <input id="settingsGreenWaveEnabled" type="checkbox">
-        <span>Anbefalet fart / GreenWave</span>
-      </label>
-
-      <p class="settings-note">
-        GreenWave er stadig en anbefalet økonomisk fart. Den er ikke en præcis trafiklys-forudsigelse endnu.
-      </p>
-    </div>
-
-    <div class="settings-section">
-      <h3>EcoScore</h3>
-
-      <label class="settings-option">
-        <input id="settingsEcoScoreEnabled" type="checkbox">
-        <span>Vis EcoScore</span>
-      </label>
-
-      <p class="settings-note">
-        Høj score kræver rolig acceleration, blød nedbremsning og stabil hastighed over hele turen.
-      </p>
-    </div>
-
-    <div class="settings-section">
+    <section class="setting-section">
       <h3>Brændstof</h3>
-
-      <label class="label" for="settingsFuelType">Brændstof</label>
-      <select id="settingsFuelType">
+      <label>Type</label>
+      <select id="fuelType">
         <option value="benzin95">Benzin 95</option>
         <option value="diesel">Diesel</option>
       </select>
 
-      <label class="label" for="settingsFavoriteFuelBrand">Favorit tankkæde</label>
-      <select id="settingsFavoriteFuelBrand">
-        <option value="all">Alle / billigst uanset kæde</option>
+      <label>Favorit tankkæde</label>
+      <select id="favoriteFuelBrand">
+        <option value="all">Alle</option>
         <option value="ok">OK</option>
         <option value="circle k">Circle K</option>
         <option value="q8">Q8</option>
         <option value="shell">Shell</option>
         <option value="ingo">Ingo</option>
         <option value="uno-x">Uno-X</option>
-        <option value="f24">F24</option>
-        <option value="goon">Go’on</option>
       </select>
-
-      <label class="label" for="settingsFavoriteFuelMode">Favorit-prioritet</label>
-      <select id="settingsFavoriteFuelMode">
-        <option value="boost">Prioritér favorit</option>
-        <option value="only">Vis kun favorit</option>
-      </select>
-    </div>
-
-    <div class="settings-section">
-      <h3>Kort og radius</h3>
-
-      <label class="label" for="settingsMapStyleMode">Kortstil</label>
-      <select id="settingsMapStyleMode">
-        <option value="navigation">Premium navigation</option>
-        <option value="standard">Standard dark</option>
-      </select>
-
-      <label class="label" for="settingsSearchRadius">Søgeradius langs ruten</label>
-      <select id="settingsSearchRadius">
-        <option value="25000">25 km</option>
-        <option value="50000">50 km</option>
-        <option value="100000">100 km</option>
-        <option value="150000">150 km</option>
-        <option value="250000">250 km</option>
-      </select>
-    </div>
+    </section>
   `;
+  syncSettings();
 }
 
-function syncSettingsControls() {
-  setChecked("regionDK", state.settings.region === "dk");
-  setChecked("regionUS", state.settings.region === "us");
-
-  setChecked("settingsRouteFast", state.settings.routeMode === "fast");
-  setChecked("settingsRouteEco", state.settings.routeMode === "eco");
-
-  setChecked("settingsEcoScoreEnabled", state.settings.ecoScoreEnabled !== false);
-  setChecked("settingsAutoRerouteEnabled", state.settings.autoRerouteEnabled !== false);
-  setChecked("settingsDynamicZoomEnabled", state.settings.dynamicZoomEnabled !== false);
-  setChecked("settingsSmoothCameraEnabled", state.settings.smoothCameraEnabled !== false);
-  setChecked("settingsLaneGuidanceEnabled", state.settings.laneGuidanceEnabled !== false);
-  setChecked("settingsGreenWaveEnabled", state.settings.greenWaveEnabled !== false);
-
-  setValue("settingsFuelType", state.settings.fuelType || "benzin95");
-  setValue("settingsFavoriteFuelBrand", state.settings.favoriteFuelBrand || "all");
-  setValue("settingsFavoriteFuelMode", state.settings.favoriteFuelMode || "boost");
-  setValue("settingsMapStyleMode", state.settings.mapStyleMode || "navigation");
-  setValue("settingsSearchRadius", String(state.settings.searchRadiusBase || 100000));
+export function openSettings() {
+  renderSettings();
+  els.settingsPanel.classList.remove("hidden");
+  els.settingsBackdrop.classList.remove("hidden");
 }
 
-function getControl(id) {
-  return document.getElementById(id);
+export function closeSettings() {
+  els.settingsPanel.classList.add("hidden");
+  els.settingsBackdrop.classList.add("hidden");
 }
 
-function setChecked(id, value) {
-  const el = getControl(id);
+export function saveSettingsFromControls() {
+  state.settings.region = document.getElementById("regionUS").checked ? "us" : "dk";
+  state.settings.routeMode = document.getElementById("routeEco").checked ? "eco" : "fast";
+  state.settings.autoRerouteEnabled = document.getElementById("autoReroute").checked;
+  state.settings.dynamicZoomEnabled = document.getElementById("dynamicZoom").checked;
+  state.settings.laneGuidanceEnabled = document.getElementById("laneGuidance").checked;
+  state.settings.greenWaveEnabled = document.getElementById("greenWave").checked;
+  state.settings.fuelType = document.getElementById("fuelType").value;
+  state.settings.favoriteFuelBrand = document.getElementById("favoriteFuelBrand").value;
 
-  if (el) {
-    el.checked = Boolean(value);
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(state.settings));
+  closeSettings();
+
+  if (state.routeData) {
+    applyPricesToStations();
+    updateFuelBox();
+    updateFuelMarkers();
   }
 }
 
-function setValue(id, value) {
-  const el = getControl(id);
-
-  if (el) {
-    el.value = value;
-  }
+function syncSettings() {
+  document.getElementById("regionDK").checked = state.settings.region === "dk";
+  document.getElementById("regionUS").checked = state.settings.region === "us";
+  document.getElementById("routeFast").checked = state.settings.routeMode === "fast";
+  document.getElementById("routeEco").checked = state.settings.routeMode === "eco";
+  document.getElementById("autoReroute").checked = state.settings.autoRerouteEnabled;
+  document.getElementById("dynamicZoom").checked = state.settings.dynamicZoomEnabled;
+  document.getElementById("laneGuidance").checked = state.settings.laneGuidanceEnabled;
+  document.getElementById("greenWave").checked = state.settings.greenWaveEnabled;
+  document.getElementById("fuelType").value = state.settings.fuelType;
+  document.getElementById("favoriteFuelBrand").value = state.settings.favoriteFuelBrand;
 }
