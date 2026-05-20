@@ -17,6 +17,7 @@ export const state = {
   routeProgress: { alongMeters: 0, remainingMeters: 0, remainingSeconds: 0, progressRatio: 0, distanceToRoute: Infinity },
   navigationWatcherId: null,
   navigationActive: false,
+  previousNavigationPosition: null,
   autocompleteTimer: null,
   history: [],
   fuelStations: [],
