@@ -1,0 +1,13 @@
+GreenWave Hotfix
+
+Retter:
+- Autocomplete/forslag ligger nu foran øvrig tekst og knapper
+- Bagvedliggende widgets dæmpes mens der søges
+- Fuel søger bredere og bruger fallback, så den ikke bare viser 'Ingen tankstationer'
+- Safe-area/topplacering forbedret på iPhone
+- Cache-buster opdateret til v=2
+
+Upload disse filer til GitHub på samme måde:
+index.html
+styles/
+scripts/
