@@ -1,1 +1,0 @@
-Replace existing scripts folder contents with latest scripts.
