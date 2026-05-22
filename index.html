@@ -6,7 +6,7 @@
   <title>GreenWave</title>
   <meta name="theme-color" content="#07111d" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <link rel="stylesheet" href="./styles/style.css?v=feedback1" />
+  <link rel="stylesheet" href="./styles/style.css?v=ecospeed2" />
 </head>
 <body>
   <main id="app">
@@ -52,7 +52,7 @@
         <div class="turn-info">
           <div class="turn-row">
             <div id="nextTurnDistance" class="turn-distance">—</div>
-            <div class="top-speed-pill"><span>Nu</span><strong id="topCurrentSpeed">0</strong><small>km/t</small></div>
+            
           </div>
           <div id="nextTurnInstruction" class="turn-text">Fortsæt</div>
           <div id="nextTurnRoad" class="turn-road"></div>
@@ -98,6 +98,11 @@
       <header><h2>EcoScore</h2><button id="closeEcoScoreBtn" type="button">✕</button></header>
       <div class="eco-modal-content">
         <div id="ecoScoreTotalValue" class="eco-total">70/100</div>
+        <div class="eco-live-speed">
+          <span>Aktuel hastighed</span>
+          <strong id="ecoLiveSpeed">0</strong>
+          <small>km/t</small>
+        </div>
         <div class="eco-grid">
           <div><span>Acceleration</span><strong id="ecoScoreAccelerationValue">70/100</strong><small id="ecoAccelerationStatus" class="rating-pill rating-neutral">—</small></div>
           <div><span>Opbremsning</span><strong id="ecoScoreBrakingValue">70/100</strong><small id="ecoBrakingStatus" class="rating-pill rating-neutral">—</small></div>
@@ -109,6 +114,6 @@
   </main>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script type="module" src="./scripts/main.js?v=feedback1"></script>
+  <script type="module" src="./scripts/main.js?v=ecospeed2"></script>
 </body>
 </html>
