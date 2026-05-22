@@ -1,12 +1,4 @@
-# GreenWave Fixed
+# GreenWave Clean Recovery
 
-1. Pak ZIP ud
-2. Åbn mappen i VS Code
-3. Kør: npx serve
-4. Åbn localhost-linket
-
-Denne version er lavet som en stabil rollback/fix:
-- destination kan vælges
-- settings-knapper virker
-- GPS denial håndteres med demo-startpunkt på PC
-- UI er ryddet op
+Ren pakke uden .github/workflows-rod og uden placeholder-filer.
+Upload kun indholdet i roden: index.html, scripts, styles.
