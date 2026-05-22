@@ -1,0 +1,14 @@
+GreenWave DriveFeedbackFix
+
+Upload HELE mappen til GitHub og overskriv alt i roden:
+- index.html
+- scripts/
+- styles/
+
+Retter:
+- Aktuel hastighed vises øverst i navigation
+- Eco distance bruger nu total målt distance
+- Acceleration og nedbremsning vurderes over længere distance/vindue
+- Feedback opdeles i:
+  Slap af Markus / For voldsomt / I orden / Flot / Smukt
+- Feedback har farvekoder i EcoScore-modal

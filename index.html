@@ -6,7 +6,7 @@
   <title>GreenWave</title>
   <meta name="theme-color" content="#07111d" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <link rel="stylesheet" href="./styles/style.css?v=route1" />
+  <link rel="stylesheet" href="./styles/style.css?v=feedback1" />
 </head>
 <body>
   <main id="app">
@@ -49,8 +49,11 @@
     <section id="navOverlay" class="nav-overlay hidden">
       <div class="turn-card">
         <div id="turnIcon" class="turn-icon">↑</div>
-        <div>
-          <div id="nextTurnDistance" class="turn-distance">—</div>
+        <div class="turn-info">
+          <div class="turn-row">
+            <div id="nextTurnDistance" class="turn-distance">—</div>
+            <div class="top-speed-pill"><span>Nu</span><strong id="topCurrentSpeed">0</strong><small>km/t</small></div>
+          </div>
           <div id="nextTurnInstruction" class="turn-text">Fortsæt</div>
           <div id="nextTurnRoad" class="turn-road"></div>
         </div>
@@ -96,9 +99,9 @@
       <div class="eco-modal-content">
         <div id="ecoScoreTotalValue" class="eco-total">70/100</div>
         <div class="eco-grid">
-          <div><span>Acceleration</span><strong id="ecoScoreAccelerationValue">70/100</strong><small id="ecoAccelerationStatus">—</small></div>
-          <div><span>Opbremsning</span><strong id="ecoScoreBrakingValue">70/100</strong><small id="ecoBrakingStatus">—</small></div>
-          <div><span>Jævn hastighed</span><strong id="ecoScoreSteadyValue">70/100</strong><small id="ecoMeasuredDistance">0,0 km målt</small></div>
+          <div><span>Acceleration</span><strong id="ecoScoreAccelerationValue">70/100</strong><small id="ecoAccelerationStatus" class="rating-pill rating-neutral">—</small></div>
+          <div><span>Opbremsning</span><strong id="ecoScoreBrakingValue">70/100</strong><small id="ecoBrakingStatus" class="rating-pill rating-neutral">—</small></div>
+          <div><span>Jævn hastighed</span><strong id="ecoScoreSteadyValue">70/100</strong><small id="ecoMeasuredDistance" class="rating-pill rating-neutral">0,0 km målt</small></div>
         </div>
         <p id="ecoScoreComment">Start navigation for at analysere kørestil.</p>
       </div>
@@ -106,6 +109,6 @@
   </main>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script type="module" src="./scripts/main.js?v=route1"></script>
+  <script type="module" src="./scripts/main.js?v=feedback1"></script>
 </body>
 </html>
