@@ -29,3 +29,5 @@ body.navigation-active .home-panel,body.navigation-active .topbar{display:none}
 .eco-modal-content{padding:24px}.eco-total{text-align:center;font-size:58px;font-weight:950;color:#36ff8d}.eco-grid{display:grid;gap:12px}.eco-grid div{padding:16px;border-radius:20px;background:#111b2a}.eco-grid span{display:block;color:rgba(255,255,255,.6);font-size:13px}.eco-grid strong{font-size:24px}.eco-grid small{display:block;color:rgba(255,255,255,.6);margin-top:6px}
 .user-marker-icon,.dest-marker-icon,.fuel-marker{background:transparent;border:0}.user-marker-dot{width:28px;height:28px;border-radius:50%;background:#2b91ff;border:5px solid #fff;box-shadow:0 0 0 8px rgba(43,145,255,.22),0 10px 30px rgba(0,0,0,.4)}.dest-marker-dot{width:40px;height:40px;border-radius:50%;background:#ff3b3b;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:900}
 @media(max-width:700px){h1{font-size:34px}.bottom-nav{grid-template-columns:80px repeat(3,1fr)}.bottom-nav strong{font-size:17px}.turn-text{font-size:28px}}
+
+.settings-note{margin:10px 0 0;color:rgba(255,255,255,.58);font-size:13px;line-height:1.4}

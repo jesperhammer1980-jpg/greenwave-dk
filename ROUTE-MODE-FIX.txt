@@ -1,0 +1,13 @@
+GreenWave RouteModeFix
+
+Upload HELE mappen til GitHub og overskriv alt i roden:
+- index.html
+- scripts/
+- styles/
+
+Retter:
+- Hurtigste rute tilbage i Settings
+- Mest økonomiske rute tilbage i Settings
+- OSRM alternatives=true
+- Fast vælger laveste duration
+- Eco vælger lavere distance/tid-score
