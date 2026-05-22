@@ -1,0 +1,9 @@
+GreenWave ButtonFix
+
+Upload HELE ZIP-indholdet til GitHub og overskriv alt.
+
+Retter:
+- knapper virker igen
+- fjerner ekstra hastighedsboks fra navigation
+- aktuel hastighed vises i EcoScore-vinduet
+- undgår dobbelt/ødelagt DOM-binding

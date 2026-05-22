@@ -49,7 +49,7 @@ body.navigation-active .home-panel,body.navigation-active .topbar{display:none}
 .rating-neutral{background:rgba(255,255,255,.08);color:rgba(255,255,255,.68)!important;border:1px solid rgba(255,255,255,.10)}
 
 
-/* ECO LIVE SPEED */
+/* BUTTONFIX / ECO LIVE SPEED */
 .eco-live-speed{
   display:flex;
   align-items:baseline;
