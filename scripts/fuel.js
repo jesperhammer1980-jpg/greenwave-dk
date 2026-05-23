@@ -239,11 +239,11 @@ async function searchRouteSamples(geometry){
 async function runOverpassQuery(query){
   for(const endpoint of OVERPASS_ENDPOINTS){
     try{
-      const response=await fetch(endpoint,{
-        method:"POST",
-        headers:{"Content-Type":"text/plain;charset=UTF-8"},
-        body:query
-      });
+      const response = await fetchWithTimeout(endpoint, {
+        method: "POST",
+        headers: {"Content-Type":"text/plain;charset=UTF-8"},
+        body: query
+      }, 9000);
 
       if(!response.ok)continue;
 
@@ -321,4 +321,19 @@ function shortName(name){
     .replace("Uno-X","UX")
     .replace("Tankstation","Fuel")
     .slice(0,14);
+}
+
+
+async function fetchWithTimeout(url, options, timeoutMs) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(url, {
+      ...options,
+      signal: controller.signal
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
 }

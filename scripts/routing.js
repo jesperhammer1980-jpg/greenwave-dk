@@ -31,14 +31,21 @@ export async function calculateRoute(){
     saveHistory(state.destination);
     renderHistory();
 
-    await loadFuelStations(route.geometry);
-    computeRouteDistances();
-    applyPricesToStations();
-    updateFuelBox();
-    updateFuelMarkers();
-
     els.startNavBtn.disabled=false;
     els.openFuelListBtn.disabled=false;
+
+    // Fuel must never block route calculation or make GO appear dead.
+    loadFuelStations(route.geometry)
+      .then(() => {
+        computeRouteDistances();
+        applyPricesToStations();
+        updateFuelBox();
+        updateFuelMarkers();
+      })
+      .catch(error => {
+        console.warn("Fuel update failed", error);
+        updateFuelBox();
+      });
 
   }catch(e){
     alert("Kunne ikke beregne rute:\\n"+(e.message||e));
