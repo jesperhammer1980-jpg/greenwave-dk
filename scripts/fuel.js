@@ -2,42 +2,27 @@ import {state} from "./state.js";
 import {els} from "./dom.js";
 import {escapeHtml,formatDistance,buildGoogleMapsLink,haversine,projectPointToSegment} from "./utils.js";
 
+const OVERPASS_ENDPOINTS=[
+  "https://overpass-api.de/api/interpreter",
+  "https://overpass.kumi.systems/api/interpreter",
+  "https://overpass.osm.ch/api/interpreter"
+];
+
 export async function loadFuelStations(geometry){
   state.fuelStations=[];
 
   if(!Array.isArray(geometry)||geometry.length<2)return;
 
-  const pts=sampleRoutePoints(geometry,28);
+  const bbox=routeBbox(geometry,0.08);
+  const bboxQuery=buildBboxQuery(bbox);
 
-  const queries=[
-    buildOverpassQuery(pts,6500),
-    buildOverpassQuery(pts,10000)
-  ];
+  let stations=await runOverpassQuery(bboxQuery);
 
-  for(const query of queries){
-    try{
-      const res=await fetch("https://overpass-api.de/api/interpreter",{
-        method:"POST",
-        headers:{"Content-Type":"text/plain;charset=UTF-8"},
-        body:query
-      });
-
-      const data=await res.json();
-
-      const found=dedupe(
-        (data.elements||[])
-          .map(norm)
-          .filter(Boolean)
-      );
-
-      if(found.length){
-        state.fuelStations=found;
-        break;
-      }
-    }catch(error){
-      console.warn("Fuel lookup failed",error);
-    }
+  if(!stations.length){
+    stations=await searchRouteSamples(geometry);
   }
+
+  state.fuelStations=dedupe(stations);
 }
 
 export function computeRouteDistances(){
@@ -48,6 +33,7 @@ export function computeRouteDistances(){
   for(let i=1;i<g.length;i++){
     const a=g[i-1];
     const b=g[i];
+
     const length=haversine(a[1],a[0],b[1],b[0]);
 
     segs.push({
@@ -106,8 +92,8 @@ export function updateFuelBox(){
   if(!st.length){
     els.fuelContent.innerHTML=`
       <div class="fuel-name">Ingen tankstationer fundet</div>
-      <div class="fuel-meta">Ingen OSM-stationer fundet tæt nok på ruten.</div>
-      <div class="fuel-meta">Søgningen bruger nu op til 10 km fra ruten.</div>
+      <div class="fuel-meta">OSM/Overpass returnerede ingen stationer langs ruten.</div>
+      <div class="fuel-meta">Priser vises ikke, før der er en rigtig prisdatakilde.</div>
     `;
     return;
   }
@@ -125,12 +111,12 @@ export function updateFuelBox(){
 export function updateFuelMarkers(){
   clearFuelMarkers();
 
-  getStations().slice(0,12).forEach(s=>{
+  getStations().slice(0,18).forEach(s=>{
     const icon=L.divIcon({
       className:"fuel-marker",
       html:`<div class="fuel-overview-pin">⛽ ${escapeHtml(shortName(s.name))}</div>`,
-      iconSize:[118,38],
-      iconAnchor:[59,38]
+      iconSize:[124,38],
+      iconAnchor:[62,38]
     });
 
     state.fuelMarkers.push(
@@ -176,28 +162,100 @@ export function renderFuelList(){
 function getStations(){
   return state.fuelStations
     .filter(s=>Number.isFinite(s.distanceToRoute))
-    .filter(s=>s.distanceToRoute<=10000)
+    .filter(s=>s.distanceToRoute<=12000)
     .sort((a,b)=>
       state.fuelListSort==="detour"
         ? a.distanceToRoute-b.distanceToRoute
         : a.distanceAlongRoute-b.distanceAlongRoute
     )
-    .slice(0,20);
+    .slice(0,30);
 }
 
-function buildOverpassQuery(points,radius){
+function routeBbox(geometry,paddingDegrees){
+  let minLat=Infinity;
+  let minLng=Infinity;
+  let maxLat=-Infinity;
+  let maxLng=-Infinity;
+
+  geometry.forEach(point=>{
+    const lng=point[0];
+    const lat=point[1];
+
+    minLat=Math.min(minLat,lat);
+    maxLat=Math.max(maxLat,lat);
+    minLng=Math.min(minLng,lng);
+    maxLng=Math.max(maxLng,lng);
+  });
+
+  return {
+    south:minLat-paddingDegrees,
+    west:minLng-paddingDegrees,
+    north:maxLat+paddingDegrees,
+    east:maxLng+paddingDegrees
+  };
+}
+
+function buildBboxQuery(bbox){
+  const b=`${bbox.south},${bbox.west},${bbox.north},${bbox.east}`;
+
   return `[out:json][timeout:35];
   (
-    ${points.map(p=>`
-      node(around:${radius},${p.lat},${p.lng})["amenity"="fuel"];
-      way(around:${radius},${p.lat},${p.lng})["amenity"="fuel"];
-      relation(around:${radius},${p.lat},${p.lng})["amenity"="fuel"];
-    `).join("")}
+    node["amenity"="fuel"](${b});
+    way["amenity"="fuel"](${b});
+    relation["amenity"="fuel"](${b});
   );
   out center tags;`;
 }
 
-function norm(el){
+async function searchRouteSamples(geometry){
+  const points=sampleRoutePoints(geometry,12);
+  const all=[];
+
+  for(const point of points){
+    const query=`[out:json][timeout:20];
+    (
+      node(around:9000,${point.lat},${point.lng})["amenity"="fuel"];
+      way(around:9000,${point.lat},${point.lng})["amenity"="fuel"];
+      relation(around:9000,${point.lat},${point.lng})["amenity"="fuel"];
+    );
+    out center tags;`;
+
+    const found=await runOverpassQuery(query);
+
+    all.push(...found);
+  }
+
+  return all;
+}
+
+async function runOverpassQuery(query){
+  for(const endpoint of OVERPASS_ENDPOINTS){
+    try{
+      const response=await fetch(endpoint,{
+        method:"POST",
+        headers:{"Content-Type":"text/plain;charset=UTF-8"},
+        body:query
+      });
+
+      if(!response.ok)continue;
+
+      const data=await response.json();
+
+      const stations=(data.elements||[])
+        .map(normalizeStation)
+        .filter(Boolean);
+
+      if(stations.length)return stations;
+
+    }catch(error){
+      console.warn("Overpass endpoint failed",endpoint,error);
+    }
+  }
+
+  return [];
+}
+
+function normalizeStation(el){
   const lat=typeof el.lat==="number"?el.lat:el.center?.lat;
   const lng=typeof el.lon==="number"?el.lon:el.center?.lon;
 
@@ -216,27 +274,31 @@ function norm(el){
   };
 }
 
-function sampleRoutePoints(g,count){
-  const pts=[];
+function sampleRoutePoints(geometry,count){
+  const points=[];
 
   for(let i=0;i<count;i++){
-    const idx=Math.round((g.length-1)*(i/(count-1)));
-    const p=g[idx];
+    const index=Math.round((geometry.length-1)*(i/(count-1)));
+    const point=geometry[index];
 
-    if(p)pts.push({
-      lng:p[0],
-      lat:p[1]
-    });
+    if(point){
+      points.push({
+        lng:point[0],
+        lat:point[1]
+      });
+    }
   }
 
-  return pts;
+  return points;
 }
 
 function dedupe(stations){
   const seen=new Set();
 
-  return stations.filter(s=>{
-    const key=Math.round(s.lat*10000)+":"+Math.round(s.lng*10000);
+  return stations.filter(station=>{
+    const key =
+      station.id ||
+      Math.round(station.lat*10000)+":"+Math.round(station.lng*10000);
 
     if(seen.has(key))return false;
 
@@ -250,5 +312,5 @@ function shortName(name){
     .replace("Circle K","CK")
     .replace("Uno-X","UX")
     .replace("Tankstation","Fuel")
-    .slice(0,12);
+    .slice(0,14);
 }
