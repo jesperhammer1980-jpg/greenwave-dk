@@ -18,7 +18,7 @@ function updateEcoModal(){
 
   setRating(els.ecoAccelerationStatus,e.lastAccelerationLabel||"—",e.lastAccelerationClass||"rating-neutral");
   setRating(els.ecoBrakingStatus,e.lastBrakingLabel||"—",e.lastBrakingClass||"rating-neutral");
-  setRating(els.ecoMeasuredDistance,`${km} km målt`,e.lastSteadyClass||"rating-neutral");
+  setRating(els.ecoMeasuredDistance,`${km} km målt`,e.lastSteadyClass||"rating-neutral"); if(els.ecoAccelerationBarNeedle) els.ecoAccelerationBarNeedle.style.left=`${e.lastAccelerationBalance ?? 50}%`; if(els.ecoBrakingBarNeedle) els.ecoBrakingBarNeedle.style.left=`${e.lastBrakingBalance ?? 50}%`;
 
   els.ecoScoreComment.textContent=
     (total>=82?"Meget økonomisk og stabil kørsel.":

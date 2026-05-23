@@ -64,7 +64,7 @@ function updateEco(cur){
   const oldest=e.speedSamples[0]||{speed,meters:e.totalMeters,time:now};
   const windowDelta=speed-oldest.speed;
   const windowMeters=Math.max(1,e.totalMeters-oldest.meters);
-  const deltaPer100m=windowDelta/(windowMeters/100);
+  const deltaPer100m=windowDelta/(windowMeters/100); e.lastAccelerationBalance=clamp(50+deltaPer100m*8,0,100); e.lastBrakingBalance=clamp(50+deltaPer100m*8,0,100);
 
   if(speed>=10 && e.speedSamples.length>=3){
     const steadyStd=calculateSpeedStd(e.speedSamples);
@@ -100,6 +100,7 @@ function updateEco(cur){
   const factor=e.totalMeters<1000?.85:e.totalMeters<3000?.95:1;
   const total=Math.round((a*.28+b*.28+st*.44)*factor);
   e.currentScore=total;
+  updateEcoModalLive(a,b,st,total,speed);
   updateEcoBadge(total);
 }
 
@@ -117,6 +118,32 @@ function ratingFromScore(score){
   if(score<88)return{label:"Flot",className:"rating-good"};
   return{label:"Smukt",className:"rating-perfect"};
 }
+
+function updateEcoModalLive(accel,brake,steady,total,currentSpeed){
+  if(!els.ecoScoreModal || els.ecoScoreModal.classList.contains("hidden")) return;
+  const km=((state.ecoScore.totalMeters||state.ecoScore.measuredMeters||0)/1000).toFixed(1).replace(".",",");
+  if(els.ecoLiveSpeed) els.ecoLiveSpeed.textContent=Math.round(currentSpeed||0);
+  if(els.ecoScoreTotalValue) els.ecoScoreTotalValue.textContent=`${total}/100`;
+  if(els.ecoScoreAccelerationValue) els.ecoScoreAccelerationValue.textContent=`${Math.round(accel)}/100`;
+  if(els.ecoScoreBrakingValue) els.ecoScoreBrakingValue.textContent=`${Math.round(brake)}/100`;
+  if(els.ecoScoreSteadyValue) els.ecoScoreSteadyValue.textContent=`${Math.round(steady)}/100`;
+  setLiveRating(els.ecoAccelerationStatus,state.ecoScore.lastAccelerationLabel,state.ecoScore.lastAccelerationClass);
+  setLiveRating(els.ecoBrakingStatus,state.ecoScore.lastBrakingLabel,state.ecoScore.lastBrakingClass);
+  setLiveRating(els.ecoMeasuredDistance,`${km} km målt`,state.ecoScore.lastSteadyClass);
+  if(els.ecoAccelerationBarNeedle) els.ecoAccelerationBarNeedle.style.left=`${state.ecoScore.lastAccelerationBalance ?? 50}%`;
+  if(els.ecoBrakingBarNeedle) els.ecoBrakingBarNeedle.style.left=`${state.ecoScore.lastBrakingBalance ?? 50}%`;
+  if(els.ecoScoreComment){
+    els.ecoScoreComment.textContent=(total>=82?"Meget økonomisk og stabil kørsel.":total>=70?"Generelt rolig og effektiv kørestil.":total>=55?"Forbedringspotentiale.":"Ujævn kørestil.")+` Måling: ${km} km.`;
+  }
+}
+
+function setLiveRating(el,text,className){
+  if(!el)return;
+  el.textContent=text||"—";
+  el.className=`rating-pill ${className||"rating-neutral"}`;
+}
+
+function clamp(value,min,max){return Math.max(min,Math.min(max,value));}
 
 function updateEcoBadge(score){els.ecoScoreBadge.textContent=`Eco ${score}`;els.ecoScoreBadge.className="eco-badge "+(score>=82?"eco-ok":score>=58?"eco-mid":"eco-low");}
 function avg(sum,count,fallback){return count>0?sum/count:fallback;}

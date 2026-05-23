@@ -1,0 +1,11 @@
+GreenWave LiveEcoBarFix
+
+Upload HELE ZIP-indholdet til GitHub og overskriv alt.
+
+Retter:
+- EcoScore-modal opdaterer LIVE uden luk/åbn
+- Acceleration og opbremsning får live balancebar
+- Grøn midte = passende
+- Rød venstre = for langsom
+- Rød højre = for hurtig/for hård
+- Hvid nål viser live position
