@@ -1,6 +1,7 @@
 import {state} from "./state.js";
 import {els} from "./dom.js";
 import {escapeHtml,formatDistance,buildGoogleMapsLink,haversine,projectPointToSegment} from "./utils.js";
+import {loadFuelPriceData,attachFuelPrices,getFuelPriceStatus} from "./fuel-price-service.js";
 
 const OVERPASS_ENDPOINTS=[
   "https://overpass-api.de/api/interpreter",
@@ -22,6 +23,7 @@ export async function loadFuelStations(geometry){
     stations=await searchRouteSamples(geometry);
   }
 
+  await loadFuelPriceData();
   state.fuelStations=dedupe(stations);
 }
 
@@ -72,11 +74,7 @@ export function computeRouteDistances(){
 }
 
 export function applyPricesToStations(){
-  state.fuelStations=state.fuelStations.map(s=>({
-    ...s,
-    price:null,
-    dataAgeLabel:"Pris ikke tilgængelig"
-  }));
+  state.fuelStations=attachFuelPrices(state.fuelStations,state.settings?.fuelType||"benzin95");
 }
 
 export function updateFuelBox(){
@@ -90,10 +88,11 @@ export function updateFuelBox(){
   const st=getStations();
 
   if(!st.length){
+    const status=getFuelPriceStatus();
     els.fuelContent.innerHTML=`
       <div class="fuel-name">Ingen tankstationer fundet</div>
       <div class="fuel-meta">OSM/Overpass returnerede ingen stationer langs ruten.</div>
-      <div class="fuel-meta">Priser vises ikke, før der er en rigtig prisdatakilde.</div>
+      <div class="fuel-meta">${escapeHtml(status.label)}</div>
     `;
     return;
   }
@@ -104,7 +103,7 @@ export function updateFuelBox(){
     <div class="fuel-name">${escapeHtml(b.name)}</div>
     <div class="fuel-meta">${formatDistance(b.distanceAlongRoute)} langs ruten</div>
     <div class="fuel-meta">${formatDistance(b.distanceToRoute)} fra ruten</div>
-    <div class="fuel-meta">Pris ikke tilgængelig</div>
+    <div class="fuel-meta">${renderPriceLine(b)}</div>
   `;
 }
 
@@ -150,13 +149,22 @@ export function renderFuelList(){
         <div class="fuel-name">${escapeHtml(s.name)}</div>
         <div class="fuel-meta">${formatDistance(s.distanceAlongRoute)} langs ruten</div>
         <div class="fuel-meta">${formatDistance(s.distanceToRoute)} fra ruten</div>
-        <div class="fuel-meta">Pris ikke tilgængelig</div>
+        <div class="fuel-meta">${renderPriceLine(s)}</div>
         <a class="fuel-map-link" href="${buildGoogleMapsLink(s)}" target="_blank">
           Åbn i Google Maps
         </a>
       </article>
     `).join("")
     : `<div class="fuel-card">Ingen tankstationer fundet.</div>`;
+}
+
+function renderPriceLine(station){
+  if(Number.isFinite(Number(station.price))){
+    return `${Number(station.price).toLocaleString("da-DK",{minimumFractionDigits:2,maximumFractionDigits:2})} kr/L · ${escapeHtml(station.priceProduct||"Brændstof")} · ${escapeHtml(station.dataAgeLabel||"")}`;
+  }
+
+  const status=getFuelPriceStatus();
+  return status.hasPrices ? "Pris ikke tilgængelig for denne station" : escapeHtml(status.label);
 }
 
 function getStations(){
