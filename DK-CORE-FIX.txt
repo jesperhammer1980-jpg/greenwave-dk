@@ -1,0 +1,17 @@
+GreenWave DK Core Fix
+
+Upload HELE ZIP-indholdet til GitHub og overskriv alt.
+
+Milepæl:
+- USA sat på pause i settings
+- Brændstoftype tilbage
+- Circle K/INGO + OK prisproxy via Vercel API
+- Priser matcher kun rigtige stationer, ingen fake data
+- Road context: maxspeed + traffic_signals fra OSM/Overpass
+- Anbefalet hastighed = maxhastighed medmindre konkret grund til lavere
+- Sving/rundkørsel og signalreguleret kryds påvirker anbefalet hastighed
+- GPS-speed smoothing og deadzone mod jitter
+- Opbremsning er asymmetrisk: blød/coast straffes ikke
+- Heading-up map forsøges via visuel rotation under navigation
+- Fuel/road context kører non-blocking
+- JS syntax-checket med Node

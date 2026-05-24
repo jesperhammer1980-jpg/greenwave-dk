@@ -1,6 +1,8 @@
 {
   "scripts": {
     "test:syntax": "node --check scripts/*.js",
-    "update:fuel-prices": "node scripts/update-fuel-prices.js"
-  }
+    "update:fuel-prices": "node scripts/update-fuel-prices.js",
+    "check": "node --check scripts/main.js && node --check scripts/navigation.js && node --check scripts/road-context.js && node --check api/fuel-prices.js"
+  },
+  "type": "module"
 }

@@ -5,7 +5,14 @@ export function updateRouteHighlight(progress){if(!state.routeData?.geometry||!s
 export function clearRoute(){[state.routeGlow,state.routeDoneLine,state.routeAheadLine].forEach(l=>{if(l)state.map.removeLayer(l)});state.routeGlow=null;state.routeDoneLine=null;state.routeAheadLine=null;state.routeLine=null;}
 export function updateUserMarker(lat,lng){const icon=L.divIcon({className:"user-marker-icon",html:'<div class="user-marker-dot"></div>',iconSize:[28,28],iconAnchor:[14,14]});if(!state.userMarker){state.userMarker=L.marker([lat,lng],{icon,zIndexOffset:5000}).addTo(state.map);return}state.userMarker.setLatLng([lat,lng]);}
 export function updateDestinationMarker(lat,lng){const icon=L.divIcon({className:"dest-marker-icon",html:'<div class="dest-marker-dot">⌖</div>',iconSize:[40,40],iconAnchor:[20,20]});if(!state.destinationMarker){state.destinationMarker=L.marker([lat,lng],{icon,zIndexOffset:4500}).addTo(state.map);return}state.destinationMarker.setLatLng([lat,lng]);}
-export function followNavigationCamera(pos){if(!state.map||!pos)return;const zoom=pos.speed>70?15.6:pos.speed>35?16.4:17.2;state.map.flyTo([pos.lat,pos.lng],zoom,{animate:true,duration:.45});}
+export function followNavigationCamera(pos){
+  if(!state.map||!pos)return;
+  const zoom=pos.speed>70?15.6:pos.speed>35?16.4:17.2;
+  state.map.flyTo([pos.lat,pos.lng],zoom,{animate:true,duration:.45});
+  setHeadingUpTransform(pos.heading||0);
+}
 export function enterNavigationView(){document.body.classList.add("navigation-active");}
 export function exitNavigationView(){document.body.classList.remove("navigation-active");}
 export function recenterMap(){if(state.currentPosition)state.map.flyTo([state.currentPosition.lat,state.currentPosition.lng],16,{duration:.8});else state.map.setView([55.6761,12.5683],12);}
+
+function setHeadingUpTransform(heading){const pane=state.map?.getPane?.("mapPane");if(!pane)return;if(!document.body.classList.contains("navigation-active")){pane.style.rotate="";return;}pane.style.transformOrigin="50% 50%";pane.style.rotate=`${-heading}deg`;document.querySelectorAll(".leaflet-marker-icon").forEach(marker=>{marker.style.rotate=`${heading}deg`;});}

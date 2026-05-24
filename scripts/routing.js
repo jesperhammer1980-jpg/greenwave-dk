@@ -5,6 +5,7 @@ import {drawRoute,updateUserMarker,updateDestinationMarker} from "./map.js";
 import {saveHistory,renderHistory} from "./history.js";
 import {loadFuelStations,computeRouteDistances,applyPricesToStations,updateFuelBox,updateFuelMarkers} from "./fuel.js";
 import {prepareRouteSteps} from "./route-progress.js";
+import {loadRoadContext} from "./road-context.js";
 
 export async function calculateRoute(){
   const input=els.destinationInput.value.trim();
@@ -33,6 +34,8 @@ export async function calculateRoute(){
 
     els.startNavBtn.disabled=false;
     els.openFuelListBtn.disabled=false;
+
+    loadRoadContext(route.geometry).catch(error=>{console.warn("Road context failed",error);});
 
     // Fuel must never block route calculation or make GO appear dead.
     loadFuelStations(route.geometry)

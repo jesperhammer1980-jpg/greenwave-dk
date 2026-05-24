@@ -89,3 +89,6 @@ body.navigation-active .home-panel,body.navigation-active .topbar{display:none}
 .bar-track:after{content:"";position:absolute;left:50%;top:0;bottom:0;width:2px;transform:translateX(-50%);background:rgba(255,255,255,.75);box-shadow:0 0 10px rgba(255,255,255,.45)}
 .bar-needle{position:absolute;top:-5px;left:50%;width:6px;height:24px;border-radius:999px;transform:translateX(-50%);background:#fff;box-shadow:0 0 0 2px rgba(0,0,0,.32),0 0 18px rgba(255,255,255,.55);transition:left .28s ease}
 .eco-grid div{overflow:hidden}
+
+/* DK CORE FIX */
+.speed-reason{margin:10px 2px 2px;color:rgba(255,255,255,.62);font-size:11px;line-height:1.25;font-weight:800;text-align:center}.braking-track{background:linear-gradient(90deg,#38d66b 0%,#38d66b 50%,#ffd23f 72%,#f77f00 86%,#d62828 100%)!important}

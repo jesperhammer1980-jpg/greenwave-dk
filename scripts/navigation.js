@@ -1,11 +1,17 @@
-import {state} from "./state.js";import {els} from "./dom.js";import {updateUserMarker,followNavigationCamera,enterNavigationView,exitNavigationView,updateRouteHighlight} from "./map.js";import {formatDistance,formatDuration,haversine,projectPointToSegment} from "./utils.js";import {getGreenWaveRecommendation} from "./greenwave.js";import {recalculateRouteFromCurrentPosition} from "./routing.js";
+import {state} from "./state.js";import {els} from "./dom.js";import {updateUserMarker,followNavigationCamera,enterNavigationView,exitNavigationView,updateRouteHighlight} from "./map.js";import {formatDistance,formatDuration,haversine,projectPointToSegment} from "./utils.js";import {getGreenWaveRecommendation} from "./greenwave.js";
+import {updateSpeedLimitFromPosition} from "./road-context.js";import {recalculateRouteFromCurrentPosition} from "./routing.js";
 const OFF_ROUTE_DISTANCE=90,OFF_ROUTE_DELAY=7000,REROUTE_COOLDOWN=25000;let wakeLock=null;
 export function startLiveNavigation(){if(!state.routeData?.geometry?.length){alert("Beregn en rute først.");return}prepareRouteMeasurements();resetEco();state.navigationActive=true;enterNavigationView();els.navOverlay.classList.remove("hidden");requestWakeLock();state.navigationWatcherId=navigator.geolocation.watchPosition(handlePosition,e=>alert("GPS-fejl: "+e.message),{enableHighAccuracy:true,maximumAge:700,timeout:10000});}
 export function stopLiveNavigation(){if(state.navigationWatcherId)navigator.geolocation.clearWatch(state.navigationWatcherId);state.navigationWatcherId=null;state.navigationActive=false;els.navOverlay.classList.add("hidden");exitNavigationView();releaseWakeLock();}
-function handlePosition(p){const cur={lat:p.coords.latitude,lng:p.coords.longitude,speed:typeof p.coords.speed==="number"?Math.max(0,p.coords.speed*3.6):0,heading:typeof p.coords.heading==="number"?p.coords.heading:0};state.currentPosition=cur;updateUserMarker(cur.lat,cur.lng);followNavigationCamera(cur);const progress=getRouteProgress(cur);state.routeProgress=progress;updateRouteHighlight(progress);updateUi(cur,progress);updateEco(cur);maybeReroute(cur,progress);}
+function handlePosition(p){
+  const raw={lat:p.coords.latitude,lng:p.coords.longitude,speed:typeof p.coords.speed==="number"?Math.max(0,p.coords.speed*3.6):0,heading:typeof p.coords.heading==="number"?p.coords.heading:0,accuracy:typeof p.coords.accuracy==="number"?p.coords.accuracy:null};
+  const cur=smoothPosition(raw);state.currentPosition=cur;updateUserMarker(cur.lat,cur.lng);followNavigationCamera(cur);const progress=getRouteProgress(cur);state.routeProgress=progress;updateSpeedLimitFromPosition(cur);updateRouteHighlight(progress);updateUi(cur,progress);updateEco(cur);maybeReroute(cur,progress);
+}
+function smoothPosition(raw){const previous=state.currentPosition;let speed=raw.speed;if(raw.accuracy&&raw.accuracy>80&&previous){speed=previous.speed||0;}if(state.smoothedSpeed===null||state.smoothedSpeed===undefined){state.smoothedSpeed=speed;}else{const alpha=speed<12?0.18:0.28;state.smoothedSpeed=state.smoothedSpeed*(1-alpha)+speed*alpha;}let heading=raw.heading;if((state.smoothedSpeed||0)<7&&previous){heading=previous.heading||0;}if(state.smoothedHeading===null||state.smoothedHeading===undefined){state.smoothedHeading=heading;}else if(Number.isFinite(heading)){state.smoothedHeading=smoothAngle(state.smoothedHeading,heading,0.18);}return{...raw,speed:state.smoothedSpeed,heading:state.smoothedHeading};}
+function smoothAngle(previous,current,alpha){const diff=((current-previous+540)%360)-180;return(previous+diff*alpha+360)%360;}
 function prepareRouteMeasurements(){const g=state.routeData.geometry,c=[0];let total=0;for(let i=1;i<g.length;i++){const a=g[i-1],b=g[i];total+=haversine(a[1],a[0],b[1],b[0]);c.push(total)}state.routeData._cumulativeMeters=c;state.routeData._measuredDistance=total;}
 function getRouteProgress(cur){const g=state.routeData.geometry;let best={distanceToRoute:Infinity,alongMeters:0,segmentIndex:0};for(let i=1;i<g.length;i++){const a=g[i-1],b=g[i],p=projectPointToSegment(cur.lat,cur.lng,a[1],a[0],b[1],b[0]);if(p.distanceMeters<best.distanceToRoute){const len=haversine(a[1],a[0],b[1],b[0]);best={distanceToRoute:p.distanceMeters,alongMeters:state.routeData._cumulativeMeters[i-1]+len*p.t,segmentIndex:i}}}const total=state.routeData.distance||state.routeData._measuredDistance,ratio=total>0?Math.min(1,best.alongMeters/total):0;return{...best,remainingMeters:Math.max(0,total-best.alongMeters),remainingSeconds:(state.routeData.duration||0)*(1-ratio),progressRatio:ratio,isOffRoute:best.distanceToRoute>OFF_ROUTE_DISTANCE};}
-function updateUi(cur,p){els.driveRemainingDistance.textContent=formatDistance(p.remainingMeters);els.driveRemainingTime.textContent=formatDuration(p.remainingSeconds);els.driveEtaValue.textContent=new Date(Date.now()+p.remainingSeconds*1000).toLocaleTimeString("da-DK",{hour:"2-digit",minute:"2-digit"});const step=findStep(p.alongMeters);if(step){const d=Math.max(0,step.endDistance-p.alongMeters);els.nextTurnDistance.textContent=d<8?"Nu":formatDistance(d);els.nextTurnInstruction.textContent=instruction(step);els.nextTurnRoad.textContent=step.name||"";els.turnIcon.textContent=icon(step)}const rec=getGreenWaveRecommendation(cur);els.currentSpeedValue.textContent=Math.round(cur.speed); if(els.ecoLiveSpeed) els.ecoLiveSpeed.textContent=Math.round(cur.speed);els.speedLimitValue.textContent=state.currentMaxSpeed||"?";els.recommendedSpeedValue.textContent=rec.speedKmh||"--";}
+function updateUi(cur,p){els.driveRemainingDistance.textContent=formatDistance(p.remainingMeters);els.driveRemainingTime.textContent=formatDuration(p.remainingSeconds);els.driveEtaValue.textContent=new Date(Date.now()+p.remainingSeconds*1000).toLocaleTimeString("da-DK",{hour:"2-digit",minute:"2-digit"});const step=findStep(p.alongMeters);if(step){const d=Math.max(0,step.endDistance-p.alongMeters);els.nextTurnDistance.textContent=d<8?"Nu":formatDistance(d);els.nextTurnInstruction.textContent=instruction(step);els.nextTurnRoad.textContent=step.name||"";els.turnIcon.textContent=icon(step)}const rec=getGreenWaveRecommendation(cur,p,step);els.currentSpeedValue.textContent=Math.round(cur.speed); if(els.ecoLiveSpeed) els.ecoLiveSpeed.textContent=Math.round(cur.speed);els.speedLimitValue.textContent=state.currentMaxSpeed||"?";els.recommendedSpeedValue.textContent=rec.speedKmh||"--"; if(els.recommendedSpeedReason) els.recommendedSpeedReason.textContent=rec.reason||"";}
 function findStep(a){return state.routeSteps.find(s=>a>=s.startDistance&&a<=s.endDistance)||state.routeSteps[state.routeSteps.length-1];}
 function instruction(s){const t=String(s.maneuverType||"").toLowerCase(),m=String(s.maneuverModifier||"").toLowerCase();if(t.includes("arrive"))return"Du er fremme";if(t.includes("roundabout"))return"Kør gennem rundkørslen";if(m.includes("left"))return"Drej til venstre";if(m.includes("right"))return"Drej til højre";return"Fortsæt";}
 function icon(s){const m=String(s.maneuverModifier||"").toLowerCase();if(m.includes("left"))return"←";if(m.includes("right"))return"→";return"↑";}
@@ -36,74 +42,17 @@ function resetEco(){
 }
 
 function updateEco(cur){
-  const e=state.ecoScore;
-  const speed=Number(cur.speed||0);
-  const now=Date.now();
-
-  if(e.lastLat!==null && e.lastLng!==null){
-    const moved=haversine(e.lastLat,e.lastLng,cur.lat,cur.lng);
-    if(Number.isFinite(moved) && moved>=0 && moved<300){
-      e.totalMeters+=moved;
-      e.measuredMeters+=moved;
-    }
-  }
-
-  e.lastLat=cur.lat;
-  e.lastLng=cur.lng;
-
-  e.speedSamples.push({time:now,speed,meters:e.totalMeters});
-  e.speedSamples=e.speedSamples.filter(sample => now-sample.time<=18000 && e.totalMeters-sample.meters<=600);
-
-  if(e.lastSpeed===null){
-    e.lastSpeed=speed;
-    return;
-  }
-
-  e.lastSpeed=speed;
-
-  const oldest=e.speedSamples[0]||{speed,meters:e.totalMeters,time:now};
-  const windowDelta=speed-oldest.speed;
-  const windowMeters=Math.max(1,e.totalMeters-oldest.meters);
-  const deltaPer100m=windowDelta/(windowMeters/100); e.lastAccelerationBalance=clamp(50+deltaPer100m*8,0,100); e.lastBrakingBalance=clamp(50+deltaPer100m*8,0,100);
-
-  if(speed>=10 && e.speedSamples.length>=3){
-    const steadyStd=calculateSpeedStd(e.speedSamples);
-    const steadyScore=Math.max(0,100-(steadyStd*18));
-    e.steadyQualitySum+=steadyScore;
-    e.steadySamples++;
-    const steadyRating=ratingFromScore(steadyScore);
-    e.lastSteadyLabel=steadyRating.label;
-    e.lastSteadyClass=steadyRating.className;
-  }
-
-  if(windowDelta>0.8 && windowMeters>=15){
-    const accelScore=Math.max(0,100-(Math.max(0,deltaPer100m)*9));
-    e.accelerationQualitySum+=accelScore;
-    e.accelerationEvents++;
-    const accelRating=ratingFromScore(accelScore);
-    e.lastAccelerationLabel=accelRating.label;
-    e.lastAccelerationClass=accelRating.className;
-  }
-
-  if(windowDelta<-0.8 && windowMeters>=15){
-    const brakeScore=Math.max(0,100-(Math.abs(Math.min(0,deltaPer100m))*8));
-    e.brakingQualitySum+=brakeScore;
-    e.brakingEvents++;
-    const brakeRating=ratingFromScore(brakeScore);
-    e.lastBrakingLabel=brakeRating.label;
-    e.lastBrakingClass=brakeRating.className;
-  }
-
-  const a=avg(e.accelerationQualitySum,e.accelerationEvents,70);
-  const b=avg(e.brakingQualitySum,e.brakingEvents,70);
-  const st=avg(e.steadyQualitySum,e.steadySamples,65);
-  const factor=e.totalMeters<1000?.85:e.totalMeters<3000?.95:1;
-  const total=Math.round((a*.28+b*.28+st*.44)*factor);
-  e.currentScore=total;
-  updateEcoModalLive(a,b,st,total,speed);
-  updateEcoBadge(total);
+  const e=state.ecoScore;const speed=Number(cur.speed||0);const now=Date.now();
+  if(e.lastLat!==null&&e.lastLng!==null){const moved=haversine(e.lastLat,e.lastLng,cur.lat,cur.lng);if(Number.isFinite(moved)&&moved>=0&&moved<300){e.totalMeters+=moved;e.measuredMeters+=moved;}}
+  e.lastLat=cur.lat;e.lastLng=cur.lng;e.speedSamples.push({time:now,speed,meters:e.totalMeters});e.speedSamples=e.speedSamples.filter(sample=>now-sample.time<=25000&&e.totalMeters-sample.meters<=900);
+  if(e.lastSpeed===null){e.lastSpeed=speed;return;}e.lastSpeed=speed;
+  const oldest=e.speedSamples[0]||{speed,meters:e.totalMeters,time:now};const windowDelta=speed-oldest.speed;const windowMeters=Math.max(1,e.totalMeters-oldest.meters);const deltaPer100m=windowDelta/(windowMeters/100);const deadzone=2.2;const adjusted=Math.abs(deltaPer100m)<deadzone?0:deltaPer100m;
+  e.lastAccelerationBalance=clamp(50+adjusted*5,0,100);e.lastBrakingBalance=clamp(50+Math.max(0,-adjusted)*7,0,100);
+  if(speed>=15&&e.speedSamples.length>=5&&windowMeters>=80){const steadyStd=calculateSpeedStd(e.speedSamples);const steadyScore=Math.max(0,100-(Math.max(0,steadyStd-2.5)*12));e.steadyQualitySum+=steadyScore;e.steadySamples++;const steadyRating=ratingFromScore(steadyScore);e.lastSteadyLabel=steadyRating.label;e.lastSteadyClass=steadyRating.className;}
+  if(adjusted>0&&windowMeters>=80){const accelScore=Math.max(0,100-(adjusted*7));e.accelerationQualitySum+=accelScore;e.accelerationEvents++;const accelRating=ratingFromScore(accelScore);e.lastAccelerationLabel=accelRating.label;e.lastAccelerationClass=accelRating.className;}
+  if(adjusted<0&&windowMeters>=80){const hardBrake=Math.abs(adjusted);const brakeScore=Math.max(0,100-(hardBrake*8));e.brakingQualitySum+=brakeScore;e.brakingEvents++;const brakeRating=ratingFromScore(brakeScore);e.lastBrakingLabel=brakeRating.label;e.lastBrakingClass=brakeRating.className;}
+  const a=avg(e.accelerationQualitySum,e.accelerationEvents,70);const b=avg(e.brakingQualitySum,e.brakingEvents,78);const st=avg(e.steadyQualitySum,e.steadySamples,68);const factor=e.totalMeters<1500?.85:e.totalMeters<4000?.95:1;const total=Math.round((a*.28+b*.28+st*.44)*factor);e.currentScore=total;updateEcoModalLive(a,b,st,total,speed);updateEcoBadge(total);
 }
-
 function calculateSpeedStd(samples){
   if(!samples.length)return 0;
   const avgSpeed=samples.reduce((sum,s)=>sum+s.speed,0)/samples.length;

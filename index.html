@@ -6,7 +6,7 @@
   <title>GreenWave</title>
   <meta name="theme-color" content="#07111d" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <link rel="stylesheet" href="./styles/style.css?v=gofix1" />
+  <link rel="stylesheet" href="./styles/style.css?v=dkcore1" />
 </head>
 <body>
   <main id="app">
@@ -63,7 +63,7 @@
           <button id="ecoScoreBadge" class="eco-badge eco-mid" type="button">Eco 70</button>
           <div><span>MAX</span><strong id="speedLimitValue">?</strong></div>
           <div><span>NU</span><strong id="currentSpeedValue">0</strong></div>
-          <div><span>ECO</span><strong id="recommendedSpeedValue">--</strong></div>
+          <div><span>ECO</span><strong id="recommendedSpeedValue">--</strong></div><p id="recommendedSpeedReason" class="speed-reason">Afventer vejdata</p>
         </div>
       </div>
 
@@ -104,7 +104,7 @@
         </div>
         <div class="eco-grid">
           <div><span>Acceleration</span><strong id="ecoScoreAccelerationValue">70/100</strong><small id="ecoAccelerationStatus" class="rating-pill rating-neutral">—</small><div class="balance-bar"><span class="bar-label left">For langsom</span><div class="bar-track"><i id="ecoAccelerationBarNeedle" class="bar-needle"></i></div><span class="bar-label right">For hurtig</span></div></div>
-          <div><span>Opbremsning</span><strong id="ecoScoreBrakingValue">70/100</strong><small id="ecoBrakingStatus" class="rating-pill rating-neutral">—</small><div class="balance-bar"><span class="bar-label left">For langsom</span><div class="bar-track"><i id="ecoBrakingBarNeedle" class="bar-needle"></i></div><span class="bar-label right">For hård</span></div></div>
+          <div><span>Opbremsning</span><strong id="ecoScoreBrakingValue">70/100</strong><small id="ecoBrakingStatus" class="rating-pill rating-neutral">—</small><div class="balance-bar"><span class="bar-label left">Blød / coast</span><div class="bar-track braking-track"><i id="ecoBrakingBarNeedle" class="bar-needle"></i></div><span class="bar-label right">For hård</span></div></div>
           <div><span>Jævn hastighed</span><strong id="ecoScoreSteadyValue">70/100</strong><small id="ecoMeasuredDistance" class="rating-pill rating-neutral">0,0 km målt</small></div>
         </div>
         <p id="ecoScoreComment">Start navigation for at analysere kørestil.</p>
@@ -113,6 +113,6 @@
   </main>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script type="module" src="./scripts/main.js?v=gofix1"></script>
+  <script type="module" src="./scripts/main.js?v=dkcore1"></script>
 </body>
 </html>
