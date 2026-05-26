@@ -6,34 +6,106 @@
   <title>GreenWave DK Companion</title>
   <meta name="theme-color" content="#07111d" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <link rel="stylesheet" href="./styles/style.css?v=companion1" />
+  <link rel="stylesheet" href="./styles/style.css?v=routefuel1" />
 </head>
 <body>
   <main id="app">
     <div id="map"></div>
-    <header class="topbar"><div class="brand"><span></span>GreenWave DK</div><button id="settingsBtn" class="icon-btn" type="button">⚙</button></header>
-    <section class="companion-panel">
-      <div class="search-card"><input id="destinationInput" type="text" placeholder="Destination i Danmark" autocomplete="off" /><button id="goBtn" type="button">GO</button></div>
+
+    <header class="topbar">
+      <div class="brand"><span></span>GreenWave DK</div>
+      <button id="settingsBtn" class="icon-btn" type="button">⚙</button>
+    </header>
+
+    <section class="panel">
+      <div class="search-card">
+        <input id="destinationInput" type="text" placeholder="Destination i Danmark" autocomplete="off" />
+        <button id="goBtn" type="button">GO</button>
+      </div>
+
       <div id="autocompleteResults" class="autocomplete hidden"></div>
-      <div class="status-line"><span id="statusText">Klar</span></div>
-      <section class="greenwave-card">
-        <div><span class="label">Anbefalet hastighed</span><strong id="recommendedSpeed">--</strong><small>km/t</small></div>
-        <div><span class="label">Max</span><strong id="speedLimit">?</strong><small>km/t</small></div>
-        <div><span class="label">Aktuel</span><strong id="currentSpeed">0</strong><small>km/t</small></div>
+
+      <section id="historySection" class="history-card hidden">
+        <h2>Seneste destinationer</h2>
+        <div id="historyList" class="history-list"></div>
       </section>
+
+      <div id="statusText" class="status">Klar</div>
+
+      <section class="gw">
+        <div><span>Anbefalet</span><strong id="recommendedSpeed">--</strong><small>km/t</small></div>
+        <div><span>Max</span><strong id="speedLimit">?</strong><small>km/t</small></div>
+        <div><span>Aktuel</span><strong id="currentSpeed">0</strong><small>km/t</small></div>
+      </section>
+
       <div id="reasonText" class="reason">Beregn en rute for at starte GreenWave.</div>
-      <section class="route-actions"><button id="startBtn" type="button" disabled>Start Companion</button><button id="stopBtn" type="button" disabled>Stop</button><button id="recalcBtn" type="button" disabled>Genberegn</button></section>
-      <section class="trip-card"><div><span>Afstand</span><strong id="routeDistance">—</strong></div><div><span>Tid</span><strong id="routeDuration">—</strong></div><div><span>ETA</span><strong id="routeEta">—</strong></div></section>
-      <section class="fuel-card"><header><h2>Tankstationer langs ruten</h2><button id="fuelRefreshBtn" type="button" disabled>Opdater</button></header><div id="fuelSummary" class="fuel-summary">Beregn en rute først.</div><div id="fuelList" class="fuel-list"></div></section>
+
+      <section class="actions">
+        <button id="startBtn" type="button" disabled>Start Companion</button>
+        <button id="stopBtn" type="button" disabled>Stop</button>
+        <button id="recalcBtn" type="button" disabled>Genberegn</button>
+      </section>
+
+      <section class="trip">
+        <div><span>Afstand</span><strong id="routeDistance">—</strong></div>
+        <div><span>Tid</span><strong id="routeDuration">—</strong></div>
+        <div><span>ETA</span><strong id="routeEta">—</strong></div>
+      </section>
+
+      <section class="fuel">
+        <header>
+          <h2>Tankstationer langs ruten</h2>
+          <button id="fuelRefreshBtn" type="button" disabled>Opdater</button>
+        </header>
+        <div id="fuelSummary">Beregn en rute først.</div>
+        <div id="fuelList"></div>
+      </section>
     </section>
+
     <div id="settingsBackdrop" class="modal-backdrop hidden"></div>
-    <section id="settingsModal" class="modal hidden"><header><h2>Settings</h2><button id="closeSettingsBtn" type="button">✕</button></header><div class="settings-body">
-      <section class="setting-section"><h3>Brændstoftype</h3><select id="fuelTypeSelect"><option value="benzin95">Benzin 95 / E10</option><option value="benzin98">Benzin 98 / E5</option><option value="diesel">Diesel</option><option value="premiumDiesel">Premium diesel</option></select></section>
-      <section class="setting-section"><h3>Tankstationer</h3><label>Maks. afstand fra ruten</label><select id="fuelDetourSelect"><option value="1000">1 km</option><option value="2500">2,5 km</option><option value="5000">5 km</option><option value="10000">10 km</option><option value="15000">15 km</option></select></section>
-      <section class="setting-section"><h3>Rute</h3><select id="routeModeSelect"><option value="fast">Hurtigste</option><option value="eco">Mest økonomisk</option></select></section>
-    </div><footer><button id="saveSettingsBtn" type="button">Gem</button></footer></section>
+    <section id="settingsModal" class="modal hidden">
+      <header>
+        <h2>Settings</h2>
+        <button id="closeSettingsBtn" type="button">✕</button>
+      </header>
+
+      <div class="settings-body">
+        <section>
+          <h3>Brændstoftype</h3>
+          <select id="fuelTypeSelect">
+            <option value="benzin95">Benzin 95 / E10</option>
+            <option value="benzin98">Benzin 98 / E5</option>
+            <option value="diesel">Diesel</option>
+            <option value="premiumDiesel">Premium diesel</option>
+          </select>
+        </section>
+
+        <section>
+          <h3>Tankstationer</h3>
+          <label for="fuelDetourSelect">Maks. afstand fra ruten</label>
+          <select id="fuelDetourSelect">
+            <option value="1000">1 km</option>
+            <option value="2500">2,5 km</option>
+            <option value="5000">5 km</option>
+            <option value="10000">10 km</option>
+            <option value="15000">15 km</option>
+          </select>
+        </section>
+
+        <section>
+          <h3>Rute</h3>
+          <select id="routeModeSelect">
+            <option value="fast">Hurtigste</option>
+            <option value="eco">Mest økonomisk</option>
+          </select>
+        </section>
+      </div>
+
+      <footer><button id="saveSettingsBtn" type="button">Gem</button></footer>
+    </section>
   </main>
+
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script type="module" src="./scripts/app.js?v=companion1"></script>
+  <script type="module" src="./scripts/app.js?v=routefuel1"></script>
 </body>
 </html>

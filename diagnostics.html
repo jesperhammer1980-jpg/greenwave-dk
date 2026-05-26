@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>GreenWave Diagnostics</title>
+  <meta name="theme-color" content="#07111d" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="./styles/diagnostics.css?v=diag1" />
+</head>
+<body>
+  <main class="diag-app">
+    <header class="diag-header">
+      <div>
+        <h1>GreenWave Diagnostics</h1>
+        <p>Runtime-test mod rigtig rute, Vercel API, OSRM, Overpass og prisstationer.</p>
+      </div>
+      <button id="runBtn" type="button">Kør test</button>
+    </header>
+
+    <section class="inputs">
+      <label>Startadresse<input id="startInput" value="Lupinvej 3, 2620 Albertslund" /></label>
+      <label>Destination<input id="destInput" value="Herstedøstervej 27, 2620 Albertslund" /></label>
+      <label>Brændstof<select id="fuelType"><option value="benzin95">Benzin 95 / E10</option><option value="benzin98">Benzin 98 / E5</option><option value="diesel">Diesel</option><option value="premiumDiesel">Premium diesel</option></select></label>
+      <label>Maks afstand fra rute<select id="detour"><option value="1000">1 km</option><option value="2000" selected>2 km</option><option value="2500">2,5 km</option><option value="5000">5 km</option><option value="10000">10 km</option></select></label>
+    </section>
+
+    <section id="summary" class="summary"></section>
+    <section id="cards" class="cards"></section>
+    <div id="map"></div>
+    <section class="raw"><h2>Rå diagnostik</h2><pre id="rawOutput">Tryk “Kør test”.</pre></section>
+  </main>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script type="module" src="./scripts/diagnostics.js?v=diag1"></script>
+</body>
+</html>

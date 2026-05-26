@@ -1,20 +1,11 @@
-# GreenWave DK Companion
+# GreenWave DK Companion Route/Fuel Fix
 
-Ren Companion-build.
+Ren Companion-build uden EcoScore, USA og fuld navigation-UI.
 
-Fokus:
-- Rute + rerouting
+Kerne:
+- rute + rerouting
 - GreenWave anbefalet hastighed
-- OSM maxspeed
-- OSM traffic_signals heuristik
-- Danske tankstationer langs ruten
-- Circle K/INGO + OK prisproxy via Vercel API
-- Brændstoftype
-- Maks afstand fra ruten
-
-Fjernet:
-- EcoScore
-- fuld navigation UI
-- USA
-- map-rotation hacks
-- gamle patch-filer
+- OSM maxspeed og traffic_signals langs rutekorridor
+- prisstationer fra Circle K/INGO + OK som primær fuel-kilde
+- OSM fuel-stationer som sekundær kilde
+- seneste 5 destinationer
