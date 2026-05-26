@@ -1,13 +1,13 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-05-26T14:19:44.600Z",
+  "generatedAt": "2026-05-26T17:41:27.748Z",
   "sources": [
     {
       "id": "circlek-dk-public-api",
       "name": "Circle K / INGO DK Fuel Prices API",
       "ok": true,
       "stations": 403,
-      "fetchedAt": "2026-05-26T14:19:44.600Z"
+      "fetchedAt": "2026-05-26T17:41:27.748Z"
     }
   ],
   "stations": [
@@ -8293,37 +8293,37 @@
       "country": "DK",
       "lat": null,
       "lng": null,
-      "lastUpdated": "2026-05-26T10:51:24.300Z",
+      "lastUpdated": "2026-05-26T15:12:55.867Z",
       "prices": [
         {
           "code": "592327",
           "displayName": "Benzin 95",
           "productName": "Benzin 95",
           "fuelType": "Benzin 95",
-          "price": 16.42,
+          "price": 16.69,
           "currency": "DKK",
           "volumeUnit": "LITER",
-          "lastUpdated": "2026-05-26T10:51:24.300Z"
+          "lastUpdated": "2026-05-26T15:12:55.867Z"
         },
         {
           "code": "797325",
           "displayName": "Diesel",
           "productName": "Diesel",
           "fuelType": "Diesel",
-          "price": 15.99,
+          "price": 16.29,
           "currency": "DKK",
           "volumeUnit": "LITER",
-          "lastUpdated": "2026-05-26T10:51:24.300Z"
+          "lastUpdated": "2026-05-26T15:12:55.867Z"
         },
         {
           "code": "1030971",
           "displayName": "UPGRADE 95",
           "productName": "UPGRADE 95",
           "fuelType": "UPGRADE 95",
-          "price": 17.11,
+          "price": 17.38,
           "currency": "DKK",
           "volumeUnit": "LITER",
-          "lastUpdated": "2026-05-26T10:51:24.300Z"
+          "lastUpdated": "2026-05-26T15:12:55.867Z"
         }
       ]
     },
@@ -11783,37 +11783,37 @@
       "country": "DK",
       "lat": null,
       "lng": null,
-      "lastUpdated": "2026-05-26T10:51:34.785Z",
+      "lastUpdated": "2026-05-26T15:13:06.008Z",
       "prices": [
         {
           "code": "592327",
           "displayName": "Benzin 95",
           "productName": "Benzin 95",
           "fuelType": "Benzin 95",
-          "price": 16.42,
+          "price": 16.69,
           "currency": "DKK",
           "volumeUnit": "LITER",
-          "lastUpdated": "2026-05-26T10:51:34.785Z"
+          "lastUpdated": "2026-05-26T15:13:06.008Z"
         },
         {
           "code": "797325",
           "displayName": "Diesel",
           "productName": "Diesel",
           "fuelType": "Diesel",
-          "price": 15.99,
+          "price": 16.29,
           "currency": "DKK",
           "volumeUnit": "LITER",
-          "lastUpdated": "2026-05-26T10:51:34.785Z"
+          "lastUpdated": "2026-05-26T15:13:06.008Z"
         },
         {
           "code": "1030971",
           "displayName": "UPGRADE 95",
           "productName": "UPGRADE 95",
           "fuelType": "UPGRADE 95",
-          "price": 17.11,
+          "price": 17.38,
           "currency": "DKK",
           "volumeUnit": "LITER",
-          "lastUpdated": "2026-05-26T10:51:34.785Z"
+          "lastUpdated": "2026-05-26T15:13:06.008Z"
         }
       ]
     },
@@ -11885,37 +11885,37 @@
       "country": "DK",
       "lat": null,
       "lng": null,
-      "lastUpdated": "2026-05-26T10:51:31.520Z",
+      "lastUpdated": "2026-05-26T15:13:02.960Z",
       "prices": [
         {
           "code": "592327",
           "displayName": "Benzin 95",
           "productName": "Benzin 95",
           "fuelType": "Benzin 95",
-          "price": 16.42,
+          "price": 16.69,
           "currency": "DKK",
           "volumeUnit": "LITER",
-          "lastUpdated": "2026-05-26T10:51:31.520Z"
+          "lastUpdated": "2026-05-26T15:13:02.960Z"
         },
         {
           "code": "797325",
           "displayName": "Diesel",
           "productName": "Diesel",
           "fuelType": "Diesel",
-          "price": 15.99,
+          "price": 16.29,
           "currency": "DKK",
           "volumeUnit": "LITER",
-          "lastUpdated": "2026-05-26T10:51:31.520Z"
+          "lastUpdated": "2026-05-26T15:13:02.960Z"
         },
         {
           "code": "1030971",
           "displayName": "UPGRADE 95",
           "productName": "UPGRADE 95",
           "fuelType": "UPGRADE 95",
-          "price": 17.11,
+          "price": 17.38,
           "currency": "DKK",
           "volumeUnit": "LITER",
-          "lastUpdated": "2026-05-26T10:51:31.520Z"
+          "lastUpdated": "2026-05-26T15:13:02.960Z"
         }
       ]
     },
@@ -17363,37 +17363,37 @@
       "country": "DK",
       "lat": null,
       "lng": null,
-      "lastUpdated": "2026-05-26T10:51:42.473Z",
+      "lastUpdated": "2026-05-26T15:13:12.613Z",
       "prices": [
         {
           "code": "592327",
           "displayName": "Benzin 95",
           "productName": "Benzin 95",
           "fuelType": "Benzin 95",
-          "price": 16.42,
+          "price": 16.69,
           "currency": "DKK",
           "volumeUnit": "LITER",
-          "lastUpdated": "2026-05-26T10:51:42.473Z"
+          "lastUpdated": "2026-05-26T15:13:12.613Z"
         },
         {
           "code": "797325",
           "displayName": "Diesel",
           "productName": "Diesel",
           "fuelType": "Diesel",
-          "price": 15.99,
+          "price": 16.29,
           "currency": "DKK",
           "volumeUnit": "LITER",
-          "lastUpdated": "2026-05-26T10:51:42.473Z"
+          "lastUpdated": "2026-05-26T15:13:12.613Z"
         },
         {
           "code": "1030971",
           "displayName": "UPGRADE 95",
           "productName": "UPGRADE 95",
           "fuelType": "UPGRADE 95",
-          "price": 17.11,
+          "price": 17.38,
           "currency": "DKK",
           "volumeUnit": "LITER",
-          "lastUpdated": "2026-05-26T10:51:42.473Z"
+          "lastUpdated": "2026-05-26T15:13:12.613Z"
         }
       ]
     },
@@ -19161,37 +19161,37 @@
       "country": "DK",
       "lat": null,
       "lng": null,
-      "lastUpdated": "2026-05-26T10:50:57.240Z",
+      "lastUpdated": "2026-05-26T15:13:21.700Z",
       "prices": [
         {
           "code": "592327",
           "displayName": "Benzin 95",
           "productName": "Benzin 95",
           "fuelType": "Benzin 95",
-          "price": 16.42,
+          "price": 16.69,
           "currency": "DKK",
           "volumeUnit": "LITER",
-          "lastUpdated": "2026-05-26T10:50:57.240Z"
+          "lastUpdated": "2026-05-26T15:13:21.700Z"
         },
         {
           "code": "797325",
           "displayName": "Diesel",
           "productName": "Diesel",
           "fuelType": "Diesel",
-          "price": 15.99,
+          "price": 16.29,
           "currency": "DKK",
           "volumeUnit": "LITER",
-          "lastUpdated": "2026-05-26T10:50:57.240Z"
+          "lastUpdated": "2026-05-26T15:13:21.700Z"
         },
         {
           "code": "1030971",
           "displayName": "UPGRADE 95",
           "productName": "UPGRADE 95",
           "fuelType": "UPGRADE 95",
-          "price": 17.11,
+          "price": 17.38,
           "currency": "DKK",
           "volumeUnit": "LITER",
-          "lastUpdated": "2026-05-26T10:50:57.240Z"
+          "lastUpdated": "2026-05-26T15:13:21.700Z"
         }
       ]
     },
