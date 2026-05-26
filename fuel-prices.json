@@ -1,13 +1,13 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-05-26T17:41:27.748Z",
+  "generatedAt": "2026-05-26T19:45:10.084Z",
   "sources": [
     {
       "id": "circlek-dk-public-api",
       "name": "Circle K / INGO DK Fuel Prices API",
       "ok": true,
       "stations": 403,
-      "fetchedAt": "2026-05-26T17:41:27.748Z"
+      "fetchedAt": "2026-05-26T19:45:10.084Z"
     }
   ],
   "stations": [
