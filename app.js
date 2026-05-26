@@ -1,1055 +1,951 @@
+const SETTINGS_KEY = "greenwave_companion_dk_settings_v3";
+const HISTORY_KEY = "greenwave_companion_dk_history_v1";
+
 const state = {
   map: null,
-  currentPosition: null,
-  destination: null,
-  selectedAutocompleteItem: null,
-  autocompleteTimer: null,
-
-  routeData: null,
-  routeLine: null,
   userMarker: null,
-  destMarker: null,
-
-  fuelPriceOverrides: [],
-  osmFuelStations: [],
+  destinationMarker: null,
+  routeLine: null,
+  routeGlow: null,
   fuelMarkers: [],
-  fuelListSort: "price",
+  currentPosition: null,
+  smoothedSpeed: null,
+  destination: null,
+  route: null,
+  routeSteps: [],
+  routeMeasurements: null,
+  selectedAutocomplete: null,
+  autocompleteTimer: null,
   watchId: null,
-
+  wakeLock: null,
+  offRouteSince: null,
+  lastRerouteAt: 0,
+  stations: [],
+  priceData: null,
+  roadContext: { ways: [], signals: [] },
+  history: [],
   settings: {
-    language: "da",
-    region: "dk",
-    routeMode: "fast",
     fuelType: "benzin95",
-    searchRadiusBase: 100000
+    maxFuelDetourMeters: 5000,
+    routeMode: "fast"
   }
 };
 
-const SETTINGS_KEY = "greenwave_settings_working_v3";
-const HISTORY_KEY = "greenwave_history_working_v3";
-const FUEL_DATA_URL = "./fuel-prices.json";
-
 const els = {};
-[
-  "destinationInput", "autocompleteBox", "autocompleteList",
-  "calcRouteBtn", "startNavBtn", "stopNavBtn", "recenterBtn",
-  "historyToggleBtn", "historyBox", "historyList",
-  "openSettingsBtn", "closeSettingsBtn", "saveSettingsBtn",
-  "settingsBackdrop", "settingsPanel",
-  "languageDa", "languageEn", "regionDK", "regionUS",
-  "settingsRouteFast", "settingsRouteEco",
-  "settingsFuelType", "settingsMaxDetour", "settingsSearchRadius",
-  "gpsStatusChip", "navStatusChip", "mapModeLabel",
-  "fuelDisclaimer", "fuelContent", "openFuelListBtn",
-  "openFuelHistoryBtn",
-  "fuelListBackdrop", "fuelListModal", "closeFuelListBtn",
-  "sortFuelByPriceBtn", "sortFuelByDetourBtn", "fuelListContent",
-  "fuelHistoryBackdrop", "fuelHistoryModal", "closeFuelHistoryBtn",
-  "fuelHistoryContent",
-  "navOverlay", "exitNavOverlayBtn",
-  "driveRemainingDistance", "driveRemainingTime", "driveCurrentValue"
-].forEach(id => els[id] = document.getElementById(id));
 
-init();
+const requiredIds = [
+  "map","destinationInput","goBtn","autocompleteResults","historySection","historyList",
+  "settingsBtn","settingsBackdrop","settingsModal","closeSettingsBtn","saveSettingsBtn",
+  "fuelTypeSelect","fuelDetourSelect","routeModeSelect","statusText","recommendedSpeed",
+  "speedLimit","currentSpeed","reasonText","startBtn","stopBtn","recalcBtn",
+  "routeDistance","routeDuration","routeEta","fuelRefreshBtn","fuelSummary","fuelList"
+];
 
-async function init() {
+document.addEventListener("DOMContentLoaded", () => {
+  cacheDom();
   loadSettings();
+  loadHistory();
   initMap();
-  bindEvents();
-  applySettingsToUI();
+  syncSettingsUi();
   renderHistory();
-  setStatus("GPS: klar", "Navigation: inaktiv", "Kort: klar");
-  await loadFuelPrices();
-  updateFuelBox();
-}
+  bindEvents();
+  setStatus("Klar");
+});
 
-function initMap() {
-  state.map = L.map("map").setView([56.2, 9.5], 7);
-
-  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    maxZoom: 19,
-    attribution: "© OpenStreetMap"
-  }).addTo(state.map);
+function cacheDom() {
+  requiredIds.forEach(id => {
+    els[id] = document.getElementById(id);
+    if (!els[id]) throw new Error(`Mangler HTML-element: ${id}`);
+  });
 }
 
 function bindEvents() {
-  els.destinationInput?.addEventListener("input", () => {
-    state.selectedAutocompleteItem = null;
+  els.destinationInput.addEventListener("input", () => {
+    state.selectedAutocomplete = null;
     clearTimeout(state.autocompleteTimer);
-    state.autocompleteTimer = setTimeout(runAutocomplete, 250);
+    state.autocompleteTimer = setTimeout(searchAutocomplete, 250);
   });
 
-  els.calcRouteBtn?.addEventListener("click", calculateRoute);
-  els.startNavBtn?.addEventListener("click", startLiveNavigation);
-  els.stopNavBtn?.addEventListener("click", stopLiveNavigation);
-  els.recenterBtn?.addEventListener("click", recenterMap);
+  els.goBtn.addEventListener("click", calculateRoute);
+  els.startBtn.addEventListener("click", startCompanion);
+  els.stopBtn.addEventListener("click", stopCompanion);
+  els.recalcBtn.addEventListener("click", recalculateFromCurrentPosition);
+  els.fuelRefreshBtn.addEventListener("click", refreshFuel);
 
-  els.historyToggleBtn?.addEventListener("click", () => {
-    els.historyBox?.classList.toggle("hidden");
-    hideAutocomplete();
-  });
-
-  els.openSettingsBtn?.addEventListener("click", openSettings);
-  els.closeSettingsBtn?.addEventListener("click", closeSettings);
-  els.settingsBackdrop?.addEventListener("click", closeSettings);
-  els.saveSettingsBtn?.addEventListener("click", saveSettingsFromControls);
-
-  els.openFuelListBtn?.addEventListener("click", openFuelList);
-  els.closeFuelListBtn?.addEventListener("click", closeFuelList);
-  els.fuelListBackdrop?.addEventListener("click", closeFuelList);
-
-  els.sortFuelByPriceBtn?.addEventListener("click", () => {
-    state.fuelListSort = "price";
-    renderFuelList();
-  });
-
-  els.sortFuelByDetourBtn?.addEventListener("click", () => {
-    state.fuelListSort = "detour";
-    renderFuelList();
-  });
-
-  els.openFuelHistoryBtn?.addEventListener("click", openFuelHistory);
-  els.closeFuelHistoryBtn?.addEventListener("click", closeFuelHistory);
-  els.fuelHistoryBackdrop?.addEventListener("click", closeFuelHistory);
-
-  els.exitNavOverlayBtn?.addEventListener("click", stopLiveNavigation);
+  els.settingsBtn.addEventListener("click", openSettings);
+  els.closeSettingsBtn.addEventListener("click", closeSettings);
+  els.settingsBackdrop.addEventListener("click", closeSettings);
+  els.saveSettingsBtn.addEventListener("click", saveSettings);
 
   document.addEventListener("click", event => {
-    if (!event.target.closest(".search-wrap")) hideAutocomplete();
+    if (!event.target.closest(".search-card") && !event.target.closest(".autocomplete")) hideAutocomplete();
   });
 }
 
-function loadSettings() {
-  try {
-    const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}");
-    state.settings = { ...state.settings, ...saved };
-  } catch {}
-}
-
-function saveSettings() {
-  localStorage.setItem(SETTINGS_KEY, JSON.stringify(state.settings));
-}
-
-function applySettingsToUI() {
-  if (els.languageDa) els.languageDa.checked = state.settings.language === "da";
-  if (els.languageEn) els.languageEn.checked = state.settings.language === "en";
-  if (els.regionDK) els.regionDK.checked = state.settings.region === "dk";
-  if (els.regionUS) els.regionUS.checked = state.settings.region === "us";
-  if (els.settingsRouteFast) els.settingsRouteFast.checked = state.settings.routeMode === "fast";
-  if (els.settingsRouteEco) els.settingsRouteEco.checked = state.settings.routeMode === "eco";
-  if (els.settingsFuelType) els.settingsFuelType.value = state.settings.fuelType;
-  if (els.settingsSearchRadius) els.settingsSearchRadius.value = String(state.settings.searchRadiusBase);
-}
-
-function saveSettingsFromControls() {
-  state.settings.language = els.languageEn?.checked ? "en" : "da";
-  state.settings.region = els.regionUS?.checked ? "us" : "dk";
-  state.settings.routeMode = els.settingsRouteEco?.checked ? "eco" : "fast";
-  state.settings.fuelType = els.settingsFuelType?.value || "benzin95";
-  state.settings.searchRadiusBase = Number(els.settingsSearchRadius?.value || 100000);
-
-  saveSettings();
-  closeSettings();
-
-  if (state.routeData) {
-    applyPricesToStations();
-    updateFuelBox();
-    updateFuelMarkers();
-  }
-}
-
-function openSettings() {
-  els.settingsPanel?.classList.remove("hidden");
-  els.settingsBackdrop?.classList.remove("hidden");
-}
-
-function closeSettings() {
-  els.settingsPanel?.classList.add("hidden");
-  els.settingsBackdrop?.classList.add("hidden");
-}
-
-async function runAutocomplete() {
-  const query = els.destinationInput?.value.trim();
-
-  if (!query || query.length < 3) {
-    hideAutocomplete();
-    return;
-  }
-
-  const country = state.settings.region === "us" ? "us" : "dk";
-
-  try {
-    const url =
-      `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=6&addressdetails=1&countrycodes=${country}&q=${encodeURIComponent(query)}`;
-
-    const res = await fetch(url);
-    const data = await res.json();
-
-    renderAutocomplete(Array.isArray(data) ? data : []);
-  } catch (error) {
-    console.error(error);
-    hideAutocomplete();
-  }
-}
-
-function renderAutocomplete(items) {
-  if (!els.autocompleteList || !els.autocompleteBox) return;
-
-  els.autocompleteList.innerHTML = "";
-
-  if (!items.length) {
-    els.autocompleteList.innerHTML = `<div class="autocomplete-empty">Ingen forslag</div>`;
-    els.autocompleteBox.classList.remove("hidden");
-    return;
-  }
-
-  items.forEach(item => {
-    const title =
-      item.name ||
-      item.address?.road ||
-      item.address?.city ||
-      item.address?.town ||
-      String(item.display_name || "").split(",")[0];
-
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "autocomplete-item";
-    button.innerHTML = `
-      <span class="autocomplete-title">${escapeHtml(title)}</span>
-      <span class="autocomplete-sub">${escapeHtml(item.display_name || "")}</span>
-    `;
-
-    button.addEventListener("click", () => {
-      state.selectedAutocompleteItem = {
-        lat: Number(item.lat),
-        lng: Number(item.lon),
-        displayName: item.display_name || title
-      };
-
-      els.destinationInput.value = title;
-      hideAutocomplete();
-    });
-
-    els.autocompleteList.appendChild(button);
-  });
-
-  els.autocompleteBox.classList.remove("hidden");
-}
-
-function hideAutocomplete() {
-  els.autocompleteBox?.classList.add("hidden");
+function initMap() {
+  state.map = L.map("map", { zoomControl: false, attributionControl: false, preferCanvas: true });
+  L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+    subdomains: "abcd",
+    maxZoom: 20
+  }).addTo(state.map);
+  state.map.setView([55.6761, 12.5683], 12);
 }
 
 async function calculateRoute() {
-  const input = els.destinationInput?.value.trim();
-  if (!input) return;
+  const query = els.destinationInput.value.trim();
+  if (!query) {
+    alert("Indtast en destination.");
+    return;
+  }
 
   try {
-    els.calcRouteBtn.disabled = true;
-    els.startNavBtn.disabled = true;
-    els.openFuelListBtn.disabled = true;
+    setStatus("Finder position og beregner rute...");
+    els.goBtn.disabled = true;
+    els.startBtn.disabled = true;
+    els.fuelRefreshBtn.disabled = true;
 
-    setStatus("GPS: henter position", "Navigation: beregner", "Kort: beregner");
+    const position = await getCurrentPosition();
+    updateCurrentPosition(position, true);
 
-    state.currentPosition = await getPosition();
-    updateUserMarker(state.currentPosition.lat, state.currentPosition.lng);
-
-    state.destination = state.selectedAutocompleteItem || await geocode(input);
-    updateDestinationMarker(state.destination.lat, state.destination.lng);
-
-    state.routeData = await fetchRoute(state.currentPosition, state.destination);
-
-    drawRoute(state.routeData.geometry);
-
-    saveHistory(input);
+    const destination = state.selectedAutocomplete || await geocode(query);
+    state.destination = destination;
+    updateDestinationMarker(destination);
+    saveHistory(destination);
     renderHistory();
 
-    await loadFuelStations(state.routeData.geometry);
-    computeRouteDistances();
-    applyPricesToStations();
+    const route = await fetchRoute(position, destination);
+    applyRoute(route);
 
-    updateFuelBox();
-    updateFuelMarkers();
+    els.startBtn.disabled = false;
+    els.recalcBtn.disabled = false;
+    els.fuelRefreshBtn.disabled = false;
 
-    els.startNavBtn.disabled = false;
-    els.openFuelListBtn.disabled = false;
+    setStatus("Rute klar. Henter vejdata, stationer og priser...");
 
-    setStatus("GPS: klar", "Navigation: rute klar", "Kort: klar");
+    await Promise.allSettled([
+      loadRoadContext(route.geometry),
+      refreshFuel()
+    ]);
+
+    updateGreenWave();
+    setStatus("Rute klar.");
   } catch (error) {
     console.error(error);
-    alert("Kunne ikke beregne rute: " + (error.message || error));
-    setStatus("GPS: fejl", "Navigation: fejl", "Kort: fejl");
+    alert(`Kunne ikke beregne rute:\n${error.message || error}`);
+    setStatus("Fejl ved ruteberegning.");
   } finally {
-    els.calcRouteBtn.disabled = false;
+    els.goBtn.disabled = false;
   }
 }
 
-async function geocode(q) {
-  const country = state.settings.region === "us" ? "us" : "dk";
-  const res = await fetch(
-    `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=${country}&q=${encodeURIComponent(q)}`
-  );
+async function recalculateFromCurrentPosition() {
+  if (!state.currentPosition || !state.destination) return;
+  setStatus("Genberegner rute...");
 
-  const data = await res.json();
+  const route = await fetchRoute(state.currentPosition, state.destination);
+  applyRoute(route);
 
-  if (!data.length) throw new Error("Destination ikke fundet");
+  await Promise.allSettled([
+    loadRoadContext(route.geometry),
+    refreshFuel()
+  ]);
 
-  return {
-    lat: Number(data[0].lat),
-    lng: Number(data[0].lon),
-    displayName: data[0].display_name
-  };
+  updateGreenWave();
+  setStatus("Rute genberegnet.");
 }
 
-async function fetchRoute(from, to) {
-  const res = await fetch(
-    `https://router.project-osrm.org/route/v1/driving/${from.lng},${from.lat};${to.lng},${to.lat}?overview=full&geometries=geojson`
-  );
-
-  const data = await res.json();
-
-  if (!data.routes?.length) throw new Error("Ingen rute fundet");
-
-  return {
-    geometry: data.routes[0].geometry.coordinates,
-    distance: data.routes[0].distance,
-    duration: data.routes[0].duration
-  };
+function applyRoute(route) {
+  state.route = route;
+  state.routeSteps = prepareSteps(route.steps);
+  state.routeMeasurements = measureRoute(route.geometry);
+  drawRoute(route.geometry);
+  updateTripInfo(route);
+  updateGreenWave();
 }
 
-async function loadFuelPrices() {
+async function startCompanion() {
+  if (!state.route) {
+    alert("Beregn en rute først.");
+    return;
+  }
+
+  if (!navigator.geolocation) {
+    alert("GPS understøttes ikke.");
+    return;
+  }
+
+  await requestWakeLock();
+
+  state.watchId = navigator.geolocation.watchPosition(position => {
+    const current = normalizePosition(position);
+    updateCurrentPosition(current, false);
+    const progress = getRouteProgress(state.currentPosition);
+    updateGreenWave(progress);
+    maybeReroute(progress);
+  }, error => {
+    console.warn(error);
+    setStatus(`GPS-fejl: ${error.message}`);
+  }, { enableHighAccuracy: true, maximumAge: 1000, timeout: 10000 });
+
+  els.startBtn.disabled = true;
+  els.stopBtn.disabled = false;
+  setStatus("Companion aktiv.");
+}
+
+function stopCompanion() {
+  if (state.watchId) navigator.geolocation.clearWatch(state.watchId);
+  state.watchId = null;
+  releaseWakeLock();
+  els.startBtn.disabled = !state.route;
+  els.stopBtn.disabled = true;
+  setStatus("Companion stoppet.");
+}
+
+function updateCurrentPosition(position, centerMap) {
+  const smoothed = smoothSpeed(position);
+  state.currentPosition = smoothed;
+  els.currentSpeed.textContent = Math.round(smoothed.speed || 0);
+
+  const icon = L.divIcon({
+    className: "user-marker-icon",
+    html: '<div class="user-marker-dot"></div>',
+    iconSize: [28, 28],
+    iconAnchor: [14, 14]
+  });
+
+  if (!state.userMarker) state.userMarker = L.marker([smoothed.lat, smoothed.lng], { icon, zIndexOffset: 5000 }).addTo(state.map);
+  else state.userMarker.setLatLng([smoothed.lat, smoothed.lng]);
+
+  if (centerMap) state.map.flyTo([smoothed.lat, smoothed.lng], 14, { duration: 0.7 });
+}
+
+function smoothSpeed(position) {
+  const speed = position.speed || 0;
+  if (state.smoothedSpeed === null) state.smoothedSpeed = speed;
+  else {
+    const alpha = speed < 10 ? 0.18 : 0.28;
+    state.smoothedSpeed = state.smoothedSpeed * (1 - alpha) + speed * alpha;
+  }
+  return { ...position, speed: state.smoothedSpeed };
+}
+
+function updateDestinationMarker(destination) {
+  const icon = L.divIcon({
+    className: "dest-marker-icon",
+    html: '<div class="dest-marker-dot">⌖</div>',
+    iconSize: [40, 40],
+    iconAnchor: [20, 20]
+  });
+
+  if (!state.destinationMarker) state.destinationMarker = L.marker([destination.lat, destination.lng], { icon, zIndexOffset: 4500 }).addTo(state.map);
+  else state.destinationMarker.setLatLng([destination.lat, destination.lng]);
+}
+
+function drawRoute(geometry) {
+  if (state.routeGlow) state.map.removeLayer(state.routeGlow);
+  if (state.routeLine) state.map.removeLayer(state.routeLine);
+
+  const latlngs = geometry.map(point => [point[1], point[0]]);
+  state.routeGlow = L.polyline(latlngs, { color: "#68c4ff", weight: 18, opacity: 0.22, lineCap: "round", lineJoin: "round" }).addTo(state.map);
+  state.routeLine = L.polyline(latlngs, { color: "#2b91ff", weight: 7, opacity: 1, lineCap: "round", lineJoin: "round" }).addTo(state.map);
+  state.map.fitBounds(state.routeLine.getBounds(), { padding: [70, 70], animate: true });
+}
+
+function updateTripInfo(route) {
+  els.routeDistance.textContent = formatDistance(route.distance);
+  els.routeDuration.textContent = formatDuration(route.duration);
+  els.routeEta.textContent = new Date(Date.now() + route.duration * 1000).toLocaleTimeString("da-DK", { hour: "2-digit", minute: "2-digit" });
+}
+
+function updateGreenWave(progress = null) {
+  const current = state.currentPosition;
+  if (!current || !state.route) {
+    setRecommendation(null, "Beregn en rute for at starte GreenWave.");
+    return;
+  }
+
+  if (!progress) progress = getRouteProgress(current);
+
+  const maxSpeed = findMaxSpeedByRouteProgress(progress) || findMaxSpeedByPosition(current);
+  els.speedLimit.textContent = maxSpeed || "?";
+
+  if (!maxSpeed) {
+    setRecommendation(null, "Maxhastighed ukendt på dette vejstykke.");
+    return;
+  }
+
+  const step = findCurrentStep(progress);
+  const signal = findUpcomingSignal(progress);
+  const recommendation = calculateRecommendedSpeed(maxSpeed, progress, step, signal);
+  setRecommendation(recommendation.speed, recommendation.reason);
+}
+
+function calculateRecommendedSpeed(maxSpeed, progress, step, signal) {
+  if (step) {
+    const distanceToStep = Math.max(0, step.endDistance - progress.alongMeters);
+    const type = `${step.maneuverType} ${step.maneuverModifier}`.toLowerCase();
+
+    if (distanceToStep < 500) {
+      if (type.includes("roundabout")) return speedPlan(maxSpeed, distanceToStep, 28, "Rundkørsel forude.");
+      if (type.includes("left") || type.includes("right") || type.includes("turn")) return speedPlan(maxSpeed, distanceToStep, 25, "Sving forude.");
+      if (type.includes("arrive")) return speedPlan(maxSpeed, distanceToStep, 15, "Destination tæt på.");
+    }
+  }
+
+  if (signal && signal.distanceAhead < 850) {
+    const speed = signal.distanceAhead < 220 ? Math.round(maxSpeed * 0.72 / 5) * 5 : Math.round(maxSpeed * 0.84 / 5) * 5;
+    return { speed: clamp(speed, 25, maxSpeed), reason: "Signalreguleret kryds forude. Forsigtig GreenWave-estimering." };
+  }
+
+  return { speed: maxSpeed, reason: "Ingen konkret grund til at køre under max." };
+}
+
+function speedPlan(maxSpeed, distance, target, reason) {
+  if (distance < 100) return { speed: Math.min(maxSpeed, target), reason };
+  if (distance < 250) return { speed: Math.min(maxSpeed, Math.max(target + 10, Math.round(maxSpeed * 0.65 / 5) * 5)), reason };
+  return { speed: Math.min(maxSpeed, Math.max(target + 20, Math.round(maxSpeed * 0.8 / 5) * 5)), reason };
+}
+
+function setRecommendation(speed, reason) {
+  els.recommendedSpeed.textContent = speed || "--";
+  els.reasonText.textContent = reason || "";
+}
+
+async function refreshFuel() {
+  if (!state.route) return;
+  els.fuelRefreshBtn.disabled = true;
+  els.fuelSummary.textContent = "Henter stationer og priser...";
+
   try {
-    const res = await fetch(FUEL_DATA_URL, { cache: "no-store" });
-    const raw = await res.json();
-    state.fuelPriceOverrides = normalizeFuelPrices(Array.isArray(raw) ? raw : []);
+    const [priceData, osmStations] = await Promise.all([
+      fetchPriceData(),
+      findFuelStations(state.route.geometry).catch(() => [])
+    ]);
 
-    if (els.fuelDisclaimer) {
-      els.fuelDisclaimer.textContent = `Prisposter: ${state.fuelPriceOverrides.length}`;
-    }
-  } catch {
-    state.fuelPriceOverrides = [];
-    if (els.fuelDisclaimer) {
-      els.fuelDisclaimer.textContent = "fuel-prices.json kunne ikke hentes";
-    }
+    state.priceData = priceData;
+
+    const apiStations = (priceData.stations || [])
+      .filter(station => Number.isFinite(station.lat) && Number.isFinite(station.lng))
+      .map(station => ({
+        ...station,
+        id: `api-${station.sourceId}-${station.stationId}`,
+        name: station.name || station.brand || "Tankstation",
+        brand: station.brand || "",
+        address: station.addressText || "",
+        fromPriceApi: true
+      }));
+
+    const merged = dedupeStations([...apiStations, ...osmStations]);
+
+    state.stations = attachRouteDistances(merged, state.route.geometry)
+      .map(station => station.fromPriceApi ? attachDirectPrice(station, state.settings.fuelType) : attachMatchedPrice(station, priceData, state.settings.fuelType))
+      .filter(station => station.distanceToRoute <= state.settings.maxFuelDetourMeters)
+      .sort(sortStations);
+
+    renderFuel();
+    drawFuelMarkers();
+  } catch (error) {
+    console.error(error);
+    els.fuelSummary.textContent = "Kunne ikke hente tankstationer/priser.";
+  } finally {
+    els.fuelRefreshBtn.disabled = false;
   }
 }
 
-function normalizeFuelPrices(rawStations) {
-  const out = [];
+function sortStations(a, b) {
+  if (Number.isFinite(a.price) && Number.isFinite(b.price)) return a.price - b.price;
+  if (Number.isFinite(a.price)) return -1;
+  if (Number.isFinite(b.price)) return 1;
+  return a.distanceAlongRoute - b.distanceAlongRoute;
+}
 
-  rawStations.forEach(station => {
-    if (!station || typeof station !== "object") return;
+function renderFuel() {
+  const count = state.stations.length;
+  const priced = state.stations.filter(station => Number.isFinite(station.price)).length;
+  const sources = state.priceData?.sources?.filter(source => source.ok).map(source => `${source.name} (${source.stations})`).join(", ");
 
-    const country = String(station.country || station.market || "DK").toUpperCase();
+  els.fuelSummary.textContent = count
+    ? `${count} stationer fundet. ${priced} med pris. ${sources ? "Kilder: " + sources : ""}`
+    : "Ingen stationer inden for valgt afstand fra ruten.";
 
-    if (station.fuelTypes && typeof station.fuelTypes === "object") {
-      Object.entries(station.fuelTypes).forEach(([fuelType, data]) => {
-        if (!data || typeof data.price !== "number") return;
+  els.fuelList.innerHTML = state.stations.slice(0, 12).map(station => {
+    const price = Number.isFinite(station.price) ? `${station.price.toFixed(2).replace(".", ",")} kr/l` : "Pris ikke tilgængelig";
+    const meta = [
+      `${formatDistance(station.distanceAlongRoute)} langs ruten`,
+      `${formatDistance(station.distanceToRoute)} fra ruten`,
+      station.priceProduct || "",
+      station.priceSource ? `Pris fra ${station.priceSource}` : ""
+    ].filter(Boolean).join(" · ");
 
-        out.push({
-          name: station.name || "Ukendt station",
-          brand: station.brand || "",
-          address: station.address || "",
-          city: extractCity(station.address || ""),
-          lat: numberOrNull(station.lat),
-          lng: numberOrNull(station.lng),
-          country,
-          fuelType,
-          price: data.price,
-          currency: data.currency || "DKK",
-          unit: data.unit || "liter",
-          source: data.source || "fuel-prices.json",
-          updatedAt: data.updatedAt || null
-        });
-      });
+    return `
+      <article class="fuel-item">
+        <div class="fuel-title"><span>${escapeHtml(station.name)}</span><span class="fuel-price">${escapeHtml(price)}</span></div>
+        <div class="fuel-meta">${escapeHtml(meta)}</div>
+        <a href="https://www.google.com/maps/search/?api=1&query=${station.lat},${station.lng}" target="_blank">Åbn i Google Maps</a>
+      </article>
+    `;
+  }).join("");
+}
+
+function drawFuelMarkers() {
+  state.fuelMarkers.forEach(marker => state.map.removeLayer(marker));
+  state.fuelMarkers = [];
+
+  state.stations.slice(0, 12).forEach(station => {
+    const label = Number.isFinite(station.price) ? station.price.toFixed(2).replace(".", ",") : station.name.slice(0, 8);
+    const icon = L.divIcon({ className: "fuel-marker", html: `<div class="fuel-pin">⛽ ${escapeHtml(label)}</div>`, iconSize: [100, 34], iconAnchor: [50, 34] });
+    state.fuelMarkers.push(L.marker([station.lat, station.lng], { icon }).addTo(state.map));
+  });
+}
+
+async function searchAutocomplete() {
+  const query = els.destinationInput.value.trim();
+  if (query.length < 2) {
+    hideAutocomplete();
+    return;
+  }
+
+  try {
+    const response = await fetch(`/api/geocode?q=${encodeURIComponent(query)}&limit=6`);
+    const items = await response.json();
+    if (!items.length) {
+      hideAutocomplete();
       return;
     }
 
-    if (typeof station.price === "number") {
-      out.push({
-        name: station.name || "Ukendt station",
-        brand: station.brand || "",
-        address: station.address || "",
-        city: extractCity(station.address || ""),
-        lat: numberOrNull(station.lat),
-        lng: numberOrNull(station.lng),
-        country,
-        fuelType: station.fuelType || state.settings.fuelType,
-        price: station.price,
-        currency: station.currency || "DKK",
-        unit: station.unit || "liter",
-        source: station.source || "fuel-prices.json",
-        updatedAt: station.updatedAt || null
+    els.autocompleteResults.innerHTML = items.map((item, index) => {
+      const formatted = formatAddress(item);
+      return `<button type="button" data-index="${index}"><strong>${escapeHtml(formatted.title)}</strong><small>${escapeHtml(formatted.subtitle)}</small></button>`;
+    }).join("");
+
+    els.autocompleteResults.classList.remove("hidden");
+    [...els.autocompleteResults.querySelectorAll("button")].forEach(button => {
+      button.addEventListener("click", () => {
+        const item = items[Number(button.dataset.index)];
+        const formatted = formatAddress(item);
+        state.selectedAutocomplete = { lat: Number(item.lat), lng: Number(item.lng ?? item.lon), label: formatted.title, displayName: [formatted.title, formatted.subtitle].filter(Boolean).join(", ") };
+        els.destinationInput.value = formatted.title;
+        hideAutocomplete();
       });
-    }
-  });
-
-  return out;
+    });
+  } catch (error) {
+    console.warn(error);
+    hideAutocomplete();
+  }
 }
 
-async function loadFuelStations(geometry) {
-  const sample = sampleRoutePoints(geometry);
-
-  const query = `
-    [out:json][timeout:25];
-    (
-      ${sample.map(p => `
-        node(around:2500,${p.lat},${p.lng})["amenity"="fuel"];
-        way(around:2500,${p.lat},${p.lng})["amenity"="fuel"];
-      `).join("")}
-    );
-    out center tags;
-  `;
-
-  const res = await fetch("https://overpass-api.de/api/interpreter", {
-    method: "POST",
-    headers: { "Content-Type": "text/plain;charset=UTF-8" },
-    body: query
-  });
-
-  const data = await res.json();
-
-  state.osmFuelStations = dedupeStations(
-    (data.elements || [])
-      .map(normalizeOsmStation)
-      .filter(Boolean)
-  );
+function hideAutocomplete() {
+  els.autocompleteResults.classList.add("hidden");
+  els.autocompleteResults.innerHTML = "";
 }
 
-function sampleRoutePoints(geometry) {
-  const points = [];
-  const maxSamples = 20;
-
-  if (!geometry.length) return points;
-
-  for (let i = 0; i < maxSamples; i++) {
-    const index = Math.round((geometry.length - 1) * (i / (maxSamples - 1)));
-    const p = geometry[index];
-    points.push({ lng: p[0], lat: p[1] });
+function formatAddress(item) {
+  if (item.displayName) {
+    const parts = String(item.displayName).split(',').map(part => part.trim()).filter(Boolean);
+    return { title: parts[0] || item.displayName, subtitle: parts.slice(1, 3).join(', ') };
   }
 
-  const seen = new Set();
+  const address = item.address || {};
+  const road = address.road || address.pedestrian || item.name || "";
+  const number = address.house_number || "";
+  const city = address.city || address.town || address.village || address.municipality || "";
+  const postcode = address.postcode || "";
+  return { title: [road, number].filter(Boolean).join(" ") || item.display_name || "Ukendt", subtitle: [postcode, city].filter(Boolean).join(" ") };
+}
 
-  return points.filter(p => {
-    const key = `${p.lat.toFixed(3)},${p.lng.toFixed(3)}`;
+async function geocode(query) {
+  const response = await fetch(`/api/geocode?q=${encodeURIComponent(query)}&limit=1`);
+  const data = await response.json();
+  if (!response.ok) throw new Error(data?.error || `Geocode HTTP ${response.status}`);
+  if (!data.length) throw new Error("Destination ikke fundet.");
+  const formatted = formatAddress(data[0]);
+  return { lat: Number(data[0].lat), lng: Number(data[0].lng ?? data[0].lon), label: formatted.title, displayName: [formatted.title, formatted.subtitle].filter(Boolean).join(", ") };
+}
+
+async function fetchRoute(from, to) {
+  const response = await fetch(`/api/route?fromLat=${from.lat}&fromLng=${from.lng}&toLat=${to.lat}&toLng=${to.lng}&mode=${encodeURIComponent(state.settings.routeMode)}`);
+  const data = await response.json();
+  if (!data.routes?.length) throw new Error("Ingen rute fundet.");
+  const route = selectRoute(data.routes);
+  return { geometry: route.geometry.coordinates, distance: Number(route.distance || 0), duration: Number(route.duration || 0), steps: extractSteps(route) };
+}
+
+function selectRoute(routes) {
+  if (state.settings.routeMode === "eco") return [...routes].sort((a, b) => ecoRouteScore(a) - ecoRouteScore(b))[0];
+  return [...routes].sort((a, b) => Number(a.duration || Infinity) - Number(b.duration || Infinity))[0];
+}
+
+function ecoRouteScore(route) {
+  return Number(route.distance || 0) / 1000 + Number(route.duration || 0) / 60 * 0.22;
+}
+
+function extractSteps(route) {
+  const steps = [];
+  (route.legs || []).forEach(leg => {
+    (leg.steps || []).forEach(step => {
+      const maneuver = step.maneuver || {};
+      steps.push({ distance: Number(step.distance || 0), duration: Number(step.duration || 0), name: step.name || "", maneuverType: maneuver.type || "", maneuverModifier: maneuver.modifier || "" });
+    });
+  });
+  return steps;
+}
+
+function prepareSteps(steps) {
+  let total = 0;
+  return steps.map((step, index) => {
+    const output = { ...step, index, startDistance: total, endDistance: total + step.distance };
+    total += step.distance;
+    return output;
+  });
+}
+
+function measureRoute(geometry) {
+  const cumulative = [0];
+  let total = 0;
+  for (let i = 1; i < geometry.length; i++) {
+    const a = geometry[i - 1];
+    const b = geometry[i];
+    total += haversine(a[1], a[0], b[1], b[0]);
+    cumulative.push(total);
+  }
+  return { cumulative, total };
+}
+
+function getRouteProgress(position) {
+  const geometry = state.route.geometry;
+  const cumulative = state.routeMeasurements.cumulative;
+  let best = { distanceToRoute: Infinity, alongMeters: 0, segmentIndex: 1 };
+
+  for (let i = 1; i < geometry.length; i++) {
+    const a = geometry[i - 1];
+    const b = geometry[i];
+    const projection = projectPointToSegment(position.lat, position.lng, a[1], a[0], b[1], b[0]);
+    if (projection.distanceMeters < best.distanceToRoute) {
+      const segmentLength = haversine(a[1], a[0], b[1], b[0]);
+      best = { distanceToRoute: projection.distanceMeters, alongMeters: cumulative[i - 1] + segmentLength * projection.t, segmentIndex: i };
+    }
+  }
+
+  const progressRatio = Math.min(1, best.alongMeters / state.route.distance);
+  return { ...best, remainingMeters: Math.max(0, state.route.distance - best.alongMeters), remainingSeconds: Math.max(0, state.route.duration * (1 - progressRatio)) };
+}
+
+function maybeReroute(progress) {
+  const now = Date.now();
+  if (progress.distanceToRoute <= 90) {
+    state.offRouteSince = null;
+    return;
+  }
+  if (!state.offRouteSince) {
+    state.offRouteSince = now;
+    return;
+  }
+  if (now - state.offRouteSince < 7000 || now - state.lastRerouteAt < 25000) return;
+  state.lastRerouteAt = now;
+  state.offRouteSince = null;
+  recalculateFromCurrentPosition().catch(console.warn);
+}
+
+function findCurrentStep(progress) {
+  return state.routeSteps.find(step => progress.alongMeters >= step.startDistance && progress.alongMeters <= step.endDistance) || state.routeSteps[state.routeSteps.length - 1];
+}
+
+function findUpcomingSignal(progress) {
+  return (state.roadContext.signals || [])
+    .map(signal => ({ ...signal, distanceAhead: signal.distanceAlongRoute - progress.alongMeters }))
+    .filter(signal => signal.distanceAhead > 40 && signal.distanceAhead < 900)
+    .sort((a, b) => a.distanceAhead - b.distanceAhead)[0] || null;
+}
+
+function findMaxSpeedByRouteProgress(progress) {
+  const along = progress.alongMeters;
+  const candidates = (state.roadContext.ways || [])
+    .filter(way => way.routeStart <= along + 220 && way.routeEnd >= along - 220)
+    .sort((a, b) => a.distanceToRoute - b.distanceToRoute);
+  return candidates[0]?.maxspeed || null;
+}
+
+function findMaxSpeedByPosition(position) {
+  let best = null;
+  for (const way of state.roadContext.ways || []) {
+    for (let i = 1; i < way.geometry.length; i++) {
+      const a = way.geometry[i - 1];
+      const b = way.geometry[i];
+      const projection = projectPointToSegment(position.lat, position.lng, a[0], a[1], b[0], b[1]);
+      if (!best || projection.distanceMeters < best.distance) best = { distance: projection.distanceMeters, speed: way.maxspeed };
+    }
+  }
+  return best && best.distance <= 75 ? best.speed : null;
+}
+
+async function loadRoadContext(geometry) {
+  const boxes = routeCorridorBoxes(geometry, 0.025, 10);
+  const ways = [];
+  const signals = [];
+
+  for (const box of boxes) {
+    const b = `${box.south},${box.west},${box.north},${box.east}`;
+    const query = `[out:json][timeout:25];(way["highway"]["maxspeed"](${b});node["highway"="traffic_signals"](${b}););out body geom;`;
+    try {
+      const data = await runOverpass(query, 9000);
+      for (const element of data.elements || []) {
+        if (element.type === "way" && element.geometry?.length) {
+          const maxspeed = parseMaxspeed(element.tags?.maxspeed);
+          if (maxspeed) ways.push({ id: element.id, maxspeed, geometry: element.geometry.map(point => [point.lat, point.lon]) });
+        }
+        if (element.type === "node" && element.tags?.highway === "traffic_signals") signals.push({ id: element.id, lat: element.lat, lng: element.lon });
+      }
+    } catch (error) {
+      console.warn("Road context box failed", error);
+    }
+  }
+
+  const measuredWays = dedupeById(ways).map(way => attachWayRouteSpan(way, geometry)).filter(way => way.distanceToRoute <= 80);
+  state.roadContext = {
+    ways: measuredWays,
+    signals: attachRouteDistances(dedupeById(signals).map(signal => ({ ...signal, name: "Traffic signal" })), geometry).filter(signal => signal.distanceToRoute <= 55)
+  };
+}
+
+function attachWayRouteSpan(way, routeGeometry) {
+  let best = Infinity;
+  let minAlong = Infinity;
+  let maxAlong = -Infinity;
+  const routeMeasures = measureRoute(routeGeometry);
+
+  for (const point of way.geometry) {
+    for (let i = 1; i < routeGeometry.length; i++) {
+      const a = routeGeometry[i - 1];
+      const b = routeGeometry[i];
+      const projection = projectPointToSegment(point[0], point[1], a[1], a[0], b[1], b[0]);
+      if (projection.distanceMeters < best) best = projection.distanceMeters;
+      if (projection.distanceMeters <= 100) {
+        const segmentLength = haversine(a[1], a[0], b[1], b[0]);
+        const along = routeMeasures.cumulative[i - 1] + segmentLength * projection.t;
+        minAlong = Math.min(minAlong, along);
+        maxAlong = Math.max(maxAlong, along);
+      }
+    }
+  }
+
+  return { ...way, distanceToRoute: best, routeStart: Number.isFinite(minAlong) ? minAlong : 0, routeEnd: Number.isFinite(maxAlong) ? maxAlong : 0 };
+}
+
+async function findFuelStations(geometry) {
+  const boxes = routeCorridorBoxes(geometry, 0.08, 8);
+  const stations = [];
+
+  for (const box of boxes) {
+    const b = `${box.south},${box.west},${box.north},${box.east}`;
+    const query = `[out:json][timeout:35];(node["amenity"="fuel"](${b});way["amenity"="fuel"](${b});relation["amenity"="fuel"](${b}););out center tags;`;
+    try {
+      const data = await runOverpass(query, 10000);
+      stations.push(...(data.elements || []).map(normalizeFuelStation).filter(Boolean));
+    } catch (error) {
+      console.warn("Fuel box failed", error);
+    }
+  }
+
+  return dedupeStations(stations);
+}
+
+function routeCorridorBoxes(geometry, padding, count) {
+  const boxes = [];
+  for (let i = 0; i < count; i++) {
+    const start = Math.floor((geometry.length - 1) * (i / count));
+    const end = Math.max(start + 1, Math.floor((geometry.length - 1) * ((i + 1) / count)));
+    boxes.push(routeBbox(geometry.slice(start, end + 1), padding));
+  }
+  return boxes;
+}
+
+async function runOverpass(query, timeoutMs) {
+  const response = await fetch('/api/overpass', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query, timeoutMs })
+  });
+
+  if (!response.ok) {
+    let message = `/api/overpass ${response.status}`;
+    try {
+      const error = await response.json();
+      message = error.error || message;
+    } catch {}
+    throw new Error(message);
+  }
+
+  return await response.json();
+}
+
+function normalizeFuelStation(element) {
+  const lat = typeof element.lat === "number" ? element.lat : element.center?.lat;
+  const lng = typeof element.lon === "number" ? element.lon : element.center?.lon;
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  const tags = element.tags || {};
+  return { id: `${element.type}-${element.id}`, lat, lng, name: tags.name || tags.brand || tags.operator || "Tankstation", brand: tags.brand || tags.operator || tags.name || "", address: [tags["addr:street"], tags["addr:housenumber"]].filter(Boolean).join(" "), postalCode: tags["addr:postcode"] || "", city: tags["addr:city"] || "", distanceToRoute: Infinity, distanceAlongRoute: Infinity };
+}
+
+function attachRouteDistances(stations, geometry) {
+  const segments = [];
+  let cumulative = 0;
+  for (let i = 1; i < geometry.length; i++) {
+    const a = geometry[i - 1];
+    const b = geometry[i];
+    const length = haversine(a[1], a[0], b[1], b[0]);
+    segments.push({ start: a, end: b, startMeters: cumulative, length });
+    cumulative += length;
+  }
+
+  return stations.map(station => {
+    let best = Infinity;
+    let along = Infinity;
+    for (const segment of segments) {
+      const projection = projectPointToSegment(station.lat, station.lng, segment.start[1], segment.start[0], segment.end[1], segment.end[0]);
+      if (projection.distanceMeters < best) {
+        best = projection.distanceMeters;
+        along = segment.startMeters + segment.length * projection.t;
+      }
+    }
+    return { ...station, distanceToRoute: best, distanceAlongRoute: along };
+  });
+}
+
+async function fetchPriceData() {
+  const response = await fetch(`/api/fuel-prices?v=${Date.now()}`, { cache: "no-store" });
+  if (!response.ok) throw new Error(`/api/fuel-prices ${response.status}`);
+  return await response.json();
+}
+
+function attachDirectPrice(station, fuelType) {
+  const product = chooseProduct(station.prices || [], fuelType);
+  return product ? { ...station, price: Number(product.price), priceProduct: product.productName || product.displayName || product.fuelType, priceSource: station.source } : { ...station, price: null };
+}
+
+function attachMatchedPrice(station, priceData, fuelType) {
+  let best = null;
+  for (const candidate of priceData.stations || []) {
+    const score = scorePriceMatch(station, candidate);
+    if (!best || score.value > best.score) best = { candidate, score: score.value };
+  }
+  if (!best || best.score < 50) return { ...station, price: null };
+  const product = chooseProduct(best.candidate.prices || [], fuelType);
+  return product ? { ...station, price: Number(product.price), priceProduct: product.productName || product.displayName || product.fuelType, priceSource: best.candidate.source } : { ...station, price: null };
+}
+
+function scorePriceMatch(osm, price) {
+  let score = 0;
+  if (normalizeBrand(osm.brand || osm.name) === normalizeBrand(price.brand || price.name)) score += 35;
+  if (sharesToken(osm.name, price.name)) score += 20;
+  if (sharesToken(osm.address, price.addressText)) score += 25;
+  if (osm.postalCode && price.postalCode && String(osm.postalCode) === String(price.postalCode)) score += 18;
+  if (Number.isFinite(price.lat) && Number.isFinite(price.lng)) {
+    const meters = haversine(osm.lat, osm.lng, price.lat, price.lng);
+    if (meters < 120) score += 60;
+    else if (meters < 350) score += 46;
+    else if (meters < 900) score += 28;
+    else if (meters < 1800) score += 12;
+  }
+  return { value: score };
+}
+
+function chooseProduct(prices, fuelType) {
+  const candidates = prices.filter(price => Number.isFinite(Number(price.price)));
+  const text = price => normalizeText(`${price.code} ${price.octane} ${price.fuelType} ${price.productName} ${price.displayName}`);
+
+  if (fuelType === "diesel") return candidates.find(p => /diesel/.test(text(p)) && !/premium|plus|extra|deluxe|hvo/.test(text(p))) || candidates.find(p => /diesel/.test(text(p))) || null;
+  if (fuelType === "premiumDiesel") return candidates.find(p => /diesel/.test(text(p)) && /premium|plus|extra|deluxe/.test(text(p))) || candidates.find(p => /diesel/.test(text(p))) || null;
+  if (fuelType === "benzin98") return candidates.find(p => /98|100|e5|oktan 98|oktan 100|blyfri 98/.test(text(p)) && !/diesel/.test(text(p))) || null;
+  return candidates.find(p => /95|e10|blyfri 95|miles 95|benzin|gasoline|petrol/.test(text(p)) && !/98|100|premium|diesel/.test(text(p))) || candidates.find(p => /benzin|gasoline|petrol/.test(text(p)) && !/diesel/.test(text(p))) || null;
+}
+
+function openSettings() {
+  syncSettingsUi();
+  els.settingsModal.classList.remove("hidden");
+  els.settingsBackdrop.classList.remove("hidden");
+}
+
+function closeSettings() {
+  els.settingsModal.classList.add("hidden");
+  els.settingsBackdrop.classList.add("hidden");
+}
+
+function saveSettings() {
+  state.settings.fuelType = els.fuelTypeSelect.value;
+  state.settings.maxFuelDetourMeters = Number(els.fuelDetourSelect.value);
+  state.settings.routeMode = els.routeModeSelect.value;
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(state.settings));
+  closeSettings();
+  if (state.route) refreshFuel().catch(console.warn);
+}
+
+function loadSettings() {
+  try { state.settings = { ...state.settings, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}") }; } catch {}
+}
+
+function syncSettingsUi() {
+  els.fuelTypeSelect.value = state.settings.fuelType;
+  els.fuelDetourSelect.value = String(state.settings.maxFuelDetourMeters);
+  els.routeModeSelect.value = state.settings.routeMode;
+}
+
+function loadHistory() {
+  try { state.history = JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]"); } catch { state.history = []; }
+}
+
+function saveHistory(destination) {
+  const item = { label: destination.label, displayName: destination.displayName, lat: destination.lat, lng: destination.lng };
+  state.history = [item, ...state.history.filter(old => old.label !== item.label)].slice(0, 5);
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(state.history));
+}
+
+function renderHistory() {
+  if (!state.history.length) {
+    els.historySection.classList.add("hidden");
+    return;
+  }
+  els.historySection.classList.remove("hidden");
+  els.historyList.innerHTML = state.history.map((item, index) => `<button type="button" data-index="${index}"><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(item.displayName || "")}</small></button>`).join("");
+  [...els.historyList.querySelectorAll("button")].forEach(button => {
+    button.addEventListener("click", () => {
+      const item = state.history[Number(button.dataset.index)];
+      state.selectedAutocomplete = { ...item };
+      els.destinationInput.value = item.label;
+    });
+  });
+}
+
+function setStatus(text) { els.statusText.textContent = text; }
+
+function routeBbox(geometry, padding) {
+  let south = Infinity, west = Infinity, north = -Infinity, east = -Infinity;
+  for (const point of geometry) {
+    south = Math.min(south, point[1]);
+    north = Math.max(north, point[1]);
+    west = Math.min(west, point[0]);
+    east = Math.max(east, point[0]);
+  }
+  return { south: south - padding, west: west - padding, north: north + padding, east: east + padding };
+}
+
+function parseMaxspeed(value) {
+  if (!value) return null;
+  const text = String(value).toLowerCase();
+  if (text.includes("none")) return 130;
+  const match = text.match(/\d+/);
+  if (!match) return null;
+  let speed = Number(match[0]);
+  if (text.includes("mph")) speed = Math.round(speed * 1.60934);
+  return speed >= 5 && speed <= 140 ? speed : null;
+}
+
+function getCurrentPosition() {
+  return new Promise(resolve => {
+    if (!navigator.geolocation) { resolve({ lat: 55.6761, lng: 12.5683, speed: 0, heading: 0 }); return; }
+    navigator.geolocation.getCurrentPosition(position => resolve(normalizePosition(position)), () => resolve({ lat: 55.6761, lng: 12.5683, speed: 0, heading: 0 }), { enableHighAccuracy: true, maximumAge: 1000, timeout: 9000 });
+  });
+}
+
+function normalizePosition(position) {
+  return { lat: position.coords.latitude, lng: position.coords.longitude, speed: typeof position.coords.speed === "number" ? Math.max(0, position.coords.speed * 3.6) : 0, heading: typeof position.coords.heading === "number" ? position.coords.heading : 0, accuracy: typeof position.coords.accuracy === "number" ? position.coords.accuracy : null };
+}
+
+async function requestWakeLock() { try { if ("wakeLock" in navigator) state.wakeLock = await navigator.wakeLock.request("screen"); } catch {} }
+async function releaseWakeLock() { try { if (state.wakeLock) await state.wakeLock.release(); } catch {} state.wakeLock = null; }
+
+function fetchWithTimeout(url, options, timeoutMs) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  return fetch(url, { ...options, signal: controller.signal }).finally(() => clearTimeout(timeout));
+}
+
+function haversine(lat1, lng1, lat2, lng2) {
+  const radius = 6371000;
+  const toRad = value => value * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return radius * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function projectPointToSegment(lat, lng, lat1, lng1, lat2, lng2) {
+  const mLat = 111320;
+  const mLng = 111320 * Math.cos(lat * Math.PI / 180);
+  const px = lng * mLng;
+  const py = lat * mLat;
+  const ax = lng1 * mLng;
+  const ay = lat1 * mLat;
+  const bx = lng2 * mLng;
+  const by = lat2 * mLat;
+  const dx = bx - ax;
+  const dy = by - ay;
+  const len = dx * dx + dy * dy;
+  if (!len) return { t: 0, distanceMeters: Math.hypot(px - ax, py - ay) };
+  let t = ((px - ax) * dx + (py - ay) * dy) / len;
+  t = clamp(t, 0, 1);
+  return { t, distanceMeters: Math.hypot(px - (ax + t * dx), py - (ay + t * dy)) };
+}
+
+function formatDistance(meters) {
+  if (!Number.isFinite(meters)) return "—";
+  if (meters < 1000) return `${Math.round(meters)} m`;
+  if (meters < 10000) return `${(meters / 1000).toFixed(1).replace(".", ",")} km`;
+  return `${Math.round(meters / 1000)} km`;
+}
+
+function formatDuration(seconds) {
+  if (!Number.isFinite(seconds)) return "—";
+  const minutes = Math.max(1, Math.round(seconds / 60));
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest ? `${hours} t ${rest} min` : `${hours} t`;
+}
+
+function escapeHtml(value) {
+  return String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#039;");
+}
+
+function normalizeBrand(value) {
+  const text = normalizeText(value);
+  if (text.includes("circle")) return "circle k";
+  if (text.includes("ingo")) return "ingo";
+  if (text.includes("ok")) return "ok";
+  if (text.includes("uno")) return "uno-x";
+  if (text.includes("q8")) return "q8";
+  if (text.includes("shell")) return "shell";
+  return text;
+}
+
+function normalizeText(value) {
+  return String(value || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/æ/g, "ae").replace(/ø/g, "oe").replace(/å/g, "aa").replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function sharesToken(a, b) {
+  const ignore = new Set(["vej", "gade", "alle", "tank", "station", "automat", "circle", "ingo", "uno", "ok"]);
+  const aTokens = normalizeText(a).split(" ").filter(token => token.length > 2 && !ignore.has(token));
+  const bTokens = new Set(normalizeText(b).split(" ").filter(token => token.length > 2 && !ignore.has(token)));
+  return aTokens.some(token => bTokens.has(token));
+}
+
+function dedupeStations(stations) {
+  const seen = new Set();
+  return stations.filter(station => {
+    const key = station.id || `${Math.round(station.lat * 10000)}:${Math.round(station.lng * 10000)}`;
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
   });
 }
 
-function normalizeOsmStation(el) {
-  const lat = typeof el.lat === "number" ? el.lat : el.center?.lat;
-  const lng = typeof el.lon === "number" ? el.lon : el.center?.lon;
-
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
-
-  const tags = el.tags || {};
-  const name = tags.name || tags.brand || tags.operator || "Tankstation";
-  const brand = normalizeBrand(tags.brand || tags.operator || name);
-  const address = [
-    tags["addr:street"],
-    tags["addr:housenumber"],
-    tags["addr:postcode"],
-    tags["addr:city"]
-  ].filter(Boolean).join(" ");
-
-  return {
-    id: `${el.type}-${el.id}`,
-    lat,
-    lng,
-    name,
-    brand,
-    address,
-    city: tags["addr:city"] || extractCity(address),
-    price: null,
-    source: "OSM",
-    matchMode: null,
-    distanceAlongRoute: Infinity,
-    distanceToRoute: Infinity
-  };
-}
-
-function computeRouteDistances() {
-  const route = state.routeData.geometry;
-  let cumulative = 0;
-  const segments = [];
-
-  for (let i = 1; i < route.length; i++) {
-    const start = route[i - 1];
-    const end = route[i];
-    const length = haversine(start[1], start[0], end[1], end[0]);
-
-    segments.push({
-      start,
-      end,
-      startMeters: cumulative,
-      length
-    });
-
-    cumulative += length;
-  }
-
-  state.osmFuelStations.forEach(station => {
-    let bestDistanceToRoute = Infinity;
-    let bestAlong = Infinity;
-
-    segments.forEach(seg => {
-      const projected = projectPointToSegment(
-        station.lat,
-        station.lng,
-        seg.start[1],
-        seg.start[0],
-        seg.end[1],
-        seg.end[0]
-      );
-
-      if (projected.distanceMeters < bestDistanceToRoute) {
-        bestDistanceToRoute = projected.distanceMeters;
-        bestAlong = seg.startMeters + seg.length * projected.t;
-      }
-    });
-
-    station.distanceToRoute = bestDistanceToRoute;
-    station.distanceAlongRoute = bestAlong;
+function dedupeById(items) {
+  const seen = new Set();
+  return items.filter(item => {
+    const key = item.id || `${item.lat}:${item.lng}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
   });
 }
 
-function applyPricesToStations() {
-  state.osmFuelStations = state.osmFuelStations.map(station => {
-    const match = findFuelPrice(station);
-
-    if (!match) return station;
-
-    return {
-      ...station,
-      price: match.price,
-      source: match.source,
-      matchMode: match.matchMode,
-      updatedAt: match.updatedAt
-    };
-  });
-}
-
-function findFuelPrice(station) {
-  const candidates = state.fuelPriceOverrides.filter(item =>
-    item.fuelType === state.settings.fuelType &&
-    typeof item.price === "number" &&
-    isCompatiblePrice(item)
-  );
-
-  if (!candidates.length) return null;
-
-  const stationBrand = normalizeBrand(station.brand || station.name);
-  const stationName = normalizeText(station.name);
-  const stationCity = normalizeText(station.city || extractCity(station.address));
-
-  const coord = candidates
-    .filter(item => Number.isFinite(item.lat) && Number.isFinite(item.lng))
-    .map(item => ({
-      ...item,
-      distance: haversine(station.lat, station.lng, item.lat, item.lng),
-      matchMode: "koordinat"
-    }))
-    .filter(item => item.distance <= 150)
-    .sort((a, b) => a.distance - b.distance)[0];
-
-  if (coord) return coord;
-
-  const scored = candidates
-    .map(item => {
-      const itemBrand = normalizeBrand(item.brand || item.name);
-      const itemName = normalizeText(item.name);
-      const itemCity = normalizeText(item.city || extractCity(item.address));
-
-      let score = 0;
-
-      if (stationBrand && itemBrand && stationBrand === itemBrand) score += 60;
-      if (stationCity && itemCity && stationCity === itemCity) score += 35;
-
-      if (stationName && itemName) {
-        if (stationName === itemName) score += 40;
-        else if (stationName.includes(itemName) || itemName.includes(stationName)) score += 25;
-        else score += sharedWordScore(stationName, itemName);
-      }
-
-      return { ...item, score, matchMode: "brand/navn/by" };
-    })
-    .filter(item => item.score >= 45)
-    .sort((a, b) => b.score - a.score || a.price - b.price);
-
-  if (scored.length) return scored[0];
-
-  const sameBrand = candidates
-    .filter(item => normalizeBrand(item.brand || item.name) === stationBrand)
-    .sort((a, b) => a.price - b.price)[0];
-
-  if (sameBrand) {
-    return { ...sameBrand, matchMode: "samme brand fallback" };
-  }
-
-  return null;
-}
-
-function getRouteLimitMeters() {
-  return Number(state.settings.searchRadiusBase || 100000);
-}
-
-function getStationsInRange() {
-  const limit = getRouteLimitMeters();
-
-  const stations = state.osmFuelStations
-    .filter(s => s.distanceAlongRoute <= limit)
-    .filter(s => s.distanceToRoute <= 2500);
-
-  const withPrice = stations
-    .filter(s => typeof s.price === "number")
-    .sort((a, b) => a.price - b.price || a.distanceAlongRoute - b.distanceAlongRoute);
-
-  const withoutPrice = stations
-    .filter(s => typeof s.price !== "number")
-    .sort((a, b) => a.distanceAlongRoute - b.distanceAlongRoute);
-
-  return [...withPrice, ...withoutPrice].slice(0, 10);
-}
-
-function updateFuelBox() {
-  if (!els.fuelContent) return;
-
-  if (!state.routeData) {
-    els.fuelContent.innerHTML = "Beregn en rute først.";
-    return;
-  }
-
-  const stations = getStationsInRange();
-  const priced = stations.filter(s => typeof s.price === "number");
-
-  if (!stations.length) {
-    els.fuelContent.innerHTML = `
-      <div class="fuel-name">Ingen tankstationer fundet</div>
-      <div class="fuel-meta">Inden for valgt afstand langs ruten.</div>
-    `;
-    return;
-  }
-
-  if (!priced.length) {
-    els.fuelContent.innerHTML = `
-      <div class="fuel-name">Pris mangler</div>
-      <div class="fuel-meta">Tankstationer fundet: ${stations.length}</div>
-      <div class="fuel-meta">Prisposter: ${state.fuelPriceOverrides.length}</div>
-      <div class="fuel-meta">USA kræver særskilte amerikanske prisdata.</div>
-    `;
-    return;
-  }
-
-  const best = priced[0];
-
-  els.fuelContent.innerHTML = `
-    <div class="fuel-name">${escapeHtml(best.name)}</div>
-    <div class="fuel-price">${formatPrice(best.price)}</div>
-    <div class="fuel-meta">Langs ruten: ${formatDistance(best.distanceAlongRoute)}</div>
-    <div class="fuel-meta">Fra rute: ${formatDistance(best.distanceToRoute)}</div>
-    <div class="fuel-meta">Match: ${escapeHtml(best.matchMode || "prisdata")}</div>
-    <a class="fuel-link" href="${buildGoogleMapsLink(best)}" target="_blank" rel="noopener noreferrer">
-      Åbn via Google Maps
-    </a>
-  `;
-}
-
-function openFuelList() {
-  renderFuelList();
-  els.fuelListModal?.classList.remove("hidden");
-  els.fuelListBackdrop?.classList.remove("hidden");
-}
-
-function closeFuelList() {
-  els.fuelListModal?.classList.add("hidden");
-  els.fuelListBackdrop?.classList.add("hidden");
-}
-
-function renderFuelList() {
-  if (!els.fuelListContent) return;
-
-  const stations = getStationsInRange();
-
-  if (!stations.length) {
-    els.fuelListContent.innerHTML = `<div class="fuel-list-empty">Ingen stationer fundet inden for valgt afstand langs ruten.</div>`;
-    return;
-  }
-
-  els.fuelListContent.innerHTML = stations.map((s, i) => `
-    <article class="fuel-list-item">
-      <div class="fuel-list-item-top">
-        <div>
-          <div class="fuel-list-name">${i + 1}. ${escapeHtml(s.name)}</div>
-          <div class="fuel-list-brand">${escapeHtml(s.brand || "Ukendt")}</div>
-        </div>
-        <div class="fuel-list-price">
-          ${typeof s.price === "number" ? formatPrice(s.price) : "Pris mangler"}
-        </div>
-      </div>
-
-      <div class="fuel-list-meta-grid">
-        <div class="fuel-list-meta">Langs ruten<br><strong>${formatDistance(s.distanceAlongRoute)}</strong></div>
-        <div class="fuel-list-meta">Fra rute<br><strong>${formatDistance(s.distanceToRoute)}</strong></div>
-        <div class="fuel-list-meta">Match<br><strong>${escapeHtml(s.matchMode || "—")}</strong></div>
-        <div class="fuel-list-meta">Kilde<br><strong>${escapeHtml(s.source || "OSM")}</strong></div>
-      </div>
-
-      <div class="fuel-list-actions">
-        <a class="fuel-list-map-link" href="${buildGoogleMapsLink(s)}" target="_blank" rel="noopener noreferrer">
-          Åbn via Google Maps
-        </a>
-      </div>
-    </article>
-  `).join("");
-}
-
-function openFuelHistory() {
-  if (!els.fuelHistoryContent) return;
-
-  els.fuelHistoryContent.innerHTML = `
-    <div class="fuel-list-empty">
-      Prishistorik kommer, når der er gemt flere prisopdateringer over tid.
-    </div>
-  `;
-
-  els.fuelHistoryModal?.classList.remove("hidden");
-  els.fuelHistoryBackdrop?.classList.remove("hidden");
-}
-
-function closeFuelHistory() {
-  els.fuelHistoryModal?.classList.add("hidden");
-  els.fuelHistoryBackdrop?.classList.add("hidden");
-}
-
-function updateFuelMarkers() {
-  clearFuelMarkers();
-
-  getStationsInRange().forEach((s, index) => {
-    const isBest = typeof s.price === "number" && index === 0;
-
-    const icon = L.divIcon({
-      className: "fuel-price-marker",
-      html: `
-        <div class="fuel-price-label ${isBest ? "best" : ""} ${typeof s.price !== "number" ? "no-price" : ""}">
-          ${typeof s.price === "number" ? formatPriceShort(s.price) : "—"}
-        </div>
-      `,
-      iconSize: [74, 34],
-      iconAnchor: [37, 17]
-    });
-
-    const marker = L.marker([s.lat, s.lng], { icon })
-      .addTo(state.map)
-      .bindPopup(`
-        <strong>${escapeHtml(s.name)}</strong><br>
-        ${typeof s.price === "number" ? formatPrice(s.price) : "Pris mangler"}<br>
-        Langs ruten: ${formatDistance(s.distanceAlongRoute)}<br>
-        Fra rute: ${formatDistance(s.distanceToRoute)}<br>
-        <a href="${buildGoogleMapsLink(s)}" target="_blank" rel="noopener noreferrer">Åbn via Google Maps</a>
-      `);
-
-    state.fuelMarkers.push(marker);
-  });
-}
-
-function clearFuelMarkers() {
-  state.fuelMarkers.forEach(m => state.map.removeLayer(m));
-  state.fuelMarkers = [];
-}
-
-function startLiveNavigation() {
-  if (!state.routeData || !state.destination) return;
-
-  els.navOverlay?.classList.remove("hidden");
-  els.startNavBtn.disabled = true;
-  els.stopNavBtn.disabled = false;
-  setStatus("GPS: live", "Navigation: live", "Kort: live");
-
-  if (state.watchId !== null) navigator.geolocation.clearWatch(state.watchId);
-
-  state.watchId = navigator.geolocation.watchPosition(pos => {
-    const current = {
-      lat: pos.coords.latitude,
-      lng: pos.coords.longitude,
-      speed: pos.coords.speed
-    };
-
-    state.currentPosition = current;
-    updateUserMarker(current.lat, current.lng);
-
-    const kmh = typeof current.speed === "number" ? Math.round(current.speed * 3.6) : 0;
-    if (els.driveCurrentValue) els.driveCurrentValue.textContent = `${kmh} km/t`;
-
-    if (els.driveRemainingDistance) {
-      const remaining = haversine(
-        current.lat,
-        current.lng,
-        state.destination.lat,
-        state.destination.lng
-      );
-      els.driveRemainingDistance.textContent = formatDistance(remaining);
-    }
-  }, console.error, {
-    enableHighAccuracy: true,
-    maximumAge: 500,
-    timeout: 15000
-  });
-}
-
-function stopLiveNavigation() {
-  if (state.watchId !== null) {
-    navigator.geolocation.clearWatch(state.watchId);
-    state.watchId = null;
-  }
-
-  els.navOverlay?.classList.add("hidden");
-  els.startNavBtn.disabled = !state.routeData;
-  els.stopNavBtn.disabled = true;
-  setStatus("GPS: klar", "Navigation: inaktiv", "Kort: klar");
-}
-
-function recenterMap() {
-  if (state.currentPosition) {
-    state.map.setView([state.currentPosition.lat, state.currentPosition.lng], 15);
-    return;
-  }
-
-  if (state.routeLine) {
-    state.map.fitBounds(state.routeLine.getBounds(), { padding: [30, 30] });
-  }
-}
-
-function drawRoute(geometry) {
-  if (state.routeLine) state.map.removeLayer(state.routeLine);
-
-  const latlngs = geometry.map(p => [p[1], p[0]]);
-
-  state.routeLine = L.polyline(latlngs, {
-    color: "#5ea2ff",
-    weight: 6,
-    opacity: 0.9
-  }).addTo(state.map);
-
-  state.map.fitBounds(state.routeLine.getBounds(), { padding: [30, 30] });
-}
-
-function updateUserMarker(lat, lng) {
-  if (!state.userMarker) state.userMarker = L.marker([lat, lng]).addTo(state.map);
-  else state.userMarker.setLatLng([lat, lng]);
-}
-
-function updateDestinationMarker(lat, lng) {
-  if (!state.destMarker) state.destMarker = L.marker([lat, lng]).addTo(state.map);
-  else state.destMarker.setLatLng([lat, lng]);
-}
-
-function saveHistory(destination) {
-  const list = getHistory();
-  const next = [destination, ...list.filter(x => x !== destination)].slice(0, 5);
-  localStorage.setItem(HISTORY_KEY, JSON.stringify(next));
-}
-
-function getHistory() {
-  try { return JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]"); }
-  catch { return []; }
-}
-
-function renderHistory() {
-  if (!els.historyList) return;
-  els.historyList.innerHTML = "";
-
-  getHistory().forEach(item => {
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "history-chip";
-    btn.textContent = item;
-    btn.addEventListener("click", () => {
-      els.destinationInput.value = item;
-      state.selectedAutocompleteItem = null;
-      els.historyBox?.classList.add("hidden");
-    });
-    els.historyList.appendChild(btn);
-  });
-}
-
-function projectPointToSegment(pxLat, pxLng, aLat, aLng, bLat, bLng) {
-  const meanLatRad = ((pxLat + aLat + bLat) / 3) * Math.PI / 180;
-  const mLat = 111320;
-  const mLng = 111320 * Math.cos(meanLatRad);
-
-  const px = pxLng * mLng;
-  const py = pxLat * mLat;
-  const ax = aLng * mLng;
-  const ay = aLat * mLat;
-  const bx = bLng * mLng;
-  const by = bLat * mLat;
-
-  const dx = bx - ax;
-  const dy = by - ay;
-
-  if (dx === 0 && dy === 0) {
-    return { distanceMeters: Math.hypot(px - ax, py - ay), t: 0 };
-  }
-
-  const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy)));
-  const cx = ax + t * dx;
-  const cy = ay + t * dy;
-
-  return {
-    distanceMeters: Math.hypot(px - cx, py - cy),
-    t
-  };
-}
-
-function haversine(lat1, lon1, lat2, lon2) {
-  const R = 6371000;
-  const toRad = x => x * Math.PI / 180;
-
-  const dLat = toRad(lat2 - lat1);
-  const dLon = toRad(lon2 - lon1);
-
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(lat1)) *
-    Math.cos(toRad(lat2)) *
-    Math.sin(dLon / 2) ** 2;
-
-  return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
-
-function dedupeStations(stations) {
-  const result = [];
-
-  stations.forEach(s => {
-    if (!result.some(x => haversine(s.lat, s.lng, x.lat, x.lng) < 35)) {
-      result.push(s);
-    }
-  });
-
-  return result;
-}
-
-function isCompatiblePrice(item) {
-  if (state.settings.region === "us") {
-    return item.country === "US" || item.currency === "USD" || item.unit === "gallon";
-  }
-
-  return item.country !== "US" && item.currency !== "USD";
-}
-
-function normalizeText(value) {
-  return String(value || "")
-    .toLowerCase()
-    .replaceAll("æ", "ae")
-    .replaceAll("ø", "oe")
-    .replaceAll("å", "aa")
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim();
-}
-
-function normalizeBrand(value) {
-  const text = normalizeText(value);
-
-  if (text.includes("uno x") || text.includes("unox")) return "uno-x";
-  if (text.includes("f24")) return "f24";
-  if (text.includes("ingo")) return "ingo";
-  if (text.includes("circle")) return "circle-k";
-  if (text === "ok" || text.startsWith("ok ") || text.includes(" ok ")) return "ok";
-  if (text.includes("q8")) return "q8";
-  if (text.includes("shell")) return "shell";
-  if (text.includes("go on") || text.includes("goon")) return "goon";
-  if (text.includes("oil")) return "oil";
-  if (text.includes("chevron")) return "chevron";
-  if (text.includes("exxon")) return "exxon";
-  if (text.includes("mobil")) return "mobil";
-  if (text.includes("bp")) return "bp";
-  if (text.includes("speedway")) return "speedway";
-
-  return text;
-}
-
-function sharedWordScore(a, b) {
-  const aw = new Set(a.split(" ").filter(x => x.length >= 3));
-  const bw = new Set(b.split(" ").filter(x => x.length >= 3));
-
-  let score = 0;
-  aw.forEach(word => {
-    if (bw.has(word)) score += 8;
-  });
-
-  return score;
-}
-
-function extractCity(value) {
-  const parts = String(value || "").split(",").map(x => x.trim()).filter(Boolean);
-  return (parts.at(-1) || "").replace(/^\d{4}\s*/, "");
-}
-
-function numberOrNull(value) {
-  if (value === null || value === undefined || value === "") return null;
-  const n = Number(value);
-  return Number.isFinite(n) ? n : null;
-}
-
-function formatPrice(price) {
-  if (state.settings.region === "us") return `$${Number(price).toFixed(2)}/gal`;
-  return `${Number(price).toFixed(2).replace(".", ",")} kr/L`;
-}
-
-function formatPriceShort(price) {
-  if (state.settings.region === "us") return `$${Number(price).toFixed(2)}`;
-  return Number(price).toFixed(2).replace(".", ",");
-}
-
-function formatDistance(meters) {
-  if (!Number.isFinite(meters)) return "—";
-
-  if (state.settings.region === "us") {
-    return `${(meters / 1609.344).toFixed(1)} mi`;
-  }
-
-  if (meters < 1000) return `${Math.round(meters)} m`;
-  return `${(meters / 1000).toFixed(1).replace(".", ",")} km`;
-}
-
-function buildGoogleMapsLink(station) {
-  const params = new URLSearchParams({
-    api: "1",
-    travelmode: "driving",
-    destination: `${state.destination.lat},${state.destination.lng}`,
-    waypoints: `${station.lat},${station.lng}`
-  });
-
-  if (state.currentPosition) {
-    params.set("origin", `${state.currentPosition.lat},${state.currentPosition.lng}`);
-  }
-
-  return `https://www.google.com/maps/dir/?${params.toString()}`;
-}
-
-function setStatus(gps, nav, map) {
-  if (els.gpsStatusChip) els.gpsStatusChip.textContent = gps;
-  if (els.navStatusChip) els.navStatusChip.textContent = nav;
-  if (els.mapModeLabel) els.mapModeLabel.textContent = map;
-}
-
-function escapeHtml(value) {
-  return String(value ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
-}
-
-function getPosition() {
-  return new Promise((resolve, reject) => {
-    navigator.geolocation.getCurrentPosition(
-      p => resolve({ lat: p.coords.latitude, lng: p.coords.longitude }),
-      reject,
-      { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 }
-    );
-  });
-}
+function clamp(value, min, max) { return Math.max(min, Math.min(max, value)); }
