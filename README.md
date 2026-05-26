@@ -1,4 +1,20 @@
-# GreenWave Clean Recovery
+# GreenWave DK Companion
 
-Ren pakke uden .github/workflows-rod og uden placeholder-filer.
-Upload kun indholdet i roden: index.html, scripts, styles.
+Ren Companion-build.
+
+Fokus:
+- Rute + rerouting
+- GreenWave anbefalet hastighed
+- OSM maxspeed
+- OSM traffic_signals heuristik
+- Danske tankstationer langs ruten
+- Circle K/INGO + OK prisproxy via Vercel API
+- Brændstoftype
+- Maks afstand fra ruten
+
+Fjernet:
+- EcoScore
+- fuld navigation UI
+- USA
+- map-rotation hacks
+- gamle patch-filer
