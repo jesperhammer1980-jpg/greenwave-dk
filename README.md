@@ -1,11 +1,28 @@
-# GreenWave DK Companion Route/Fuel Fix
+# GreenWave DK
 
-Ren Companion-build uden EcoScore, USA og fuld navigation-UI.
+Clean repo build.
 
-Kerne:
-- rute + rerouting
-- GreenWave anbefalet hastighed
-- OSM maxspeed og traffic_signals langs rutekorridor
-- prisstationer fra Circle K/INGO + OK som primær fuel-kilde
-- OSM fuel-stationer som sekundær kilde
-- seneste 5 destinationer
+Upload the full contents to the GitHub repository root.
+
+Before upload/delete or overwrite old files so the repo only contains the files in this package.
+
+Runtime files:
+- index.html
+- diagnostics.html
+- scripts/app.js
+- scripts/diagnostics.js
+- styles/style.css
+- api/geocode.js
+- api/route.js
+- api/overpass.js
+- api/fuel-prices.js
+- api/diagnostics.js
+- api/test-geocode.js
+
+Removed:
+- .github/workflows/update-fuel-prices.yml
+- fuel-prices.json
+- scripts/update-fuel-prices.js
+- old FIX marker files
+- duplicate root app.js / diagnostics.js / geocode.js
+- legacy unused modules
