@@ -1,0 +1,1 @@
+Fixes broken startup caused by required non-existing recentDestinations element. Search and buttons bind again. Uses existing historySection/historyList for latest 5 destinations. Fuel 50/100/200 km filter retained.

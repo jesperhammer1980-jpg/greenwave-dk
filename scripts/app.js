@@ -39,7 +39,7 @@ const requiredIds = [
   "settingsBtn","settingsBackdrop","settingsModal","closeSettingsBtn","saveSettingsBtn",
   "fuelTypeSelect","fuelDetourSelect","fuelAlongSelect","fuelSortSelect","routeModeSelect","statusText","recommendedSpeed",
   "speedLimit","currentSpeed","reasonText","startBtn","stopBtn","recalcBtn",
-  "routeDistance","routeDuration","routeEta","fuelRefreshBtn","fuelSummary","fuelList","recentDestinations"
+  "routeDistance","routeDuration","routeEta","fuelRefreshBtn","fuelSummary","fuelList"
 ];
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -969,28 +969,3 @@ function sortFuelStations(a,b){
   return a.distanceAlongRoute-b.distanceAlongRoute;
 }
 
-function saveRecentDestination(dest){
-  if(!dest||!Number.isFinite(dest.lat)||!Number.isFinite(dest.lng))return;
-  const item={label:dest.label||dest.displayName||"Destination",displayName:dest.displayName||dest.label||"",lat:dest.lat,lng:dest.lng};
-  const current=getRecentDestinations().filter(existing=>Math.round(existing.lat*100000)!==Math.round(item.lat*100000)||Math.round(existing.lng*100000)!==Math.round(item.lng*100000));
-  localStorage.setItem(RECENT_DESTINATIONS_KEY,JSON.stringify([item,...current].slice(0,5)));
-}
-
-function getRecentDestinations(){
-  try{return JSON.parse(localStorage.getItem(RECENT_DESTINATIONS_KEY)||"[]");}catch{return[];}
-}
-
-function renderRecentDestinations(){
-  if(!els.recentDestinations)return;
-  const items=getRecentDestinations();
-  if(!items.length){els.recentDestinations.innerHTML="<small>Ingen endnu</small>";return;}
-  els.recentDestinations.innerHTML=items.map((item,index)=>`<button type="button" data-recent="${index}">${escapeHtml(item.label)}<small>${escapeHtml(item.displayName||"")}</small></button>`).join("");
-  [...els.recentDestinations.querySelectorAll("button")].forEach(button=>{
-    button.addEventListener("click",()=>{
-      const item=items[Number(button.dataset.recent)];
-      state.selectedAutocomplete={lat:item.lat,lng:item.lng,label:item.label,displayName:item.displayName||item.label};
-      els.destinationInput.value=item.label;
-    });
-  });
-}
-document.addEventListener("DOMContentLoaded",()=>setTimeout(renderRecentDestinations,0));
