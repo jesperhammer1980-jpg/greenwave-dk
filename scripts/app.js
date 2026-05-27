@@ -1,4 +1,3 @@
-const RECENT_DESTINATIONS_KEY="greenwave_companion_recent_destinations_v1";
 const SETTINGS_KEY = "greenwave_companion_dk_settings_v3";
 const HISTORY_KEY = "greenwave_companion_dk_history_v1";
 
@@ -43,40 +42,44 @@ const requiredIds = [
 ];
 
 document.addEventListener("DOMContentLoaded", () => {
-  cacheDom();
-  loadSettings();
-  loadHistory();
-  initMap();
-  syncSettingsUi();
-  renderHistory();
-  bindEvents();
-  setStatus("Klar");
+  try {
+    cacheDom();
+    bindEvents();
+    safeRun(loadSettings, "loadSettings");
+    safeRun(loadHistory, "loadHistory");
+    safeRun(initMap, "initMap");
+    safeRun(syncSettingsUi, "syncSettingsUi");
+    safeRun(renderHistory, "renderHistory");
+    setStatus("Klar");
+  } catch (error) {
+    showStartupError(error);
+  }
 });
 
 function cacheDom() {
   requiredIds.forEach(id => {
     els[id] = document.getElementById(id);
-    if (!els[id]) throw new Error(`Mangler HTML-element: ${id}`);
+    if (!els[id]) console.warn(`Mangler HTML-element: ${id}`);
   });
 }
 
 function bindEvents() {
-  els.destinationInput.addEventListener("input", () => {
+  on(els.destinationInput, "input", () => {
     state.selectedAutocomplete = null;
     clearTimeout(state.autocompleteTimer);
     state.autocompleteTimer = setTimeout(searchAutocomplete, 250);
   });
 
-  els.goBtn.addEventListener("click", calculateRoute);
-  els.startBtn.addEventListener("click", startCompanion);
-  els.stopBtn.addEventListener("click", stopCompanion);
-  els.recalcBtn.addEventListener("click", recalculateFromCurrentPosition);
-  els.fuelRefreshBtn.addEventListener("click", refreshFuel);
+  on(els.goBtn, "click", calculateRoute);
+  on(els.startBtn, "click", startCompanion);
+  on(els.stopBtn, "click", stopCompanion);
+  on(els.recalcBtn, "click", recalculateFromCurrentPosition);
+  on(els.fuelRefreshBtn, "click", refreshFuel);
 
-  els.settingsBtn.addEventListener("click", openSettings);
-  els.closeSettingsBtn.addEventListener("click", closeSettings);
-  els.settingsBackdrop.addEventListener("click", closeSettings);
-  els.saveSettingsBtn.addEventListener("click", saveSettings);
+  on(els.settingsBtn, "click", openSettings);
+  on(els.closeSettingsBtn, "click", closeSettings);
+  on(els.settingsBackdrop, "click", closeSettings);
+  on(els.saveSettingsBtn, "click", saveSettings);
 
   document.addEventListener("click", event => {
     if (!event.target.closest(".search-card") && !event.target.closest(".autocomplete")) hideAutocomplete();
@@ -84,6 +87,12 @@ function bindEvents() {
 }
 
 function initMap() {
+  if (typeof L === "undefined") {
+    console.warn("Leaflet er ikke indlæst endnu. Kort deaktiveret, men knapper/søg virker.");
+    setStatus("Kort kunne ikke indlæses, men søgning virker.");
+    return;
+  }
+
   state.map = L.map("map", { zoomControl: false, attributionControl: false, preferCanvas: true });
   L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
     subdomains: "abcd",
@@ -205,7 +214,8 @@ function stopCompanion() {
 function updateCurrentPosition(position, centerMap) {
   const smoothed = smoothSpeed(position);
   state.currentPosition = smoothed;
-  els.currentSpeed.textContent = Math.round(smoothed.speed || 0);
+  if (els.currentSpeed) els.currentSpeed.textContent = Math.round(smoothed.speed || 0);
+  if (!state.map || typeof L === "undefined") return;
 
   const icon = L.divIcon({
     className: "user-marker-icon",
@@ -231,6 +241,7 @@ function smoothSpeed(position) {
 }
 
 function updateDestinationMarker(destination) {
+  if (!state.map || typeof L === "undefined") return;
   const icon = L.divIcon({
     className: "dest-marker-icon",
     html: '<div class="dest-marker-dot">⌖</div>',
@@ -243,6 +254,7 @@ function updateDestinationMarker(destination) {
 }
 
 function drawRoute(geometry) {
+  if (!state.map || typeof L === "undefined") return;
   if (state.routeGlow) state.map.removeLayer(state.routeGlow);
   if (state.routeLine) state.map.removeLayer(state.routeLine);
 
@@ -396,6 +408,7 @@ function renderFuel() {
 }
 
 function drawFuelMarkers() {
+  if (!state.map || typeof L === "undefined") return;
   state.fuelMarkers.forEach(marker => state.map.removeLayer(marker));
   state.fuelMarkers = [];
 
@@ -779,9 +792,12 @@ function closeSettings() {
 }
 
 function saveSettings() {
-  state.settings.fuelType = els.fuelTypeSelect.value;
-  state.settings.maxFuelDetourMeters = Number(els.fuelDetourSelect.value);
-  state.settings.routeMode = els.routeModeSelect.value;
+  if (els.fuelTypeSelect) state.settings.fuelType = els.fuelTypeSelect.value;
+  if (els.fuelDetourSelect) state.settings.maxFuelDetourMeters = Number(els.fuelDetourSelect.value);
+  if (els.fuelAlongSelect) state.settings.fuelAlongMeters = Number(els.fuelAlongSelect.value);
+  if (els.fuelSortSelect) state.settings.fuelSort = els.fuelSortSelect.value;
+  if (els.routeModeSelect) state.settings.routeMode = els.routeModeSelect.value;
+
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(state.settings));
   closeSettings();
   if (state.route) refreshFuel().catch(console.warn);
@@ -792,9 +808,11 @@ function loadSettings() {
 }
 
 function syncSettingsUi() {
-  els.fuelTypeSelect.value = state.settings.fuelType;
-  els.fuelDetourSelect.value = String(state.settings.maxFuelDetourMeters);
-  els.routeModeSelect.value = state.settings.routeMode;
+  if (els.fuelTypeSelect) els.fuelTypeSelect.value = state.settings.fuelType || "benzin95";
+  if (els.fuelDetourSelect) els.fuelDetourSelect.value = String(state.settings.maxFuelDetourMeters || 5000);
+  if (els.fuelAlongSelect) els.fuelAlongSelect.value = String(state.settings.fuelAlongMeters || 50000);
+  if (els.fuelSortSelect) els.fuelSortSelect.value = state.settings.fuelSort || "cheapest";
+  if (els.routeModeSelect) els.routeModeSelect.value = state.settings.routeMode || "fast";
 }
 
 function loadHistory() {
@@ -969,3 +987,30 @@ function sortFuelStations(a,b){
   return a.distanceAlongRoute-b.distanceAlongRoute;
 }
 
+
+
+function on(element, eventName, handler) {
+  if (!element) {
+    console.warn("Kan ikke binde event", eventName);
+    return;
+  }
+  element.addEventListener(eventName, handler);
+}
+
+function safeRun(fn, label) {
+  try {
+    return fn();
+  } catch (error) {
+    console.error(`GreenWave startup step failed: ${label}`, error);
+    showStartupError(error, label);
+    return null;
+  }
+}
+
+function showStartupError(error, label = "startup") {
+  console.error(error);
+  const box = document.createElement("div");
+  box.style.cssText = "position:fixed;left:12px;right:12px;bottom:12px;z-index:99999;background:#230b0b;color:#fff;border:1px solid #ff6868;border-radius:16px;padding:12px;font-family:system-ui;font-size:13px;box-shadow:0 16px 50px rgba(0,0,0,.45)";
+  box.innerHTML = `<strong>GreenWave fejl (${label})</strong><br>${String(error?.message || error)}`;
+  document.body.appendChild(box);
+}
