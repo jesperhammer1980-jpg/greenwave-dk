@@ -1,1 +1,0 @@
-Fixes button/search startup failure by making initialization resilient: buttons bind before map/settings/history can fail, required IDs no longer throw, and visible runtime error overlay is added.
