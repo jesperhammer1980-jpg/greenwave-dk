@@ -2,89 +2,90 @@ const CIRCLEK_COUNTRY_URL = 'https://api.circlek.com/eu/prices/v1/fuel/countries
 const CIRCLEK_LIST_PRICE_URL = 'https://www.circlek.dk/erhverv/braendstof/priser';
 
 export default async function handler(request, response) {
-  response.setHeader('Cache-Control', 's-maxage=120, stale-while-revalidate=900');
+  response.setHeader('Cache-Control', 's-maxage=300, stale-while-revalidate=1800');
   response.setHeader('Access-Control-Allow-Origin', '*');
 
-  const [bulk, list] = await Promise.allSettled([
-    fetchCircleKBulk(),
+  const generatedAt = new Date().toISOString();
+  const [stationApi, listPrices] = await Promise.allSettled([
+    fetchCircleKStationApi(),
     fetchCircleKListPrices()
   ]);
 
   const sources = [];
   const stations = [];
 
-  if (bulk.status === 'fulfilled') {
-    sources.push({ id: 'circlek-api', name: 'Circle K / INGO station API', ok: true, stations: bulk.value.length });
-    stations.push(...bulk.value);
+  if (stationApi.status === 'fulfilled') {
+    sources.push({ id: 'circlek-station-api', name: 'Circle K / INGO live station API', ok: true, stations: stationApi.value.length, fetchedAt: generatedAt });
+    stations.push(...stationApi.value);
   } else {
-    sources.push({ id: 'circlek-api', name: 'Circle K / INGO station API', ok: false, error: bulk.reason?.message || String(bulk.reason) });
+    sources.push({ id: 'circlek-station-api', name: 'Circle K / INGO live station API', ok: false, error: stationApi.reason?.message || String(stationApi.reason), fetchedAt: generatedAt });
   }
 
-  let listPrices = {};
-
-  if (list.status === 'fulfilled') {
-    listPrices = list.value;
-    sources.push({ id: 'circlek-list-prices', name: 'Circle K official list prices', ok: true, products: Object.keys(listPrices).length });
+  let listPriceMap = {};
+  if (listPrices.status === 'fulfilled') {
+    listPriceMap = listPrices.value;
+    sources.push({ id: 'circlek-list-prices', name: 'Circle K official list prices', ok: true, products: Object.values(listPriceMap).filter(Boolean).length, fetchedAt: generatedAt });
   } else {
-    sources.push({ id: 'circlek-list-prices', name: 'Circle K official list prices', ok: false, error: list.reason?.message || String(list.reason) });
+    sources.push({ id: 'circlek-list-prices', name: 'Circle K official list prices', ok: false, error: listPrices.reason?.message || String(listPrices.reason), fetchedAt: generatedAt });
   }
 
-  response.status(200).json({
-    schemaVersion: 2,
-    generatedAt: new Date().toISOString(),
+  return response.status(200).json({
+    schemaVersion: 3,
+    generatedAt,
+    mode: 'live-server-cache-no-github-workflow',
     sources,
     stations: dedupeStations(stations),
-    listPrices
+    listPrices: listPriceMap
   });
 }
 
-async function fetchCircleKBulk() {
-  const res = await fetch(CIRCLEK_COUNTRY_URL, {
-    headers: {
-      Accept: 'application/json',
-      'X-App-Name': 'PRICES'
-    }
+async function fetchCircleKStationApi() {
+  const response = await fetch(CIRCLEK_COUNTRY_URL, {
+    headers: { Accept: 'application/json', 'X-App-Name': 'PRICES' }
   });
 
-  if (!res.ok) throw new Error(`Circle K API HTTP ${res.status}`);
+  if (!response.ok) throw new Error(`Circle K station API HTTP ${response.status}`);
 
-  const data = await res.json();
+  const data = await response.json();
   const sites = Array.isArray(data.sites) ? data.sites : [];
+  return sites.map(normalizeCircleKSite).filter(Boolean);
+}
 
-  return sites.map(site => {
-    const prices = normalizePrices(site.fuelPrices || site.prices || site.fuels || site.products || []);
-    const address = site.address || {};
-    const brand = String(site.name || '').toLowerCase().includes('ingo') ? 'INGO' : 'Circle K';
+function normalizeCircleKSite(site) {
+  if (!site) return null;
 
-    return {
-      id: `circlek-${site.id || site.siteId || site.name || Math.random()}`,
-      source: 'Circle K / INGO station API',
-      sourceId: 'circlek-api',
-      stationId: String(site.id || site.siteId || ''),
-      name: site.name || brand,
-      brand,
-      addressText: [address.street, address.houseNumber, address.addressLine1].filter(Boolean).join(' '),
-      postalCode: String(address.postalCode || ''),
-      city: address.city || '',
-      lat: parseNumber(site.latitude || site.lat || site.coordinates?.latitude || site.location?.lat),
-      lng: parseNumber(site.longitude || site.lng || site.coordinates?.longitude || site.location?.lng),
-      prices
-    };
-  });
+  const address = site.address || {};
+  const brand = String(site.name || '').toLowerCase().includes('ingo') ? 'INGO' : 'Circle K';
+  const prices = normalizePrices(site.fuelPrices || site.prices || site.fuels || site.products || []);
+  const lat = parseNumber(site.latitude || site.lat || site.coordinates?.latitude || site.location?.lat);
+  const lng = parseNumber(site.longitude || site.lng || site.coordinates?.longitude || site.location?.lng);
+
+  return {
+    id: `circlek-${site.id || site.siteId || site.name || `${lat}:${lng}`}`,
+    source: 'Circle K / INGO live station API',
+    sourceId: 'circlek-station-api',
+    stationId: String(site.id || site.siteId || ''),
+    name: site.name || brand,
+    brand,
+    addressText: [address.street, address.houseNumber, address.addressLine1].filter(Boolean).join(' '),
+    postalCode: String(address.postalCode || ''),
+    city: address.city || '',
+    lat,
+    lng,
+    prices
+  };
 }
 
 async function fetchCircleKListPrices() {
-  const res = await fetch(CIRCLEK_LIST_PRICE_URL, { headers: { Accept: 'text/html' } });
-  if (!res.ok) throw new Error(`Circle K list prices HTTP ${res.status}`);
+  const response = await fetch(CIRCLEK_LIST_PRICE_URL, { headers: { Accept: 'text/html' } });
+  if (!response.ok) throw new Error(`Circle K list price page HTTP ${response.status}`);
 
-  const html = await res.text();
-  const text = stripHtml(html);
-
+  const text = stripHtml(await response.text());
   return {
-    benzin95: extractPrice(text, ['Miles 95', 'miles95']),
-    benzin98: extractPrice(text, ['Miles Plus 95', 'miles+95', 'Miles Plus']),
-    diesel: extractPrice(text, ['Diesel', 'milesDiesel']),
-    premiumDiesel: extractPrice(text, ['Miles Plus Diesel', 'miles+Diesel'])
+    benzin95: extractPrice(text, ['Miles 95', 'miles95', '95 oktan', 'Blyfri 95']),
+    benzin98: extractPrice(text, ['Miles Plus 95', 'Miles+ 95', 'miles+95', 'Miles Plus']),
+    diesel: extractPrice(text, ['Miles Diesel', 'milesDiesel', 'Diesel']),
+    premiumDiesel: extractPrice(text, ['Miles Plus Diesel', 'Miles+ Diesel', 'miles+Diesel'])
   };
 }
 
@@ -93,25 +94,19 @@ function extractPrice(text, needles) {
     const index = text.toLowerCase().indexOf(String(needle).toLowerCase());
     if (index === -1) continue;
 
-    const slice = text.slice(index, index + 700);
+    const slice = text.slice(index, index + 900);
     const matches = [...slice.matchAll(/(\d{1,2},\d{2})/g)].map(match => parseNumber(match[1]));
-    const plausible = matches.find(value => value >= 8 && value <= 30);
+    const plausible = matches.find(value => Number.isFinite(value) && value >= 8 && value <= 30);
 
     if (Number.isFinite(plausible)) {
-      return {
-        price: plausible,
-        productName: needle,
-        source: 'Circle K official list prices'
-      };
+      return { price: plausible, productName: needle, source: 'Circle K official list prices' };
     }
   }
-
   return null;
 }
 
 function normalizePrices(prices) {
   if (!Array.isArray(prices)) return [];
-
   return prices.map(price => ({
     code: price.code || price.productCode || price.id || '',
     displayName: price.displayName || price.name || price.productName || price.product_name || price.fuelType || '',
@@ -134,20 +129,15 @@ function stripHtml(html) {
 
 function parseNumber(value) {
   if (value === undefined || value === null || value === '') return NaN;
-
   const numeric = Number(String(value).replace(',', '.'));
-
   return Number.isFinite(numeric) ? numeric : NaN;
 }
 
 function dedupeStations(stations) {
   const seen = new Set();
-
   return stations.filter(station => {
-    const key = station.id || `${station.sourceId}:${station.stationId}:${station.postalCode}:${station.addressText}`;
-
+    const key = station.id || `${station.sourceId}:${station.stationId}:${station.postalCode}:${station.addressText}:${station.lat}:${station.lng}`;
     if (seen.has(key)) return false;
-
     seen.add(key);
     return true;
   });

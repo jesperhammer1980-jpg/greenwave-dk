@@ -1,3 +1,4 @@
+const RECENT_DESTINATIONS_KEY="greenwave_companion_recent_destinations_v1";
 const SETTINGS_KEY = "greenwave_companion_dk_settings_v3";
 const HISTORY_KEY = "greenwave_companion_dk_history_v1";
 
@@ -27,7 +28,7 @@ const state = {
   settings: {
     fuelType: "benzin95",
     maxFuelDetourMeters: 5000,
-    routeMode: "fast"
+    routeMode: "fast", fuelAlongMeters: 50000, fuelSort: "cheapest"
   }
 };
 
@@ -36,9 +37,9 @@ const els = {};
 const requiredIds = [
   "map","destinationInput","goBtn","autocompleteResults","historySection","historyList",
   "settingsBtn","settingsBackdrop","settingsModal","closeSettingsBtn","saveSettingsBtn",
-  "fuelTypeSelect","fuelDetourSelect","routeModeSelect","statusText","recommendedSpeed",
+  "fuelTypeSelect","fuelDetourSelect","fuelAlongSelect","fuelSortSelect","routeModeSelect","statusText","recommendedSpeed",
   "speedLimit","currentSpeed","reasonText","startBtn","stopBtn","recalcBtn",
-  "routeDistance","routeDuration","routeEta","fuelRefreshBtn","fuelSummary","fuelList"
+  "routeDistance","routeDuration","routeEta","fuelRefreshBtn","fuelSummary","fuelList","recentDestinations"
 ];
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -949,3 +950,40 @@ function dedupeById(items) {
 }
 
 function clamp(value, min, max) { return Math.max(min, Math.min(max, value)); }
+
+
+function sortFuelStations(a,b){
+  const mode=state.settings.fuelSort||"cheapest";
+  if(mode==="detour")return a.distanceToRoute-b.distanceToRoute;
+  if(mode==="upcoming")return a.distanceAlongRoute-b.distanceAlongRoute;
+  if(Number.isFinite(a.price)&&Number.isFinite(b.price))return a.price-b.price;
+  if(Number.isFinite(a.price))return-1;
+  if(Number.isFinite(b.price))return 1;
+  return a.distanceAlongRoute-b.distanceAlongRoute;
+}
+
+function saveRecentDestination(dest){
+  if(!dest||!Number.isFinite(dest.lat)||!Number.isFinite(dest.lng))return;
+  const item={label:dest.label||dest.displayName||"Destination",displayName:dest.displayName||dest.label||"",lat:dest.lat,lng:dest.lng};
+  const current=getRecentDestinations().filter(existing=>Math.round(existing.lat*100000)!==Math.round(item.lat*100000)||Math.round(existing.lng*100000)!==Math.round(item.lng*100000));
+  localStorage.setItem(RECENT_DESTINATIONS_KEY,JSON.stringify([item,...current].slice(0,5)));
+}
+
+function getRecentDestinations(){
+  try{return JSON.parse(localStorage.getItem(RECENT_DESTINATIONS_KEY)||"[]");}catch{return[];}
+}
+
+function renderRecentDestinations(){
+  if(!els.recentDestinations)return;
+  const items=getRecentDestinations();
+  if(!items.length){els.recentDestinations.innerHTML="<small>Ingen endnu</small>";return;}
+  els.recentDestinations.innerHTML=items.map((item,index)=>`<button type="button" data-recent="${index}">${escapeHtml(item.label)}<small>${escapeHtml(item.displayName||"")}</small></button>`).join("");
+  [...els.recentDestinations.querySelectorAll("button")].forEach(button=>{
+    button.addEventListener("click",()=>{
+      const item=items[Number(button.dataset.recent)];
+      state.selectedAutocomplete={lat:item.lat,lng:item.lng,label:item.label,displayName:item.displayName||item.label};
+      els.destinationInput.value=item.label;
+    });
+  });
+}
+document.addEventListener("DOMContentLoaded",()=>setTimeout(renderRecentDestinations,0));
