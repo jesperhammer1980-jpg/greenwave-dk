@@ -1,11 +1,11 @@
+# GreenWave DK Companion Route/Fuel Fix
 
+Ren Companion-build uden EcoScore, USA og fuld navigation-UI.
 
-## GeocodeFix
-
-- Corrected diagnostic default start address to Lupinvej 3, 3390 Hundested.
-- Rebuilt `/api/geocode` to use robust DAWA-first lookup:
-  - DAWA autocomplete
-  - DAWA adresser
-  - Nominatim fallback
-- Supports comma and non-comma Danish address variants.
-- Added `/api/test-geocode?q=Lupinvej%203%2C%203390%20Hundested`.
+Kerne:
+- rute + rerouting
+- GreenWave anbefalet hastighed
+- OSM maxspeed og traffic_signals langs rutekorridor
+- prisstationer fra Circle K/INGO + OK som primær fuel-kilde
+- OSM fuel-stationer som sekundær kilde
+- seneste 5 destinationer

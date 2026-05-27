@@ -76,59 +76,9 @@ export default async function handler(request, response) {
 }
 
 async function geocode(q) {
-  if (!q) throw new Error('Missing address');
-
-  const attempts = [];
-
-  try {
-    const dawa = await geocodeDawa(q);
-    attempts.push({ provider: 'DAWA', ok: true, results: dawa.length });
-    if (dawa.length) return { ...dawa[0], attempts };
-  } catch (error) {
-    attempts.push({ provider: 'DAWA', ok: false, error: error.message });
-  }
-
-  try {
-    const nominatim = await geocodeNominatim(q);
-    attempts.push({ provider: 'Nominatim', ok: true, results: nominatim.length });
-    if (nominatim.length) return { ...nominatim[0], attempts };
-  } catch (error) {
-    attempts.push({ provider: 'Nominatim', ok: false, error: error.message });
-  }
-
-  throw new Error(`Address not found: ${q} | attempts: ${JSON.stringify(attempts)}`);
-}
-
-async function geocodeDawa(q) {
-  const url = `https://api.dataforsyningen.dk/adresser?q=${encodeURIComponent(q)}&struktur=mini&per_side=5`;
-  const r = await fetch(url, { headers: { Accept: 'application/json' } });
-  if (!r.ok) throw new Error(`DAWA HTTP ${r.status}`);
-  const data = await r.json();
-  if (!Array.isArray(data)) return [];
-
-  return data
-    .map(item => {
-      const coords = item?.adgangsadresse?.adgangspunkt?.koordinater || item?.adgangspunkt?.koordinater || item?.adgangsadresse?.vejpunkt?.koordinater;
-      if (!Array.isArray(coords) || coords.length < 2) return null;
-      return {
-        provider: 'DAWA',
-        lat: Number(coords[1]),
-        lng: Number(coords[0]),
-        displayName: item.betegnelse || q
-      };
-    })
-    .filter(item => Number.isFinite(item?.lat) && Number.isFinite(item?.lng));
-}
-
-async function geocodeNominatim(q) {
-  const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=5&countrycodes=dk&q=${encodeURIComponent(q)}`;
-  const r = await fetch(url, { headers: { Accept: 'application/json', 'User-Agent': 'GreenWave-DK-Companion/1.0 contact: jesperhammer1980@gmail.com' } });
-  if (!r.ok) throw new Error(`Nominatim HTTP ${r.status}`);
-  const data = await r.json();
-  if (!Array.isArray(data)) return [];
-  return data
-    .map(item => ({ provider: 'Nominatim', lat:Number(item.lat), lng:Number(item.lon), displayName:item.display_name }))
-    .filter(item => Number.isFinite(item.lat) && Number.isFinite(item.lng));
+  const result = await geocodeAddress(q, 1);
+  if (result.results.length) return { ...result.results[0], attempts: result.attempts };
+  throw new Error(`Address not found: ${q} | attempts: ${JSON.stringify(result.attempts)}`);
 }
 
 async function routeOsrm(from, to) {
@@ -232,3 +182,147 @@ function normalizeText(v){return String(v||'').toLowerCase().normalize('NFD').re
 function haversine(lat1,lng1,lat2,lng2){const r=6371000,toRad=v=>v*Math.PI/180,dLat=toRad(lat2-lat1),dLng=toRad(lng2-lng1),a=Math.sin(dLat/2)**2+Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLng/2)**2;return r*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));}
 function projectPointToSegment(lat,lng,lat1,lng1,lat2,lng2){const mLat=111320,mLng=111320*Math.cos(lat*Math.PI/180),px=lng*mLng,py=lat*mLat,ax=lng1*mLng,ay=lat1*mLat,bx=lng2*mLng,by=lat2*mLat,dx=bx-ax,dy=by-ay,len=dx*dx+dy*dy;if(!len)return{t:0,distanceMeters:Math.hypot(px-ax,py-ay)};let t=((px-ax)*dx+(py-ay)*dy)/len;t=Math.max(0,Math.min(1,t));return{t,distanceMeters:Math.hypot(px-(ax+t*dx),py-(ay+t*dy))};}
 async function fetchWithTimeout(url, options, timeoutMs){const c=new AbortController(),t=setTimeout(()=>c.abort(),timeoutMs);try{return await fetch(url,{...options,signal:c.signal});}finally{clearTimeout(t);}}
+
+
+const DAWA_AUTOCOMPLETE = 'https://api.dataforsyningen.dk/autocomplete';
+const DAWA_ADRESSER = 'https://api.dataforsyningen.dk/adresser';
+const NOMINATIM = 'https://nominatim.openstreetmap.org/search';
+
+function normalizeAddressInput(value) {
+  return String(value || '')
+    .replace(/\s+/g, ' ')
+    .replace(/\s*,\s*/g, ', ')
+    .trim();
+}
+
+function makeAddressVariants(input) {
+  const trimmed = normalizeAddressInput(input);
+  const noComma = trimmed.replace(/,/g, ' ').replace(/\s+/g, ' ').trim();
+  const variants = [trimmed, noComma];
+  const m = noComma.match(/^(.+?)\s+(\d{4})\s+(.+)$/);
+  if (m) {
+    variants.push(`${m[1]}, ${m[2]} ${m[3]}`);
+    variants.push(`${m[1]} ${m[2]} ${m[3]}, Danmark`);
+    variants.push(`${m[1]}, ${m[2]} ${m[3]}, Danmark`);
+  }
+  variants.push(`${noComma}, Danmark`);
+  return [...new Set(variants.filter(Boolean))];
+}
+
+async function geocodeAddress(input, limit = 1) {
+  const q = normalizeAddressInput(input);
+  if (!q) throw new Error('Missing address');
+  const attempts = [];
+
+  const dawaAuto = await tryDawaAutocomplete(q, limit);
+  attempts.push(dawaAuto.attempt);
+  if (dawaAuto.results.length) return { results: dawaAuto.results, attempts };
+
+  const dawaAddress = await tryDawaAdresser(q, limit);
+  attempts.push(dawaAddress.attempt);
+  if (dawaAddress.results.length) return { results: dawaAddress.results, attempts };
+
+  const nominatim = await tryNominatim(q, limit);
+  attempts.push(nominatim.attempt);
+  if (nominatim.results.length) return { results: nominatim.results, attempts };
+
+  return { results: [], attempts };
+}
+
+async function tryDawaAutocomplete(input, limit) {
+  const variants = makeAddressVariants(input);
+  const all = [];
+  let lastAttempt = null;
+
+  for (const q of variants) {
+    const url = `${DAWA_AUTOCOMPLETE}?q=${encodeURIComponent(q)}&type=adresse&caretpos=${encodeURIComponent(String(q.length))}&fuzzy=true&per_side=${encodeURIComponent(String(Math.max(5, limit)))}`;
+    try {
+      const upstream = await fetch(url, { headers: { Accept: 'application/json' } });
+      if (!upstream.ok) throw new Error(`DAWA autocomplete HTTP ${upstream.status}`);
+      const data = await upstream.json();
+      const items = Array.isArray(data) ? data : [];
+      lastAttempt = { provider: 'DAWA autocomplete', ok: true, q, results: items.length };
+      for (const item of items) {
+        const normalized = normalizeDawaAutocomplete(item, input);
+        if (normalized) all.push(normalized);
+      }
+      if (all.length) break;
+    } catch (error) {
+      return { attempt: { provider: 'DAWA autocomplete', ok: false, q, error: error.message }, results: [] };
+    }
+  }
+
+  return { attempt: lastAttempt || { provider: 'DAWA autocomplete', ok: true, q: variants[0], results: 0 }, results: all.slice(0, limit) };
+}
+
+async function tryDawaAdresser(input, limit) {
+  const variants = makeAddressVariants(input);
+  const all = [];
+  let lastAttempt = null;
+
+  for (const q of variants) {
+    const url = `${DAWA_ADRESSER}?q=${encodeURIComponent(q)}&struktur=mini&per_side=${encodeURIComponent(String(Math.max(5, limit)))}`;
+    try {
+      const upstream = await fetch(url, { headers: { Accept: 'application/json' } });
+      if (!upstream.ok) throw new Error(`DAWA adresser HTTP ${upstream.status}`);
+      const data = await upstream.json();
+      const items = Array.isArray(data) ? data : [];
+      lastAttempt = { provider: 'DAWA adresser', ok: true, q, results: items.length };
+      for (const item of items) {
+        const normalized = normalizeDawaAddress(item, input);
+        if (normalized) all.push(normalized);
+      }
+      if (all.length) break;
+    } catch (error) {
+      return { attempt: { provider: 'DAWA adresser', ok: false, q, error: error.message }, results: [] };
+    }
+  }
+
+  return { attempt: lastAttempt || { provider: 'DAWA adresser', ok: true, q: variants[0], results: 0 }, results: all.slice(0, limit) };
+}
+
+async function tryNominatim(input, limit) {
+  const variants = makeAddressVariants(input);
+  const all = [];
+  let lastAttempt = null;
+
+  for (const q of variants) {
+    const url = `${NOMINATIM}?format=jsonv2&addressdetails=1&limit=${encodeURIComponent(String(Math.max(5, limit)))}&countrycodes=dk&q=${encodeURIComponent(q)}`;
+    try {
+      const upstream = await fetch(url, { headers: { Accept: 'application/json', 'User-Agent': 'GreenWave-DK-Companion/1.0 contact: jesperhammer1980@gmail.com' } });
+      if (!upstream.ok) throw new Error(`Nominatim HTTP ${upstream.status}`);
+      const data = await upstream.json();
+      const items = Array.isArray(data) ? data : [];
+      lastAttempt = { provider: 'Nominatim', ok: true, q, results: items.length };
+      for (const item of items) {
+        const lat = Number(item.lat);
+        const lng = Number(item.lon);
+        if (Number.isFinite(lat) && Number.isFinite(lng)) {
+          all.push({ provider: 'Nominatim', lat, lng, displayName: item.display_name || input, raw: item });
+        }
+      }
+      if (all.length) break;
+    } catch (error) {
+      return { attempt: { provider: 'Nominatim', ok: false, q, error: error.message }, results: [] };
+    }
+  }
+
+  return { attempt: lastAttempt || { provider: 'Nominatim', ok: true, q: variants[0], results: 0 }, results: all.slice(0, limit) };
+}
+
+function normalizeDawaAutocomplete(item, fallback) {
+  const data = item?.data || {};
+  const lat = Number(data.y);
+  const lng = Number(data.x);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  return { provider: 'DAWA autocomplete', lat, lng, displayName: item.tekst || data.betegnelse || fallback, dawaId: data.id || null, raw: item };
+}
+
+function normalizeDawaAddress(item, fallback) {
+  const coords = item?.adgangsadresse?.adgangspunkt?.koordinater || item?.adgangspunkt?.koordinater || item?.adgangsadresse?.vejpunkt?.koordinater;
+  if (!Array.isArray(coords) || coords.length < 2) return null;
+  const lng = Number(coords[0]);
+  const lat = Number(coords[1]);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  return { provider: 'DAWA adresser', lat, lng, displayName: item.betegnelse || fallback, dawaId: item.id || null, raw: item };
+}
