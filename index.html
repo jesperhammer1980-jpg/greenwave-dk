@@ -6,7 +6,7 @@
   <title>GreenWave DK Companion</title>
   <meta name="theme-color" content="#07111d" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <link rel="stylesheet" href="./styles/style.css?v=livefuel2" />
+  <link rel="stylesheet" href="./styles/style.css?v=fuelrange2" />
 </head>
 <body>
   <main id="app">
@@ -84,14 +84,31 @@
           <h3>Tankstationer</h3>
           <label for="fuelDetourSelect">Maks. afstand fra ruten</label>
           <select id="fuelDetourSelect">
-            <option value="1000">1 km</option>
-            <option value="2500">2,5 km</option>
-            <option value="5000">5 km</option>
-            <option value="10000">10 km</option>
-            <option value="15000">15 km</option>
+            <option value="1000">1 km fra ruten</option>
+            <option value="2000">2 km fra ruten</option>
+            <option value="5000">5 km fra ruten</option>
+            <option value="10000">10 km fra ruten</option>
+            <option value="15000">15 km fra ruten</option>
           </select>
         </section>
 
+
+        <section>
+          <h3>Fuel-visning</h3>
+          <label for="fuelAlongSelect">Vis stationer inden for de næste</label>
+          <select id="fuelAlongSelect">
+            <option value="50000">50 km</option>
+            <option value="100000">100 km</option>
+            <option value="200000">200 km</option>
+          </select>
+
+          <label for="fuelSortSelect">Sortering</label>
+          <select id="fuelSortSelect">
+            <option value="cheapest">Billigste</option>
+            <option value="detour">Nærmest fra ruten</option>
+            <option value="upcoming">Førstkommende langs ruten</option>
+          </select>
+        </section>
         <section>
           <h3>Rute</h3>
           <select id="routeModeSelect">
@@ -106,6 +123,6 @@
   </main>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script type="module" src="./scripts/app.js?v=livefuel2"></script>
+  <script type="module" src="./scripts/app.js?v=fuelrange2"></script>
 </body>
 </html>

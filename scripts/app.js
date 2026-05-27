@@ -341,6 +341,7 @@ async function refreshFuel() {
     state.stations = attachRouteDistances(merged, state.route.geometry)
       .map(station => station.fromPriceApi ? attachDirectPrice(station, state.settings.fuelType) : attachMatchedPrice(station, priceData, state.settings.fuelType))
       .filter(station => station.distanceToRoute <= state.settings.maxFuelDetourMeters)
+      .filter(station => station.distanceAlongRoute <= (state.settings.fuelAlongMeters || 50000))
       .sort(sortStations);
 
     renderFuel();
@@ -354,9 +355,15 @@ async function refreshFuel() {
 }
 
 function sortStations(a, b) {
+  const mode = state.settings.fuelSort || "cheapest";
+
+  if (mode === "detour") return a.distanceToRoute - b.distanceToRoute;
+  if (mode === "upcoming") return a.distanceAlongRoute - b.distanceAlongRoute;
+
   if (Number.isFinite(a.price) && Number.isFinite(b.price)) return a.price - b.price;
   if (Number.isFinite(a.price)) return -1;
   if (Number.isFinite(b.price)) return 1;
+
   return a.distanceAlongRoute - b.distanceAlongRoute;
 }
 
@@ -366,7 +373,7 @@ function renderFuel() {
   const sources = state.priceData?.sources?.filter(source => source.ok).map(source => `${source.name} (${source.stations})`).join(", ");
 
   els.fuelSummary.textContent = count
-    ? `${count} stationer fundet. ${priced} med pris. ${sources ? "Kilder: " + sources : ""}`
+    ? `${count} stationer fundet inden for ${formatDistance(state.settings.fuelAlongMeters || 50000)} langs ruten. ${priced} med pris. ${sources ? "Kilder: " + sources : ""}`
     : "Ingen stationer inden for valgt afstand fra ruten.";
 
   els.fuelList.innerHTML = state.stations.slice(0, 12).map(station => {
