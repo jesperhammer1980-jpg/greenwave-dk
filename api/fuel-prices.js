@@ -1,52 +1,65 @@
-const CIRCLEK_URL = 'https://api.circlek.com/eu/prices/v1/fuel/countries/DK';
-const OK_URL = 'https://mobility-prices.ok.dk/api/v1/fuel-prices';
+const CIRCLEK_COUNTRY_URL = 'https://api.circlek.com/eu/prices/v1/fuel/countries/DK';
+const CIRCLEK_LIST_PRICE_URL = 'https://www.circlek.dk/erhverv/braendstof/priser';
 
 export default async function handler(request, response) {
   response.setHeader('Cache-Control', 's-maxage=120, stale-while-revalidate=900');
   response.setHeader('Access-Control-Allow-Origin', '*');
 
-  const [circleK, ok] = await Promise.allSettled([fetchCircleK(), fetchOK()]);
+  const [bulk, list] = await Promise.allSettled([
+    fetchCircleKBulk(),
+    fetchCircleKListPrices()
+  ]);
+
   const sources = [];
   const stations = [];
 
-  if (circleK.status === 'fulfilled') {
-    sources.push({ id: 'circlek-ingo-dk', name: 'Circle K / INGO', ok: true, stations: circleK.value.length });
-    stations.push(...circleK.value);
+  if (bulk.status === 'fulfilled') {
+    sources.push({ id: 'circlek-api', name: 'Circle K / INGO station API', ok: true, stations: bulk.value.length });
+    stations.push(...bulk.value);
   } else {
-    sources.push({ id: 'circlek-ingo-dk', name: 'Circle K / INGO', ok: false, error: circleK.reason?.message || String(circleK.reason) });
+    sources.push({ id: 'circlek-api', name: 'Circle K / INGO station API', ok: false, error: bulk.reason?.message || String(bulk.reason) });
   }
 
-  if (ok.status === 'fulfilled') {
-    sources.push({ id: 'ok-dk', name: 'OK', ok: true, stations: ok.value.length });
-    stations.push(...ok.value);
+  let listPrices = {};
+
+  if (list.status === 'fulfilled') {
+    listPrices = list.value;
+    sources.push({ id: 'circlek-list-prices', name: 'Circle K official list prices', ok: true, products: Object.keys(listPrices).length });
   } else {
-    sources.push({ id: 'ok-dk', name: 'OK', ok: false, error: ok.reason?.message || String(ok.reason) });
+    sources.push({ id: 'circlek-list-prices', name: 'Circle K official list prices', ok: false, error: list.reason?.message || String(list.reason) });
   }
 
   response.status(200).json({
-    schemaVersion: 1,
+    schemaVersion: 2,
     generatedAt: new Date().toISOString(),
     sources,
-    stations: dedupe(stations)
+    stations: dedupeStations(stations),
+    listPrices
   });
 }
 
-async function fetchCircleK() {
-  const result = await fetchJson(CIRCLEK_URL, {
-    headers: { Accept: 'application/json', 'X-App-Name': 'PRICES' }
+async function fetchCircleKBulk() {
+  const res = await fetch(CIRCLEK_COUNTRY_URL, {
+    headers: {
+      Accept: 'application/json',
+      'X-App-Name': 'PRICES'
+    }
   });
 
-  const sites = Array.isArray(result.sites) ? result.sites : [];
+  if (!res.ok) throw new Error(`Circle K API HTTP ${res.status}`);
+
+  const data = await res.json();
+  const sites = Array.isArray(data.sites) ? data.sites : [];
+
   return sites.map(site => {
     const prices = normalizePrices(site.fuelPrices || site.prices || site.fuels || site.products || []);
-    if (!prices.length) return null;
-
     const address = site.address || {};
     const brand = String(site.name || '').toLowerCase().includes('ingo') ? 'INGO' : 'Circle K';
 
     return {
-      source: 'Circle K / INGO',
-      sourceId: 'circlek-ingo-dk',
+      id: `circlek-${site.id || site.siteId || site.name || Math.random()}`,
+      source: 'Circle K / INGO station API',
+      sourceId: 'circlek-api',
       stationId: String(site.id || site.siteId || ''),
       name: site.name || brand,
       brand,
@@ -57,37 +70,43 @@ async function fetchCircleK() {
       lng: parseNumber(site.longitude || site.lng || site.coordinates?.longitude || site.location?.lng),
       prices
     };
-  }).filter(Boolean);
+  });
 }
 
-async function fetchOK() {
-  const data = await fetchJson(OK_URL, { headers: { Accept: 'application/json' } });
-  const items = Array.isArray(data.items) ? data.items : Array.isArray(data) ? data : [];
+async function fetchCircleKListPrices() {
+  const res = await fetch(CIRCLEK_LIST_PRICE_URL, { headers: { Accept: 'text/html' } });
+  if (!res.ok) throw new Error(`Circle K list prices HTTP ${res.status}`);
 
-  return items.map(item => {
-    const prices = normalizePrices(item.prices || item.fuelPrices || item.fuels || []);
-    if (!prices.length) return null;
+  const html = await res.text();
+  const text = stripHtml(html);
 
-    return {
-      source: 'OK',
-      sourceId: 'ok-dk',
-      stationId: String(item.facility_number || item.facilityNumber || item.id || ''),
-      name: item.name || 'OK',
-      brand: 'OK',
-      addressText: [item.street, item.house_number, item.houseNumber, item.address].filter(Boolean).join(' '),
-      postalCode: String(item.postal_code || item.postalCode || ''),
-      city: item.city || '',
-      lat: parseNumber(item.coordinates?.latitude || item.lat || item.latitude),
-      lng: parseNumber(item.coordinates?.longitude || item.lng || item.longitude),
-      prices
-    };
-  }).filter(Boolean);
+  return {
+    benzin95: extractPrice(text, ['Miles 95', 'miles95']),
+    benzin98: extractPrice(text, ['Miles Plus 95', 'miles+95', 'Miles Plus']),
+    diesel: extractPrice(text, ['Diesel', 'milesDiesel']),
+    premiumDiesel: extractPrice(text, ['Miles Plus Diesel', 'miles+Diesel'])
+  };
 }
 
-async function fetchJson(url, options) {
-  const response = await fetch(url, options);
-  if (!response.ok) throw new Error(`${url} HTTP ${response.status}`);
-  return await response.json();
+function extractPrice(text, needles) {
+  for (const needle of needles) {
+    const index = text.toLowerCase().indexOf(String(needle).toLowerCase());
+    if (index === -1) continue;
+
+    const slice = text.slice(index, index + 700);
+    const matches = [...slice.matchAll(/(\d{1,2},\d{2})/g)].map(match => parseNumber(match[1]));
+    const plausible = matches.find(value => value >= 8 && value <= 30);
+
+    if (Number.isFinite(plausible)) {
+      return {
+        price: plausible,
+        productName: needle,
+        source: 'Circle K official list prices'
+      };
+    }
+  }
+
+  return null;
 }
 
 function normalizePrices(prices) {
@@ -105,17 +124,30 @@ function normalizePrices(prices) {
   })).filter(price => Number.isFinite(price.price));
 }
 
-function parseNumber(value) {
-  if (value === undefined || value === null || value === '') return NaN;
-  const number = Number(String(value).replace(',', '.'));
-  return Number.isFinite(number) ? number : NaN;
+function stripHtml(html) {
+  return String(html || '')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ');
 }
 
-function dedupe(stations) {
+function parseNumber(value) {
+  if (value === undefined || value === null || value === '') return NaN;
+
+  const numeric = Number(String(value).replace(',', '.'));
+
+  return Number.isFinite(numeric) ? numeric : NaN;
+}
+
+function dedupeStations(stations) {
   const seen = new Set();
+
   return stations.filter(station => {
-    const key = `${station.sourceId}:${station.stationId}:${station.postalCode}:${station.addressText}`;
+    const key = station.id || `${station.sourceId}:${station.stationId}:${station.postalCode}:${station.addressText}`;
+
     if (seen.has(key)) return false;
+
     seen.add(key);
     return true;
   });

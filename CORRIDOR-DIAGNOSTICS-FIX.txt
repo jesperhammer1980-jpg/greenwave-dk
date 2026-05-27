@@ -1,0 +1,1 @@
+Corridor diagnostics build. Uses sampled route corridor Overpass queries, Circle K official list prices fallback, and correct Lupinvej 3, 3390 Hundested default.
