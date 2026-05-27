@@ -1,8 +1,0 @@
-GreenWave EcoSpeedFix
-
-Upload HELE ZIP-indholdet til GitHub og overskriv alt.
-
-Retter:
-- Fjerner ekstra hastighedsboks fra navigation
-- Aktuel hastighed vises nu i EcoScore-vinduet
-- Live opdatering af hastighed i EcoScore
