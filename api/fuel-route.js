@@ -27,7 +27,7 @@ export default async function handler(request, response) {
 
     const errors = [];
     const osmStations = osmResult.status === 'fulfilled' ? osmResult.value.stations : [];
-    const osmDebug = osmResult.status === 'fulfilled' ? osmResult.value.debug : { failed: true };
+    const osmDebug = osmResult.status === 'fulfilled' ? osmResult.value.debug : { failed: true, error: osmResult.reason?.message || String(osmResult.reason) };
     if (osmResult.status !== 'fulfilled') errors.push(`osm fuel: ${osmResult.reason?.message || osmResult.reason}`);
 
     const prices = priceResult.status === 'fulfilled' ? priceResult.value : { stations: [], listPrices: {}, sources: [] };
@@ -49,9 +49,11 @@ export default async function handler(request, response) {
 
     const merged = dedupeStations([...osmStations, ...apiStations]);
 
-    const stations = attachRouteDistances(merged, geometry)
-      .filter(station => station.distanceToRoute <= maxDetourMeters)
-      .filter(station => station.distanceAlongRoute <= fuelAlongMeters)
+    const routeAttached = attachRouteDistances(merged, geometry);
+    const withinDetour = routeAttached.filter(station => station.distanceToRoute <= maxDetourMeters);
+    const withinAlong = withinDetour.filter(station => station.distanceAlongRoute <= fuelAlongMeters);
+
+    const stations = withinAlong
       .map(station => attachPrice(station, prices, fuelType))
       .sort(sortStations);
 
@@ -65,11 +67,23 @@ export default async function handler(request, response) {
         priceApiTotal,
         priceApiWithoutCoords,
         merged: merged.length,
+        withinDetour: withinDetour.length,
         returned: stations.length,
         priced: stations.filter(station => Number.isFinite(station.price)).length
       },
       sources: prices.sources || [],
-      debug: { osm: osmDebug, errors, priceApiTotal, priceApiWithoutCoords },
+      debug: {
+        osm: osmDebug,
+        errors,
+        priceApiTotal,
+        priceApiWithoutCoords,
+        nearestRaw: routeAttached.sort((a,b) => a.distanceToRoute - b.distanceToRoute).slice(0, 8).map(station => ({
+          name: station.name,
+          brand: station.brand,
+          distanceToRoute: Math.round(station.distanceToRoute),
+          distanceAlongRoute: Math.round(station.distanceAlongRoute)
+        }))
+      },
       stations: stations.slice(0, 100).map(station => ({
         id: station.id,
         name: station.name,
@@ -92,57 +106,60 @@ export default async function handler(request, response) {
 }
 
 async function fetchFuelStationsForRoute(geometry, maxDetourMeters) {
-  const radius = clamp(maxDetourMeters + 1200, 1800, 7000);
-  const samples = sampleRouteByDistance(geometry, 2500, 36);
-  const debug = { samples: samples.length, radius, attempts: [] };
-  let allElements = [];
+  const padding = clamp((maxDetourMeters / 111320) + 0.04, 0.055, 0.18);
+  const bbox = routeBbox(geometry, padding);
+  const bboxQuery = buildBboxQuery(bbox);
+
+  const samples = sampleRouteByDistance(geometry, 4000, 20);
+  const radius = clamp(maxDetourMeters + 1800, 2500, 8000);
+  const sampleQuery = buildAroundQuery(samples, radius);
 
   const strategies = [
-    {
-      name: 'around-samples',
-      query: buildAroundQuery(samples, radius)
-    },
-    {
-      name: 'wide-bbox',
-      query: buildBboxQuery(geometry, Math.max(0.08, maxDetourMeters / 111320 + 0.055))
-    }
+    { name: 'bbox-nwr-get', query: bboxQuery, method: 'GET' },
+    { name: 'bbox-nwr-post', query: bboxQuery, method: 'POST' },
+    { name: 'sample-around-post', query: sampleQuery, method: 'POST' },
+    { name: 'sample-around-get', query: sampleQuery, method: 'GET' }
   ];
+
+  const debug = {
+    bbox,
+    padding,
+    samples: samples.length,
+    radius,
+    attempts: []
+  };
+
+  const all = [];
 
   for (const strategy of strategies) {
     try {
-      const data = await overpass(strategy.query, 24000);
-      const count = Array.isArray(data.elements) ? data.elements.length : 0;
-      debug.attempts.push({ name: strategy.name, ok: true, rawElements: count });
-      if (count) {
-        allElements = allElements.concat(data.elements);
-        // Do not stop after first strategy; bbox often catches missed stations.
-      }
+      const data = await overpass(strategy.query, 26000, strategy.method);
+      const elements = Array.isArray(data.elements) ? data.elements : [];
+      debug.attempts.push({ name: strategy.name, method: strategy.method, ok: true, rawElements: elements.length });
+      if (elements.length) all.push(...elements);
     } catch (error) {
-      debug.attempts.push({ name: strategy.name, ok: false, error: error.message });
+      debug.attempts.push({ name: strategy.name, method: strategy.method, ok: false, error: error.message });
     }
   }
 
-  const stations = dedupeStations(allElements.map(normalizeFuelStation).filter(Boolean));
-  debug.rawElementsTotal = allElements.length;
+  const stations = dedupeStations(all.map(normalizeFuelStation).filter(Boolean));
+  debug.rawElementsTotal = all.length;
   debug.normalizedStations = stations.length;
 
   return { stations, debug };
 }
 
+function buildBboxQuery(bbox) {
+  const b = `${bbox.south},${bbox.west},${bbox.north},${bbox.east}`;
+  return `[out:json][timeout:45];(nwr["amenity"="fuel"](${b}););out center tags;`;
+}
+
 function buildAroundQuery(samples, radius) {
   const parts = [];
   for (const point of samples) {
-    parts.push(`node(around:${Math.round(radius)},${point.lat},${point.lng})["amenity"="fuel"];`);
-    parts.push(`way(around:${Math.round(radius)},${point.lat},${point.lng})["amenity"="fuel"];`);
-    parts.push(`relation(around:${Math.round(radius)},${point.lat},${point.lng})["amenity"="fuel"];`);
+    parts.push(`nwr(around:${Math.round(radius)},${point.lat},${point.lng})["amenity"="fuel"];`);
   }
   return `[out:json][timeout:45];(${parts.join('\n')});out center tags;`;
-}
-
-function buildBboxQuery(geometry, padding) {
-  const bbox = routeBbox(geometry, padding);
-  const b = `${bbox.south},${bbox.west},${bbox.north},${bbox.east}`;
-  return `[out:json][timeout:45];(node["amenity"="fuel"](${b});way["amenity"="fuel"](${b});relation["amenity"="fuel"](${b}););out center tags;`;
 }
 
 async function fetchPrices(request) {
@@ -158,23 +175,27 @@ function originFromRequest(request) {
   return `${proto}://${host}`;
 }
 
-async function overpass(query, timeoutMs) {
+async function overpass(query, timeoutMs, method = 'POST') {
   const errors = [];
   for (const endpoint of OVERPASS_ENDPOINTS) {
     try {
-      const res = await fetchWithTimeout(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
-        body: query
-      }, timeoutMs);
+      let url = endpoint;
+      const options = { method, headers: {} };
+      if (method === 'GET') {
+        url = `${endpoint}?data=${encodeURIComponent(query)}`;
+      } else {
+        options.headers['Content-Type'] = 'text/plain;charset=UTF-8';
+        options.body = query;
+      }
+      const res = await fetchWithTimeout(url, options, timeoutMs);
       if (res.ok) return await res.json();
       const text = await res.text().catch(() => '');
-      errors.push(`${endpoint} HTTP ${res.status} ${text.slice(0, 160)}`);
+      errors.push(`${endpoint} ${method} HTTP ${res.status}: ${text.slice(0, 180)}`);
     } catch (error) {
-      errors.push(`${endpoint} ${error.message}`);
+      errors.push(`${endpoint} ${method}: ${error.message}`);
     }
   }
-  throw new Error(`All Overpass endpoints failed: ${errors.join(' | ')}`);
+  throw new Error(`Overpass ${method} failed: ${errors.join(' | ')}`);
 }
 
 function normalizeFuelStation(element) {
@@ -198,24 +219,14 @@ function normalizeFuelStation(element) {
 function attachPrice(station, prices, fuelType) {
   const direct = chooseProduct(station.prices || [], fuelType);
   if (direct) {
-    return {
-      ...station,
-      price: Number(direct.price),
-      priceProduct: direct.productName || direct.displayName || direct.fuelType,
-      priceSource: station.source || 'station API'
-    };
+    return { ...station, price: Number(direct.price), priceProduct: direct.productName || direct.displayName || direct.fuelType, priceSource: station.source || 'station API' };
   }
 
   const brandText = normalizeText(`${station.brand} ${station.name}`);
   if (brandText.includes('circle') || brandText.includes('ingo')) {
     const list = prices.listPrices?.[fuelType];
     if (list && Number.isFinite(Number(list.price))) {
-      return {
-        ...station,
-        price: Number(list.price),
-        priceProduct: list.productName || fuelType,
-        priceSource: list.source || 'Circle K list price'
-      };
+      return { ...station, price: Number(list.price), priceProduct: list.productName || fuelType, priceSource: list.source || 'Circle K list price' };
     }
   }
 
@@ -228,12 +239,7 @@ function attachPrice(station, prices, fuelType) {
   if (best && best.score >= 65) {
     const product = chooseProduct(best.candidate.prices || [], fuelType);
     if (product) {
-      return {
-        ...station,
-        price: Number(product.price),
-        priceProduct: product.productName || product.displayName || product.fuelType,
-        priceSource: best.candidate.source || 'matched API'
-      };
+      return { ...station, price: Number(product.price), priceProduct: product.productName || product.displayName || product.fuelType, priceSource: best.candidate.source || 'matched API' };
     }
   }
 
@@ -300,8 +306,7 @@ function sampleRouteByDistance(geometry, spacingMeters, maxSamples) {
   const points = [{ lng: geometry[0][0], lat: geometry[0][1] }];
   let sinceLast = 0;
   for (let i = 1; i < geometry.length; i++) {
-    const a = geometry[i - 1];
-    const b = geometry[i];
+    const a = geometry[i - 1], b = geometry[i];
     sinceLast += haversine(a[1], a[0], b[1], b[0]);
     if (sinceLast >= spacingMeters) {
       points.push({ lng: b[0], lat: b[1] });
