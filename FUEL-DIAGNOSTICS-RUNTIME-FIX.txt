@@ -1,1 +1,0 @@
-Diagnostics now calls /api/fuel-route. /api/fuel-route uses route geometry, sampled Overpass corridor plus wide bbox fallback, and returns OSM stations even without prices.
