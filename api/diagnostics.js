@@ -9,9 +9,10 @@ export default async function handler(request, response) {
   const to = String(request.query.to || 'Herstedøstervej 27, 2620 Albertslund').trim();
   const fuelType = String(request.query.fuelType || 'benzin95');
   const maxDetour = Number(request.query.maxDetour || 2000);
+  const fuelAlong = Number(request.query.fuelAlong || 50000);
 
   const result = {
-    input: { from, to, fuelType, maxDetour },
+    input: { from, to, fuelType, maxDetour, fuelAlong },
     route: { ok: false },
     fuel: {},
     road: {},
@@ -100,6 +101,32 @@ export default async function handler(request, response) {
       distanceToRoute: Math.round(station.distanceToRoute),
       distanceAlongRoute: Math.round(station.distanceAlongRoute)
     }));
+
+    try {
+      const fuelRoute = await fetchFuelRouteDiagnostics(request, route, fuelType, maxDetour, fuelAlong);
+      result.fuel.fuelRouteOk = true;
+      result.fuel.priceApiStations = fuelRoute.counts?.apiStations ?? result.fuel.priceApiStations ?? 0;
+      result.fuel.priceApiStationsWithCoords = fuelRoute.counts?.apiStations ?? result.fuel.priceApiStationsWithCoords ?? 0;
+      result.fuel.osmFuelStations = fuelRoute.counts?.osmStations ?? result.fuel.osmFuelStations ?? 0;
+      result.fuel.candidatesTotal = fuelRoute.counts?.merged ?? 0;
+      result.fuel.withinDetour = fuelRoute.counts?.returned ?? 0;
+      result.fuel.pricedForFuelType = fuelRoute.counts?.priced ?? 0;
+      result.fuel.sources = fuelRoute.sources || result.fuel.sources || [];
+      result.fuel.nearest = (fuelRoute.stations || []).slice(0, 15).map(station => ({
+        name: station.name,
+        brand: station.brand,
+        source: station.source,
+        price: station.price,
+        priceProduct: station.priceProduct,
+        priceSource: station.priceSource,
+        distanceToRoute: station.distanceToRoute,
+        distanceAlongRoute: station.distanceAlongRoute
+      }));
+      result.fuel.fuelRouteDebug = fuelRoute.debug || {};
+    } catch (error) {
+      result.fuel.fuelRouteOk = false;
+      result.errors.push(`fuel-route: ${error.message}`);
+    }
 
     const waysWithRoute = maxspeedWays
       .map(way => ({ ...way, distanceToRoute: minLineDistance(way.geometry, route.geometry) }))
@@ -686,4 +713,22 @@ async function fetchWithTimeout(url, options, timeoutMs) {
   } finally {
     clearTimeout(timeout);
   }
+}
+
+
+async function fetchFuelRouteDiagnostics(request, route, fuelType, maxDetour, fuelAlong = 50000) {
+  const origin = originFromRequest(request);
+  const res = await fetch(`${origin}/api/fuel-route`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({
+      geometry: route.geometry,
+      fuelType,
+      maxDetourMeters: maxDetour,
+      fuelAlongMeters: fuelAlong
+    })
+  });
+  const data = await res.json();
+  if (!res.ok || !data.ok) throw new Error(data.error || `/api/fuel-route ${res.status}`);
+  return data;
 }

@@ -365,6 +365,7 @@ async function refreshFuel() {
 
     if (state.stations.length === 0 && data.debug) {
       console.warn("Fuel-route returned no stations", data.debug);
+      els.fuelSummary.textContent = `0 stationer. Debug: OSM=${data.counts?.osmStations ?? 0}, merged=${data.counts?.merged ?? 0}, errors=${(data.debug?.errors || []).join(" | ")}`;
     }
   } catch (error) {
     console.error(error);
@@ -376,14 +377,11 @@ async function refreshFuel() {
 
 function sortStations(a, b) {
   const mode = state.settings.fuelSort || "cheapest";
-
   if (mode === "detour") return a.distanceToRoute - b.distanceToRoute;
   if (mode === "upcoming") return a.distanceAlongRoute - b.distanceAlongRoute;
-
   if (Number.isFinite(a.price) && Number.isFinite(b.price)) return a.price - b.price;
   if (Number.isFinite(a.price)) return -1;
   if (Number.isFinite(b.price)) return 1;
-
   return a.distanceAlongRoute - b.distanceAlongRoute;
 }
 

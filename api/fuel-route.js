@@ -8,9 +8,7 @@ export default async function handler(request, response) {
   response.setHeader('Cache-Control', 'no-store');
   response.setHeader('Access-Control-Allow-Origin', '*');
 
-  if (request.method !== 'POST') {
-    return response.status(405).json({ ok: false, error: 'POST only' });
-  }
+  if (request.method !== 'POST') return response.status(405).json({ ok: false, error: 'POST only' });
 
   try {
     const geometry = request.body?.geometry;
@@ -29,17 +27,24 @@ export default async function handler(request, response) {
 
     const errors = [];
     const osmStations = osmResult.status === 'fulfilled' ? osmResult.value.stations : [];
-    const osmDebug = osmResult.status === 'fulfilled' ? osmResult.value.debug : {};
+    const osmDebug = osmResult.status === 'fulfilled' ? osmResult.value.debug : { failed: true };
     if (osmResult.status !== 'fulfilled') errors.push(`osm fuel: ${osmResult.reason?.message || osmResult.reason}`);
 
     const prices = priceResult.status === 'fulfilled' ? priceResult.value : { stations: [], listPrices: {}, sources: [] };
     if (priceResult.status !== 'fulfilled') errors.push(`prices: ${priceResult.reason?.message || priceResult.reason}`);
 
     const apiStations = (prices.stations || [])
-      .filter(station => Number.isFinite(station.lat) && Number.isFinite(station.lng))
-      .map(station => ({ ...station, fromPriceApi: true, source: station.source || 'price API' }));
+      .filter(station => Number.isFinite(Number(station.lat)) && Number.isFinite(Number(station.lng)))
+      .map(station => ({
+        ...station,
+        lat: Number(station.lat),
+        lng: Number(station.lng),
+        id: station.id || `api-${station.sourceId || 'source'}-${station.stationId || `${station.lat}:${station.lng}`}`,
+        fromPriceApi: true,
+        source: station.source || 'price API'
+      }));
 
-    const merged = dedupeStations([...apiStations, ...osmStations]);
+    const merged = dedupeStations([...osmStations, ...apiStations]);
 
     const stations = attachRouteDistances(merged, geometry)
       .filter(station => station.distanceToRoute <= maxDetourMeters)
@@ -60,7 +65,7 @@ export default async function handler(request, response) {
       },
       sources: prices.sources || [],
       debug: { osm: osmDebug, errors },
-      stations: stations.slice(0, 80).map(station => ({
+      stations: stations.slice(0, 100).map(station => ({
         id: station.id,
         name: station.name,
         brand: station.brand,
@@ -68,8 +73,9 @@ export default async function handler(request, response) {
         lng: station.lng,
         addressText: station.addressText || station.address || '',
         city: station.city || '',
-        distanceToRoute: station.distanceToRoute,
-        distanceAlongRoute: station.distanceAlongRoute,
+        source: station.source || null,
+        distanceToRoute: Math.round(station.distanceToRoute),
+        distanceAlongRoute: Math.round(station.distanceAlongRoute),
         price: Number.isFinite(station.price) ? station.price : null,
         priceProduct: station.priceProduct || null,
         priceSource: station.priceSource || null
@@ -81,41 +87,57 @@ export default async function handler(request, response) {
 }
 
 async function fetchFuelStationsForRoute(geometry, maxDetourMeters) {
-  const samples = sampleRouteByDistance(geometry, 3500, 28);
-  const radius = clamp(maxDetourMeters + 900, 1300, 6000);
+  const radius = clamp(maxDetourMeters + 1200, 1800, 7000);
+  const samples = sampleRouteByDistance(geometry, 2500, 36);
+  const debug = { samples: samples.length, radius, attempts: [] };
+  let allElements = [];
 
-  const aroundParts = [];
-  for (const point of samples) {
-    aroundParts.push(`node(around:${Math.round(radius)},${point.lat},${point.lng})["amenity"="fuel"];`);
-    aroundParts.push(`way(around:${Math.round(radius)},${point.lat},${point.lng})["amenity"="fuel"];`);
-    aroundParts.push(`relation(around:${Math.round(radius)},${point.lat},${point.lng})["amenity"="fuel"];`);
-  }
-
-  const aroundQuery = `[out:json][timeout:35];(${aroundParts.join('\n')});out center tags;`;
-  const aroundData = await overpass(aroundQuery, 22000).catch(error => ({ elements: [], _error: error.message }));
-
-  let elements = Array.isArray(aroundData.elements) ? aroundData.elements : [];
-  let fallbackUsed = false;
-
-  if (elements.length === 0) {
-    fallbackUsed = true;
-    const bbox = routeBbox(geometry, Math.max(0.06, (maxDetourMeters / 111320) + 0.035));
-    const b = `${bbox.south},${bbox.west},${bbox.north},${bbox.east}`;
-    const bboxQuery = `[out:json][timeout:35];(node["amenity"="fuel"](${b});way["amenity"="fuel"](${b});relation["amenity"="fuel"](${b}););out center tags;`;
-    const bboxData = await overpass(bboxQuery, 22000).catch(error => ({ elements: [], _error: error.message }));
-    elements = Array.isArray(bboxData.elements) ? bboxData.elements : [];
-  }
-
-  return {
-    debug: {
-      samples: samples.length,
-      radius,
-      rawElements: elements.length,
-      fallbackUsed,
-      aroundError: aroundData._error || null
+  const strategies = [
+    {
+      name: 'around-samples',
+      query: buildAroundQuery(samples, radius)
     },
-    stations: dedupeStations(elements.map(normalizeFuelStation).filter(Boolean))
-  };
+    {
+      name: 'wide-bbox',
+      query: buildBboxQuery(geometry, Math.max(0.08, maxDetourMeters / 111320 + 0.055))
+    }
+  ];
+
+  for (const strategy of strategies) {
+    try {
+      const data = await overpass(strategy.query, 24000);
+      const count = Array.isArray(data.elements) ? data.elements.length : 0;
+      debug.attempts.push({ name: strategy.name, ok: true, rawElements: count });
+      if (count) {
+        allElements = allElements.concat(data.elements);
+        // Do not stop after first strategy; bbox often catches missed stations.
+      }
+    } catch (error) {
+      debug.attempts.push({ name: strategy.name, ok: false, error: error.message });
+    }
+  }
+
+  const stations = dedupeStations(allElements.map(normalizeFuelStation).filter(Boolean));
+  debug.rawElementsTotal = allElements.length;
+  debug.normalizedStations = stations.length;
+
+  return { stations, debug };
+}
+
+function buildAroundQuery(samples, radius) {
+  const parts = [];
+  for (const point of samples) {
+    parts.push(`node(around:${Math.round(radius)},${point.lat},${point.lng})["amenity"="fuel"];`);
+    parts.push(`way(around:${Math.round(radius)},${point.lat},${point.lng})["amenity"="fuel"];`);
+    parts.push(`relation(around:${Math.round(radius)},${point.lat},${point.lng})["amenity"="fuel"];`);
+  }
+  return `[out:json][timeout:45];(${parts.join('\n')});out center tags;`;
+}
+
+function buildBboxQuery(geometry, padding) {
+  const bbox = routeBbox(geometry, padding);
+  const b = `${bbox.south},${bbox.west},${bbox.north},${bbox.east}`;
+  return `[out:json][timeout:45];(node["amenity"="fuel"](${b});way["amenity"="fuel"](${b});relation["amenity"="fuel"](${b}););out center tags;`;
 }
 
 async function fetchPrices(request) {
@@ -141,7 +163,8 @@ async function overpass(query, timeoutMs) {
         body: query
       }, timeoutMs);
       if (res.ok) return await res.json();
-      errors.push(`${endpoint} HTTP ${res.status}`);
+      const text = await res.text().catch(() => '');
+      errors.push(`${endpoint} HTTP ${res.status} ${text.slice(0, 160)}`);
     } catch (error) {
       errors.push(`${endpoint} ${error.message}`);
     }
@@ -153,7 +176,6 @@ function normalizeFuelStation(element) {
   const lat = typeof element.lat === 'number' ? element.lat : element.center?.lat;
   const lng = typeof element.lon === 'number' ? element.lon : element.center?.lon;
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
-
   const tags = element.tags || {};
   return {
     id: `${element.type}-${element.id}`,
@@ -210,6 +232,7 @@ function attachPrice(station, prices, fuelType) {
     }
   }
 
+  // stations without prices are still returned
   return { ...station, price: null };
 }
 
@@ -229,31 +252,16 @@ function scoreMatch(a, b) {
 function chooseProduct(prices, fuelType) {
   const candidates = prices.filter(price => Number.isFinite(Number(price.price)));
   const text = price => normalizeText(`${price.code} ${price.octane} ${price.fuelType} ${price.productName} ${price.displayName}`);
-
-  if (fuelType === 'diesel') {
-    return candidates.find(p => /diesel/.test(text(p)) && !/premium|plus|extra|deluxe|hvo/.test(text(p))) ||
-      candidates.find(p => /diesel/.test(text(p))) || null;
-  }
-
-  if (fuelType === 'premiumDiesel') {
-    return candidates.find(p => /diesel/.test(text(p)) && /premium|plus|extra|deluxe/.test(text(p))) ||
-      candidates.find(p => /diesel/.test(text(p))) || null;
-  }
-
-  if (fuelType === 'benzin98') {
-    return candidates.find(p => /98|100|e5|oktan 98|oktan 100|blyfri 98/.test(text(p)) && !/diesel/.test(text(p))) || null;
-  }
-
-  return candidates.find(p =>
-    /95|e10|blyfri 95|miles 95|benzin|gasoline|petrol/.test(text(p)) &&
-    !/98|100|premium|diesel/.test(text(p))
-  ) || candidates.find(p => /benzin|gasoline|petrol/.test(text(p)) && !/diesel/.test(text(p))) || null;
+  if (fuelType === 'diesel') return candidates.find(p => /diesel/.test(text(p)) && !/premium|plus|extra|deluxe|hvo/.test(text(p))) || candidates.find(p => /diesel/.test(text(p))) || null;
+  if (fuelType === 'premiumDiesel') return candidates.find(p => /diesel/.test(text(p)) && /premium|plus|extra|deluxe/.test(text(p))) || candidates.find(p => /diesel/.test(text(p))) || null;
+  if (fuelType === 'benzin98') return candidates.find(p => /98|100|e5|oktan 98|oktan 100|blyfri 98/.test(text(p)) && !/diesel/.test(text(p))) || null;
+  return candidates.find(p => /95|e10|blyfri 95|miles 95|benzin|gasoline|petrol/.test(text(p)) && !/98|100|premium|diesel/.test(text(p))) ||
+    candidates.find(p => /benzin|gasoline|petrol/.test(text(p)) && !/diesel/.test(text(p))) || null;
 }
 
 function attachRouteDistances(stations, geometry) {
   const segments = [];
   let cumulative = 0;
-
   for (let i = 1; i < geometry.length; i++) {
     const a = geometry[i - 1];
     const b = geometry[i];
@@ -261,11 +269,9 @@ function attachRouteDistances(stations, geometry) {
     segments.push({ start: a, end: b, startMeters: cumulative, length });
     cumulative += length;
   }
-
   return stations.map(station => {
     let best = Infinity;
     let along = Infinity;
-
     for (const segment of segments) {
       const p = projectPointToSegment(station.lat, station.lng, segment.start[1], segment.start[0], segment.end[1], segment.end[0]);
       if (p.distanceMeters < best) {
@@ -273,7 +279,6 @@ function attachRouteDistances(stations, geometry) {
         along = segment.startMeters + segment.length * p.t;
       }
     }
-
     return { ...station, distanceToRoute: best, distanceAlongRoute: along };
   });
 }
@@ -287,34 +292,25 @@ function sortStations(a, b) {
 
 function sampleRouteByDistance(geometry, spacingMeters, maxSamples) {
   if (!Array.isArray(geometry) || geometry.length < 2) return [];
-
   const points = [{ lng: geometry[0][0], lat: geometry[0][1] }];
   let sinceLast = 0;
-
   for (let i = 1; i < geometry.length; i++) {
     const a = geometry[i - 1];
     const b = geometry[i];
     sinceLast += haversine(a[1], a[0], b[1], b[0]);
-
     if (sinceLast >= spacingMeters) {
       points.push({ lng: b[0], lat: b[1] });
       sinceLast = 0;
     }
-
     if (points.length >= maxSamples - 1) break;
   }
-
   const last = geometry[geometry.length - 1];
   points.push({ lng: last[0], lat: last[1] });
-
   return dedupePoints(points).slice(0, maxSamples);
 }
 
 function routeBbox(geometry, padding) {
-  let south = Infinity;
-  let west = Infinity;
-  let north = -Infinity;
-  let east = -Infinity;
+  let south = Infinity, west = Infinity, north = -Infinity, east = -Infinity;
   for (const point of geometry) {
     west = Math.min(west, point[0]);
     east = Math.max(east, point[0]);
@@ -356,22 +352,12 @@ function normalizeBrand(value) {
 }
 
 function normalizeText(value) {
-  return String(value || '')
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/æ/g, 'ae')
-    .replace(/ø/g, 'oe')
-    .replace(/å/g, 'aa')
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim();
+  return String(value || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/æ/g, 'ae').replace(/ø/g, 'oe').replace(/å/g, 'aa').replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
 function haversine(lat1, lng1, lat2, lng2) {
-  const radius = 6371000;
-  const toRad = value => value * Math.PI / 180;
-  const dLat = toRad(lat2 - lat1);
-  const dLng = toRad(lng2 - lng1);
+  const radius = 6371000, toRad = value => value * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1), dLng = toRad(lng2 - lng1);
   const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
   return radius * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
@@ -379,27 +365,16 @@ function haversine(lat1, lng1, lat2, lng2) {
 function projectPointToSegment(lat, lng, lat1, lng1, lat2, lng2) {
   const metersLat = 111320;
   const metersLng = 111320 * Math.cos(lat * Math.PI / 180);
-  const px = lng * metersLng;
-  const py = lat * metersLat;
-  const ax = lng1 * metersLng;
-  const ay = lat1 * metersLat;
-  const bx = lng2 * metersLng;
-  const by = lat2 * metersLat;
-  const dx = bx - ax;
-  const dy = by - ay;
-  const len = dx * dx + dy * dy;
-
+  const px = lng * metersLng, py = lat * metersLat;
+  const ax = lng1 * metersLng, ay = lat1 * metersLat, bx = lng2 * metersLng, by = lat2 * metersLat;
+  const dx = bx - ax, dy = by - ay, len = dx * dx + dy * dy;
   if (!len) return { t: 0, distanceMeters: Math.hypot(px - ax, py - ay) };
-
   let t = ((px - ax) * dx + (py - ay) * dy) / len;
   t = clamp(t, 0, 1);
-
   return { t, distanceMeters: Math.hypot(px - (ax + t * dx), py - (ay + t * dy)) };
 }
 
-function clamp(value, min, max) {
-  return Math.max(min, Math.min(max, value));
-}
+function clamp(value, min, max) { return Math.max(min, Math.min(max, value)); }
 
 async function fetchWithTimeout(url, options, timeoutMs) {
   const controller = new AbortController();
