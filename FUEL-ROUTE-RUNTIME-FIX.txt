@@ -1,0 +1,1 @@
+Fuel stations are now fetched by /api/fuel-route server-side using route geometry, sampled Overpass corridor, bbox fallback, and prices as optional enrichment. Stations without prices are still returned.

@@ -330,37 +330,45 @@ async function refreshFuel() {
   els.fuelSummary.textContent = "Henter stationer og priser...";
 
   try {
-    const [priceData, osmStations] = await Promise.all([
-      fetchPriceData(),
-      findFuelStations(state.route.geometry).catch(() => [])
-    ]);
+    const response = await fetch("/api/fuel-route", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        geometry: state.route.geometry,
+        fuelType: state.settings.fuelType,
+        maxDetourMeters: state.settings.maxFuelDetourMeters,
+        fuelAlongMeters: state.settings.fuelAlongMeters || 50000
+      })
+    });
 
-    state.priceData = priceData;
+    const data = await response.json();
 
-    const apiStations = (priceData.stations || [])
-      .filter(station => Number.isFinite(station.lat) && Number.isFinite(station.lng))
+    if (!response.ok || !data.ok) {
+      throw new Error(data.error || `/api/fuel-route ${response.status}`);
+    }
+
+    state.priceData = { sources: data.sources || [] };
+
+    state.stations = (data.stations || [])
       .map(station => ({
         ...station,
-        id: `api-${station.sourceId}-${station.stationId}`,
-        name: station.name || station.brand || "Tankstation",
-        brand: station.brand || "",
-        address: station.addressText || "",
-        fromPriceApi: true
-      }));
-
-    const merged = dedupeStations([...apiStations, ...osmStations]);
-
-    state.stations = attachRouteDistances(merged, state.route.geometry)
-      .map(station => station.fromPriceApi ? attachDirectPrice(station, state.settings.fuelType) : attachMatchedPrice(station, priceData, state.settings.fuelType))
+        distanceToRoute: Number(station.distanceToRoute),
+        distanceAlongRoute: Number(station.distanceAlongRoute),
+        price: Number.isFinite(Number(station.price)) ? Number(station.price) : null
+      }))
       .filter(station => station.distanceToRoute <= state.settings.maxFuelDetourMeters)
       .filter(station => station.distanceAlongRoute <= (state.settings.fuelAlongMeters || 50000))
       .sort(sortStations);
 
     renderFuel();
     drawFuelMarkers();
+
+    if (state.stations.length === 0 && data.debug) {
+      console.warn("Fuel-route returned no stations", data.debug);
+    }
   } catch (error) {
     console.error(error);
-    els.fuelSummary.textContent = "Kunne ikke hente tankstationer/priser.";
+    els.fuelSummary.textContent = `Kunne ikke hente tankstationer/priser: ${error.message}`;
   } finally {
     els.fuelRefreshBtn.disabled = false;
   }
@@ -382,7 +390,7 @@ function sortStations(a, b) {
 function renderFuel() {
   const count = state.stations.length;
   const priced = state.stations.filter(station => Number.isFinite(station.price)).length;
-  const sources = state.priceData?.sources?.filter(source => source.ok).map(source => `${source.name} (${source.stations})`).join(", ");
+  const sources = state.priceData?.sources?.filter(source => source.ok).map(source => source.stations ? `${source.name} (${source.stations})` : source.name).join(", ");
 
   els.fuelSummary.textContent = count
     ? `${count} stationer fundet inden for ${formatDistance(state.settings.fuelAlongMeters || 50000)} langs ruten. ${priced} med pris. ${sources ? "Kilder: " + sources : ""}`
