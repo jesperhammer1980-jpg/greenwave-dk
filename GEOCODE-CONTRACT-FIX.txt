@@ -1,1 +1,0 @@
-Fixes /api/geocode response contract mismatch. Geocode now returns {ok,result,results}; diagnostics and app accept both object and old array formats.
