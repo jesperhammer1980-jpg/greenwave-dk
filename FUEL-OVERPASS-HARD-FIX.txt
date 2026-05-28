@@ -1,1 +1,0 @@
-Fuel search now uses bbox nwr query with GET+POST and sample around fallback; app displays actual Overpass attempts when zero stations are returned.
