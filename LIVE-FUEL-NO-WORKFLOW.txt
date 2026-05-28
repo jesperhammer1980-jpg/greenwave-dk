@@ -1,1 +1,0 @@
-GitHub Actions auto-commit fuel update removed. Prices are fetched live server-side via /api/fuel-prices and cached by Vercel. No fuel-prices.json required.
