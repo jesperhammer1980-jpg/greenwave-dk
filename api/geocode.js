@@ -10,16 +10,24 @@ export default async function handler(request, response) {
   const result = await geocodeAddress(q, limit);
 
   if (result.results.length) {
-    return response.status(200).json(result.results.map(item => ({
-      provider: item.provider,
-      lat: item.lat,
-      lng: item.lng,
-      displayName: item.displayName,
+    const results = result.results.map(item => normalizeOutput(item));
+    return response.status(200).json({
+      ok: true,
+      result: results[0],
+      results,
+      provider: results[0]?.provider || null,
+      q,
       attempts: request.query.debug ? result.attempts : undefined
-    })));
+    });
   }
 
-  return response.status(404).json({ error: 'Address not found', q, attempts: result.attempts });
+  return response.status(404).json({
+    ok: false,
+    error: 'Address not found',
+    message: `Address not found: ${q}`,
+    q,
+    attempts: result.attempts
+  });
 }
 
 const DAWA_AUTOCOMPLETE = 'https://api.dataforsyningen.dk/autocomplete';
@@ -163,4 +171,18 @@ function normalizeDawaAddress(item, fallback) {
   const lat = Number(coords[1]);
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
   return { provider: 'DAWA adresser', lat, lng, displayName: item.betegnelse || fallback, dawaId: item.id || null, raw: item };
+}
+
+
+function normalizeOutput(item) {
+  return {
+    provider: item.provider,
+    lat: Number(item.lat),
+    lng: Number(item.lng),
+    lon: Number(item.lng),
+    label: item.displayName || item.label || '',
+    displayName: item.displayName || item.label || '',
+    dawaId: item.dawaId || null,
+    raw: item.raw || null
+  };
 }

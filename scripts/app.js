@@ -483,12 +483,30 @@ function formatAddress(item) {
 }
 
 async function geocode(query) {
-  const response = await fetch(`/api/geocode?q=${encodeURIComponent(query)}&limit=1`);
+  const response = await fetch(`/api/geocode?q=${encodeURIComponent(query)}&limit=1`, { cache: "no-store" });
   const data = await response.json();
-  if (!response.ok) throw new Error(data?.error || `Geocode HTTP ${response.status}`);
-  if (!data.length) throw new Error("Destination ikke fundet.");
-  const formatted = formatAddress(data[0]);
-  return { lat: Number(data[0].lat), lng: Number(data[0].lng ?? data[0].lon), label: formatted.title, displayName: [formatted.title, formatted.subtitle].filter(Boolean).join(", ") };
+
+  const item = Array.isArray(data) ? data[0] : (data.result || data.results?.[0]);
+
+  if (!response.ok || !item) {
+    throw new Error(data?.message || data?.error || `Geocode HTTP ${response.status}`);
+  }
+
+  const lat = Number(item.lat);
+  const lng = Number(item.lng ?? item.lon);
+
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    throw new Error(`Geocode returned invalid coordinates for ${query}`);
+  }
+
+  const displayName = item.displayName || item.label || query;
+
+  return {
+    lat,
+    lng,
+    label: displayName,
+    displayName
+  };
 }
 
 async function fetchRoute(from, to) {

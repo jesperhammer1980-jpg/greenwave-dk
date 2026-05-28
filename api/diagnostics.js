@@ -133,21 +133,30 @@ export default async function handler(request, response) {
 }
 
 async function geocodeViaApi(request, address) {
-  const url = `${originFromRequest(request)}/api/geocode?q=${encodeURIComponent(address)}`;
+  const url = `${originFromRequest(request)}/api/geocode?q=${encodeURIComponent(address)}&limit=1&debug=1`;
   const res = await fetch(url, { headers: { Accept: 'application/json' } });
   const data = await res.json();
 
-  if (!res.ok || !data.ok || !data.result) {
-    throw new Error(`geocode failed for ${address}: ${data.message || res.status}`);
+  const item = Array.isArray(data) ? data[0] : (data.result || data.results?.[0]);
+
+  if (!res.ok || !item) {
+    throw new Error(`geocode failed for ${address}: ${data.message || data.error || res.status}`);
+  }
+
+  const lat = Number(item.lat);
+  const lng = Number(item.lng ?? item.lon);
+
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    throw new Error(`geocode returned invalid coordinates for ${address}: ${JSON.stringify(item)}`);
   }
 
   return {
-    lat: Number(data.result.lat),
-    lng: Number(data.result.lng),
-    displayName: data.result.displayName || data.result.label || address,
-    provider: data.provider || data.result.provider || 'unknown',
-    raw: data.result.raw || null,
-    attempts: data.attempts || []
+    lat,
+    lng,
+    displayName: item.displayName || item.label || address,
+    provider: item.provider || data.provider || 'unknown',
+    raw: item.raw || null,
+    attempts: data.attempts || item.attempts || []
   };
 }
 
