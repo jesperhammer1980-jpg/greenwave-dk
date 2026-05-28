@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="da">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>GreenWave DK</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="./app/style.css?v=appfolder2">
+</head>
+<body>
+<main id="app">
+<div id="map"></div>
+<header class="topbar"><div class="brand"><span></span>GreenWave DK</div><button id="settingsBtn" class="icon-btn" type="button">⚙</button></header>
+<section class="panel">
+<div class="search-card"><input id="destinationInput" placeholder="Destination i Danmark" autocomplete="off"><button id="goBtn" type="button">GO</button></div>
+<div id="autocompleteResults" class="autocomplete hidden"></div>
+<section id="historySection" class="history-card hidden"><h2>Seneste destinationer</h2><div id="historyList"></div></section>
+<div id="statusText" class="status">Klar</div>
+<section class="gw"><div><span>Anbefalet</span><strong id="recommendedSpeed">--</strong><small>km/t</small></div><div><span>Max</span><strong id="speedLimit">?</strong><small>km/t</small></div><div><span>Aktuel</span><strong id="currentSpeed">0</strong><small>km/t</small></div></section>
+<div id="reasonText" class="reason">Beregn en rute for at hente tankstationer langs ruten.</div>
+<section class="actions"><button id="startBtn" disabled>Start GreenWave</button><button id="stopBtn" disabled>Stop</button><button id="recalcBtn" disabled>Genberegn</button></section>
+<section class="trip"><div><span>Afstand</span><strong id="routeDistance">—</strong></div><div><span>Tid</span><strong id="routeDuration">—</strong></div><div><span>ETA</span><strong id="routeEta">—</strong></div></section>
+<section class="fuel"><header><h2>Tankstationer langs ruten</h2><button id="fuelRefreshBtn" disabled>Opdater</button></header><div id="fuelSummary">Beregn en rute først.</div><div id="fuelList"></div></section>
+</section>
+<div id="settingsBackdrop" class="modal-backdrop hidden"></div>
+<section id="settingsModal" class="modal hidden"><header><h2>Settings</h2><button id="closeSettingsBtn">✕</button></header><div class="settings-body">
+<section><h3>Brændstof</h3><select id="fuelTypeSelect"><option value="benzin95">Benzin 95 / E10</option><option value="benzin98">Benzin 98 / E5</option><option value="diesel">Diesel</option><option value="premiumDiesel">Premium diesel</option></select></section>
+<section><h3>Tankstationer</h3><label>Maks. afstand fra ruten</label><select id="fuelDetourSelect"><option value="1000">1 km fra ruten</option><option value="2000">2 km fra ruten</option><option value="5000">5 km fra ruten</option><option value="10000">10 km fra ruten</option><option value="15000">15 km fra ruten</option></select><label>Vis stationer inden for de næste</label><select id="fuelAlongSelect"><option value="50000">50 km</option><option value="100000">100 km</option><option value="200000">200 km</option></select><label>Sortering</label><select id="fuelSortSelect"><option value="cheapest">Billigste</option><option value="detour">Nærmest fra ruten</option><option value="upcoming">Førstkommende langs ruten</option></select></section>
+<section><h3>Rute</h3><select id="routeModeSelect"><option value="fast">Hurtigste</option><option value="eco">Mest økonomisk</option></select></section>
+</div><footer><button id="saveSettingsBtn">Gem</button></footer></section>
+</main>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script type="module" src="./app/app.js?v=appfolder2"></script>
+</body>
+</html>
