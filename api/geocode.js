@@ -4,6 +4,7 @@ export default async function handler(request, response) {
 
   const q = String(request.query.q || request.query.address || '').trim();
   const limit = Math.max(1, Math.min(10, Number(request.query.limit || 1)));
+  const mode = String(request.query.mode || '').toLowerCase();
 
   if (!q) return response.status(400).json({ error: 'Missing q' });
 
@@ -11,23 +12,27 @@ export default async function handler(request, response) {
 
   if (result.results.length) {
     const results = result.results.map(item => normalizeOutput(item));
-    return response.status(200).json({
+    const payload = {
       ok: true,
       result: results[0],
       results,
       provider: results[0]?.provider || null,
       q,
       attempts: request.query.debug ? result.attempts : undefined
-    });
+    };
+    return response.status(200).json(mode === 'suggest' ? results : payload);
   }
 
-  return response.status(404).json({
+  const emptyPayload = {
     ok: false,
     error: 'Address not found',
     message: `Address not found: ${q}`,
     q,
+    results: [],
     attempts: result.attempts
-  });
+  };
+
+  return response.status(mode === 'suggest' ? 200 : 404).json(mode === 'suggest' ? [] : emptyPayload);
 }
 
 const DAWA_AUTOCOMPLETE = 'https://api.dataforsyningen.dk/autocomplete';

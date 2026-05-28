@@ -44,6 +44,9 @@ export default async function handler(request, response) {
         source: station.source || 'price API'
       }));
 
+    const priceApiTotal = (prices.stations || []).length;
+    const priceApiWithoutCoords = priceApiTotal - apiStations.length;
+
     const merged = dedupeStations([...osmStations, ...apiStations]);
 
     const stations = attachRouteDistances(merged, geometry)
@@ -59,12 +62,14 @@ export default async function handler(request, response) {
       counts: {
         osmStations: osmStations.length,
         apiStations: apiStations.length,
+        priceApiTotal,
+        priceApiWithoutCoords,
         merged: merged.length,
         returned: stations.length,
         priced: stations.filter(station => Number.isFinite(station.price)).length
       },
       sources: prices.sources || [],
-      debug: { osm: osmDebug, errors },
+      debug: { osm: osmDebug, errors, priceApiTotal, priceApiWithoutCoords },
       stations: stations.slice(0, 100).map(station => ({
         id: station.id,
         name: station.name,

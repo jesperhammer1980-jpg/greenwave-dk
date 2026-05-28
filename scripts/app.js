@@ -365,7 +365,7 @@ async function refreshFuel() {
 
     if (state.stations.length === 0 && data.debug) {
       console.warn("Fuel-route returned no stations", data.debug);
-      els.fuelSummary.textContent = `0 stationer. Debug: OSM=${data.counts?.osmStations ?? 0}, merged=${data.counts?.merged ?? 0}, errors=${(data.debug?.errors || []).join(" | ")}`;
+      els.fuelSummary.textContent = `0 stationer. Debug: OSM=${data.counts?.osmStations ?? 0}, API m. koordinater=${data.counts?.apiStations ?? 0}, API uden koordinater=${data.counts?.priceApiWithoutCoords ?? 0}, merged=${data.counts?.merged ?? 0}, errors=${(data.debug?.errors || []).join(" | ")}`;
     }
   } catch (error) {
     console.error(error);
@@ -433,30 +433,40 @@ async function searchAutocomplete() {
   }
 
   try {
-    const response = await fetch(`/api/geocode?q=${encodeURIComponent(query)}&limit=6`);
-    const items = await response.json();
+    const response = await fetch(`/api/geocode?q=${encodeURIComponent(query)}&limit=6&mode=suggest`, { cache: "no-store" });
+    const data = await response.json();
+    const items = Array.isArray(data) ? data : (data.results || []);
+
     if (!items.length) {
       hideAutocomplete();
       return;
     }
 
     els.autocompleteResults.innerHTML = items.map((item, index) => {
-      const formatted = formatAddress(item);
-      return `<button type="button" data-index="${index}"><strong>${escapeHtml(formatted.title)}</strong><small>${escapeHtml(formatted.subtitle)}</small></button>`;
+      const label = item.displayName || item.label || "Ukendt adresse";
+      const parts = splitDisplayAddress(label);
+      return `<button type="button" data-index="${index}"><strong>${escapeHtml(parts.title)}</strong><small>${escapeHtml(parts.subtitle)}</small></button>`;
     }).join("");
 
     els.autocompleteResults.classList.remove("hidden");
+
     [...els.autocompleteResults.querySelectorAll("button")].forEach(button => {
       button.addEventListener("click", () => {
         const item = items[Number(button.dataset.index)];
-        const formatted = formatAddress(item);
-        state.selectedAutocomplete = { lat: Number(item.lat), lng: Number(item.lng ?? item.lon), label: formatted.title, displayName: [formatted.title, formatted.subtitle].filter(Boolean).join(", ") };
-        els.destinationInput.value = formatted.title;
+        const label = item.displayName || item.label || "Destination";
+        const parts = splitDisplayAddress(label);
+        state.selectedAutocomplete = {
+          lat: Number(item.lat),
+          lng: Number(item.lng ?? item.lon),
+          label: parts.title,
+          displayName: label
+        };
+        els.destinationInput.value = parts.title;
         hideAutocomplete();
       });
     });
   } catch (error) {
-    console.warn(error);
+    console.warn("Autocomplete failed", error);
     hideAutocomplete();
   }
 }
@@ -483,7 +493,6 @@ function formatAddress(item) {
 async function geocode(query) {
   const response = await fetch(`/api/geocode?q=${encodeURIComponent(query)}&limit=1`, { cache: "no-store" });
   const data = await response.json();
-
   const item = Array.isArray(data) ? data[0] : (data.result || data.results?.[0]);
 
   if (!response.ok || !item) {
@@ -498,11 +507,12 @@ async function geocode(query) {
   }
 
   const displayName = item.displayName || item.label || query;
+  const parts = splitDisplayAddress(displayName);
 
   return {
     lat,
     lng,
-    label: displayName,
+    label: parts.title,
     displayName
   };
 }
@@ -1037,4 +1047,16 @@ function showStartupError(error, label = "startup") {
   box.style.cssText = "position:fixed;left:12px;right:12px;bottom:12px;z-index:99999;background:#230b0b;color:#fff;border:1px solid #ff6868;border-radius:16px;padding:12px;font-family:system-ui;font-size:13px;box-shadow:0 16px 50px rgba(0,0,0,.45)";
   box.innerHTML = `<strong>GreenWave fejl (${label})</strong><br>${String(error?.message || error)}`;
   document.body.appendChild(box);
+}
+
+
+function splitDisplayAddress(displayName) {
+  const text = String(displayName || "").trim();
+  const parts = text.split(",").map(part => part.trim()).filter(Boolean);
+  if (parts.length >= 2) return { title: parts[0], subtitle: parts.slice(1).join(", ") };
+
+  const match = text.match(/^(.+?\d+[A-Za-z]?)\s+(\d{4}\s+.+)$/);
+  if (match) return { title: match[1], subtitle: match[2] };
+
+  return { title: text || "Destination", subtitle: "" };
 }
