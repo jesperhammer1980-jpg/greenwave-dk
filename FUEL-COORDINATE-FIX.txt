@@ -1,0 +1,1 @@
+Fixes Circle K/INGO coordinate extraction: validates Danish lat/lng ranges, auto-swaps reversed coordinates, filters invalid coordinates before route matching, and reports nearest raw station distance.

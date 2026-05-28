@@ -365,7 +365,7 @@ async function refreshFuel() {
 
     if (state.stations.length === 0 && data.debug) {
       console.warn("Fuel-route returned no stations", data.debug);
-      els.fuelSummary.textContent = `0 stationer. Debug: OSM=${data.counts?.osmStations ?? 0}, raw=${data.debug?.osm?.rawElementsTotal ?? "?"}, norm=${data.debug?.osm?.normalizedStations ?? "?"}, attempts=${(data.debug?.osm?.attempts || []).map(a => `${a.name}:${a.ok ? a.rawElements : a.error}`).join(" / ")}, API m. koordinater=${data.counts?.apiStations ?? 0}, API uden koordinater=${data.counts?.priceApiWithoutCoords ?? 0}, merged=${data.counts?.merged ?? 0}, errors=${(data.debug?.errors || []).join(" | ")}`;
+      els.fuelSummary.textContent = `0 stationer. Debug: OSM=${data.counts?.osmStations ?? 0}, raw=${data.debug?.osm?.rawElementsTotal ?? "?"}, norm=${data.debug?.osm?.normalizedStations ?? "?"}, attempts=${(data.debug?.osm?.attempts || []).map(a => `${a.name}:${a.ok ? a.rawElements : a.error}`).join(" / ")}, API m. DK-koordinater=${data.counts?.apiStations ?? 0}, API uden/ugyldige koordinater=${data.counts?.priceApiWithoutCoords ?? 0}, merged=${data.counts?.merged ?? 0}, nærmeste=${(data.debug?.nearestRaw || []).slice(0,3).map(s => `${s.name}:${s.distanceToRoute}m`).join(" / ")}, errors=${(data.debug?.errors || []).join(" | ")}`;
     }
   } catch (error) {
     console.error(error);

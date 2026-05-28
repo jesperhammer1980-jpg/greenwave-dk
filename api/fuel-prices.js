@@ -57,11 +57,10 @@ function normalizeCircleKSite(site) {
   const address = site.address || {};
   const brand = String(site.name || '').toLowerCase().includes('ingo') ? 'INGO' : 'Circle K';
   const prices = normalizePrices(site.fuelPrices || site.prices || site.fuels || site.products || []);
-  const lat = parseNumber(site.latitude || site.lat || site.coordinates?.latitude || site.location?.lat);
-  const lng = parseNumber(site.longitude || site.lng || site.coordinates?.longitude || site.location?.lng);
+  const coord = extractDanishCoordinates(site);
 
   return {
-    id: `circlek-${site.id || site.siteId || site.name || `${lat}:${lng}`}`,
+    id: `circlek-${site.id || site.siteId || site.name || `${coord?.lat}:${coord?.lng}`}`,
     source: 'Circle K / INGO live station API',
     sourceId: 'circlek-station-api',
     stationId: String(site.id || site.siteId || ''),
@@ -70,10 +69,64 @@ function normalizeCircleKSite(site) {
     addressText: [address.street, address.houseNumber, address.addressLine1].filter(Boolean).join(' '),
     postalCode: String(address.postalCode || ''),
     city: address.city || '',
-    lat,
-    lng,
+    lat: coord ? coord.lat : NaN,
+    lng: coord ? coord.lng : NaN,
+    coordinateSource: coord ? coord.source : 'none',
     prices
   };
+}
+
+function extractDanishCoordinates(site) {
+  const candidates = [
+    ['latitude/longitude', site.latitude, site.longitude],
+    ['lat/lng', site.lat, site.lng],
+    ['coordinates latitude/longitude', site.coordinates?.latitude, site.coordinates?.longitude],
+    ['coordinates lat/lng', site.coordinates?.lat, site.coordinates?.lng],
+    ['location lat/lng', site.location?.lat, site.location?.lng],
+    ['location latitude/longitude', site.location?.latitude, site.location?.longitude],
+    ['position lat/lng', site.position?.lat, site.position?.lng],
+    ['position latitude/longitude', site.position?.latitude, site.position?.longitude],
+    ['geoLocation latitude/longitude', site.geoLocation?.latitude, site.geoLocation?.longitude],
+    ['geoLocation lat/lng', site.geoLocation?.lat, site.geoLocation?.lng],
+    ['address geo latitude/longitude', site.address?.geoLocation?.latitude, site.address?.geoLocation?.longitude],
+    ['address coordinates latitude/longitude', site.address?.coordinates?.latitude, site.address?.coordinates?.longitude],
+    ['address location lat/lng', site.address?.location?.lat, site.address?.location?.lng]
+  ];
+
+  if (Array.isArray(site.coordinates)) {
+    candidates.push(['coordinates array lng/lat', site.coordinates[1], site.coordinates[0]]);
+    candidates.push(['coordinates array lat/lng', site.coordinates[0], site.coordinates[1]]);
+  }
+
+  if (Array.isArray(site.location?.coordinates)) {
+    candidates.push(['location coordinates array lng/lat', site.location.coordinates[1], site.location.coordinates[0]]);
+    candidates.push(['location coordinates array lat/lng', site.location.coordinates[0], site.location.coordinates[1]]);
+  }
+
+  for (const [source, rawLat, rawLng] of candidates) {
+    const pair = normalizeDanishCoordinatePair(rawLat, rawLng, source);
+    if (pair) return pair;
+  }
+
+  return null;
+}
+
+function normalizeDanishCoordinatePair(rawLat, rawLng, source) {
+  const a = parseNumber(rawLat);
+  const b = parseNumber(rawLng);
+
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
+  if (isDanishLat(a) && isDanishLng(b)) return { lat: a, lng: b, source };
+  if (isDanishLat(b) && isDanishLng(a)) return { lat: b, lng: a, source: `${source} swapped` };
+  return null;
+}
+
+function isDanishLat(value) {
+  return Number.isFinite(value) && value >= 54.2 && value <= 58.2;
+}
+
+function isDanishLng(value) {
+  return Number.isFinite(value) && value >= 7.5 && value <= 15.8;
 }
 
 async function fetchCircleKListPrices() {

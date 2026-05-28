@@ -34,14 +34,15 @@ export default async function handler(request, response) {
     if (priceResult.status !== 'fulfilled') errors.push(`prices: ${priceResult.reason?.message || priceResult.reason}`);
 
     const apiStations = (prices.stations || [])
-      .filter(station => Number.isFinite(Number(station.lat)) && Number.isFinite(Number(station.lng)))
+      .filter(station => isDanishLat(Number(station.lat)) && isDanishLng(Number(station.lng)))
       .map(station => ({
         ...station,
         lat: Number(station.lat),
         lng: Number(station.lng),
         id: station.id || `api-${station.sourceId || 'source'}-${station.stationId || `${station.lat}:${station.lng}`}`,
         fromPriceApi: true,
-        source: station.source || 'price API'
+        source: station.source || 'price API',
+        coordinateSource: station.coordinateSource || null
       }));
 
     const priceApiTotal = (prices.stations || []).length;
@@ -81,7 +82,8 @@ export default async function handler(request, response) {
           name: station.name,
           brand: station.brand,
           distanceToRoute: Math.round(station.distanceToRoute),
-          distanceAlongRoute: Math.round(station.distanceAlongRoute)
+          distanceAlongRoute: Math.round(station.distanceAlongRoute),
+          coordinateSource: station.coordinateSource || null
         }))
       },
       stations: stations.slice(0, 100).map(station => ({
@@ -394,4 +396,13 @@ async function fetchWithTimeout(url, options, timeoutMs) {
   } finally {
     clearTimeout(timeout);
   }
+}
+
+
+function isDanishLat(value) {
+  return Number.isFinite(value) && value >= 54.2 && value <= 58.2;
+}
+
+function isDanishLng(value) {
+  return Number.isFinite(value) && value >= 7.5 && value <= 15.8;
 }
