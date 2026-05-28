@@ -1,6 +1,0 @@
-{
-  "type": "module",
-  "scripts": {
-    "check": "node --check scripts/app.js && node --check api/fuel-prices.js && node --check api/fuel-route.js && node --check api/geocode.js && node --check api/diagnostics.js && node --check api/route.js"
-  }
-}
