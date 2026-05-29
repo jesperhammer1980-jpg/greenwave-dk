@@ -1,24 +1,33 @@
 const OVERPASS_ENDPOINTS = [
-  'https://overpass-api.de/api/interpreter',
-  'https://overpass.kumi.systems/api/interpreter',
-  'https://overpass.osm.ch/api/interpreter'
+  "https://overpass-api.de/api/interpreter",
+  "https://overpass.kumi.systems/api/interpreter",
+  "https://overpass.osm.ch/api/interpreter"
 ];
 
 export default async function handler(req, res) {
-  res.setHeader('Cache-Control', 'no-store');
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader("Cache-Control", "no-store");
+  res.setHeader("Access-Control-Allow-Origin", "*");
 
-  if (req.method !== 'POST') return res.status(405).json({ ok: false, error: 'POST only' });
+  if (req.method !== "POST") {
+    return res.status(405).json({ ok: false, error: "POST only" });
+  }
 
   try {
     const body = parseBody(req.body);
-    const geometry = normalizeGeometry(body.geometry);
-    const fuelType = String(body.fuelType || 'benzin95');
-    const maxDetourMeters = clamp(Number(body.maxDetourMeters || 2000), 500, 20000);
-    const fuelAlongMeters = clamp(Number(body.fuelAlongMeters || 50000), 1000, 250000);
+    const geometry = normalizeGeometry(body.geometry || body.coordinates || body.route?.geometry?.coordinates);
+    const fuelType = String(body.fuelType || "benzin95");
+    const maxDetourMeters = clamp(Number(body.maxDetourMeters ?? body.maxDetour ?? 2000), 0, 20000);
+    const fuelAlongMeters = clamp(Number(body.fuelAlongMeters ?? body.fuelAlong ?? 50000), 0, 250000);
 
     if (geometry.length < 2) {
-      return res.status(400).json({ ok: false, error: 'Missing or invalid route geometry', bodyType: typeof req.body });
+      return res.status(400).json({
+        ok: false,
+        error: "Missing or invalid route geometry",
+        debug: {
+          bodyType: typeof req.body,
+          receivedKeys: Object.keys(body)
+        }
+      });
     }
 
     const [osmResult, priceResult] = await Promise.allSettled([
@@ -26,32 +35,53 @@ export default async function handler(req, res) {
       fetchPrices(req)
     ]);
 
-    const errors = [];
-    const osmStations = osmResult.status === 'fulfilled' ? osmResult.value.stations : [];
-    const osmDebug = osmResult.status === 'fulfilled' ? osmResult.value.debug : { error: osmResult.reason?.message || String(osmResult.reason) };
+    const priceData = priceResult.status === "fulfilled"
+      ? priceResult.value
+      : { ok: false, stations: [], listPrices: {}, sources: [] };
+    const priceStations = Array.isArray(priceData.stations) ? priceData.stations : [];
+    const apiStationsWithCoords = priceStations.filter(station =>
+      hasCoordinate(Number(station.lat), Number(station.lng))
+    );
+    const apiWithoutCoords = priceStations.length - apiStationsWithCoords.length;
 
-    if (osmResult.status !== 'fulfilled') errors.push(`osm: ${osmDebug.error}`);
+    if (osmResult.status !== "fulfilled" || !osmResult.value.ok) {
+      const debug = osmResult.status === "fulfilled"
+        ? osmResult.value.debug
+        : { error: osmResult.reason?.message || String(osmResult.reason) };
 
-    const prices = priceResult.status === 'fulfilled' ? priceResult.value : { stations: [], listPrices: {}, sources: [] };
-    if (priceResult.status !== 'fulfilled') errors.push(`prices: ${priceResult.reason?.message || String(priceResult.reason)}`);
+      return res.status(502).json({
+        ok: false,
+        error: "Overpass failed",
+        input: {
+          fuelType,
+          maxDetourMeters,
+          fuelAlongMeters,
+          geometryPoints: geometry.length,
+          routeBbox: routeBbox(geometry, 0)
+        },
+        counts: {
+          rawElements: 0,
+          normalizedStations: 0,
+          priceStations: priceStations.length,
+          apiStations: apiStationsWithCoords.length,
+          apiWithoutCoords,
+          returned: 0
+        },
+        sources: priceData.sources || [],
+        debug: {
+          overpass: debug,
+          priceApi: priceDebug(priceResult, priceData, apiStationsWithCoords.length, apiWithoutCoords)
+        },
+        stations: []
+      });
+    }
 
-    const apiStations = (prices.stations || [])
-      .filter(station => isLat(Number(station.lat)) && isLng(Number(station.lng)))
-      .map(station => ({
-        ...station,
-        lat: Number(station.lat),
-        lng: Number(station.lng),
-        source: station.source || 'price API'
-      }));
-
-    const apiWithoutCoords = (prices.stations || []).length - apiStations.length;
-    const merged = dedupe([...osmStations, ...apiStations]);
-
-    const attached = attachRouteDistances(merged, geometry);
-    const stations = attached
+    const osmStations = osmResult.value.stations;
+    const attached = attachRouteDistances(osmStations, geometry);
+    const filtered = attached
       .filter(station => station.distanceToRoute <= maxDetourMeters)
       .filter(station => station.distanceAlongRoute <= fuelAlongMeters)
-      .map(station => attachPrice(station, prices, fuelType))
+      .map(station => attachPrice(station, priceData, fuelType))
       .sort(sortStations);
 
     return res.status(200).json({
@@ -64,18 +94,21 @@ export default async function handler(req, res) {
         routeBbox: routeBbox(geometry, 0)
       },
       counts: {
+        rawElements: osmResult.value.debug.rawElements,
+        normalizedStations: osmResult.value.debug.normalizedStations,
         osmStations: osmStations.length,
-        apiStations: apiStations.length,
+        priceStations: priceStations.length,
+        apiStations: apiStationsWithCoords.length,
         apiWithoutCoords,
-        merged: merged.length,
-        returned: stations.length,
-        priced: stations.filter(station => Number.isFinite(station.price)).length
+        returned: filtered.length,
+        priced: filtered.filter(station => Number.isFinite(station.price)).length
       },
-      sources: prices.sources || [],
+      sources: priceData.sources || [],
       debug: {
-        ...osmDebug,
-        errors,
+        overpass: osmResult.value.debug,
+        priceApi: priceDebug(priceResult, priceData, apiStationsWithCoords.length, apiWithoutCoords),
         nearestRaw: attached
+          .slice()
           .sort((a, b) => a.distanceToRoute - b.distanceToRoute)
           .slice(0, 12)
           .map(station => ({
@@ -87,14 +120,17 @@ export default async function handler(req, res) {
             distanceAlongRoute: Math.round(station.distanceAlongRoute)
           }))
       },
-      stations: stations.slice(0, 120).map(station => ({
+      stations: filtered.slice(0, 120).map(station => ({
         id: station.id,
+        osmType: station.osmType,
+        osmId: station.osmId,
         name: station.name,
         brand: station.brand,
         lat: station.lat,
         lng: station.lng,
-        addressText: station.addressText || station.address || '',
-        city: station.city || '',
+        addressText: station.addressText || "",
+        postalCode: station.postalCode || "",
+        city: station.city || "",
         distanceToRoute: Math.round(station.distanceToRoute),
         distanceAlongRoute: Math.round(station.distanceAlongRoute),
         price: Number.isFinite(station.price) ? station.price : null,
@@ -103,192 +139,217 @@ export default async function handler(req, res) {
       }))
     });
   } catch (error) {
-    return res.status(500).json({ ok: false, error: error.message, stack: error.stack });
+    return res.status(500).json({
+      ok: false,
+      error: error.message,
+      stack: error.stack
+    });
   }
 }
 
 function parseBody(body) {
   if (!body) return {};
-  if (typeof body === 'string') {
-    try { return JSON.parse(body); } catch { return {}; }
+  if (typeof body === "string") {
+    try {
+      return JSON.parse(body);
+    } catch {
+      return {};
+    }
   }
   return body;
 }
 
 async function fetchOsmFuel(geometry, maxDetourMeters) {
-  const routeBox = routeBbox(geometry, 0);
-  const routeCenter = {
-    lat: (routeBox.south + routeBox.north) / 2,
-    lng: (routeBox.west + routeBox.east) / 2
-  };
-
   const padding = clamp(maxDetourMeters / 111320 + 0.09, 0.10, 0.24);
-  const corridorBox = routeBbox(geometry, padding);
-  const samples = sampleRoute(geometry, 3500, 24);
-  const radius = clamp(maxDetourMeters + 3000, 3500, 10000);
+  const bbox = routeBbox(geometry, padding);
+  const query = bboxQuery(bbox);
+  const result = await runOverpass(query, 25000);
 
-  const strategies = [
-    {
-      name: 'corridor-bbox-nwr',
-      query: bboxQuery(corridorBox)
-    },
-    {
-      name: 'sample-around-nwr',
-      query: aroundQuery(samples, radius)
-    },
-    {
-      name: 'route-center-25km',
-      query: aroundQuery([routeCenter], 25000)
-    }
-  ];
-
-  const attempts = [];
-  const all = [];
-
-  for (const strategy of strategies) {
-    for (const method of ['POST', 'GET']) {
-      try {
-        const data = await overpass(strategy.query, method, 30000);
-        const elements = Array.isArray(data.elements) ? data.elements : [];
-        attempts.push({ name: strategy.name, method, ok: true, rawElements: elements.length });
-        if (elements.length) all.push(...elements);
-      } catch (error) {
-        attempts.push({ name: strategy.name, method, ok: false, error: error.message });
+  if (!result.ok) {
+    return {
+      ok: false,
+      stations: [],
+      debug: {
+        bbox,
+        query,
+        attempts: result.attempts,
+        rawElements: 0,
+        normalizedStations: 0
       }
-    }
+    };
   }
 
-  const stations = dedupe(all.map(normalizeOsmFuel).filter(Boolean));
+  const elements = Array.isArray(result.data.elements) ? result.data.elements : [];
+  const stations = dedupe(elements.map(normalizeOsmFuel).filter(Boolean));
 
   return {
+    ok: true,
     stations,
     debug: {
-      routeBox,
-      corridorBox,
-      padding,
-      samples: samples.length,
-      radius,
-      attempts,
-      rawElements: all.length,
+      bbox,
+      query,
+      endpoint: result.endpoint,
+      status: result.status,
+      attempts: result.attempts,
+      rawElements: elements.length,
       normalizedStations: stations.length
     }
   };
 }
 
 function bboxQuery(box) {
-  const b = `${box.south},${box.west},${box.north},${box.east}`;
-  return `[out:json][timeout:45];
+  const { south, west, north, east } = box;
+
+  return `[out:json][timeout:25];
 (
-  node["amenity"="fuel"](${b});
-  way["amenity"="fuel"](${b});
-  relation["amenity"="fuel"](${b});
+  node["amenity"="fuel"](${south},${west},${north},${east});
+  way["amenity"="fuel"](${south},${west},${north},${east});
+  relation["amenity"="fuel"](${south},${west},${north},${east});
 );
 out center tags;`;
 }
 
-function aroundQuery(points, radius) {
-  return `[out:json][timeout:45];
-(
-${points.map(point => `
-  node(around:${Math.round(radius)},${point.lat},${point.lng})["amenity"="fuel"];
-  way(around:${Math.round(radius)},${point.lat},${point.lng})["amenity"="fuel"];
-  relation(around:${Math.round(radius)},${point.lat},${point.lng})["amenity"="fuel"];`).join('\n')}
-);
-out center tags;`;
-}
-
-async function fetchPrices(req) {
-  const r = await fetch(`${origin(req)}/api/fuel-prices?v=${Date.now()}`, {
-    headers: { Accept: 'application/json' }
-  });
-  if (!r.ok) throw new Error(`/api/fuel-prices ${r.status}`);
-  return await r.json();
-}
-
-function origin(req) {
-  const host = req.headers['x-forwarded-host'] || req.headers.host || process.env.VERCEL_URL;
-  const proto = req.headers['x-forwarded-proto'] || 'https';
-  return `${proto}://${host}`;
-}
-
-async function overpass(query, method, timeoutMs) {
-  const errors = [];
+async function runOverpass(query, timeoutMs) {
+  const attempts = [];
+  let firstEmpty = null;
 
   for (const endpoint of OVERPASS_ENDPOINTS) {
-    let timeout;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
     try {
-      const controller = new AbortController();
-      timeout = setTimeout(() => controller.abort(), timeoutMs);
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+          "Accept": "application/json",
+          "User-Agent": "GreenWave-DK/1.0"
+        },
+        body: new URLSearchParams({ data: query }).toString(),
+        signal: controller.signal
+      });
 
-      const options = method === 'GET'
-        ? { signal: controller.signal, headers: { Accept: 'application/json' } }
-        : {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-              Accept: 'application/json'
-            },
-            body: `data=${encodeURIComponent(query)}`,
-            signal: controller.signal
-          };
-
-      const url = method === 'GET' ? `${endpoint}?data=${encodeURIComponent(query)}` : endpoint;
-      const response = await fetch(url, options);
+      const text = await response.text();
       clearTimeout(timeout);
 
-      if (response.ok) return await response.json();
+      if (!response.ok) {
+        attempts.push({
+          endpoint,
+          ok: false,
+          status: response.status,
+          statusText: response.statusText,
+          body: text.slice(0, 500)
+        });
+        continue;
+      }
 
-      const text = await response.text().catch(() => '');
-      errors.push(`${endpoint} ${method} HTTP ${response.status}: ${text.slice(0, 140)}`);
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch (error) {
+        attempts.push({
+          endpoint,
+          ok: false,
+          status: response.status,
+          error: `Invalid Overpass JSON: ${error.message}`,
+          body: text.slice(0, 500)
+        });
+        continue;
+      }
+
+      const rawElements = Array.isArray(data.elements) ? data.elements.length : 0;
+      attempts.push({ endpoint, ok: true, status: response.status, rawElements });
+
+      const result = { ok: true, endpoint, status: response.status, data, attempts };
+      if (rawElements > 0) return result;
+      if (!firstEmpty) firstEmpty = result;
     } catch (error) {
-      if (timeout) clearTimeout(timeout);
-      errors.push(`${endpoint} ${method}: ${error.message}`);
+      clearTimeout(timeout);
+      attempts.push({ endpoint, ok: false, error: error.message });
     }
   }
 
-  throw new Error(errors.join(' | '));
+  return firstEmpty || { ok: false, attempts };
+}
+
+async function fetchPrices(req) {
+  const host = req.headers?.["x-forwarded-host"] || req.headers?.host || process.env.VERCEL_URL;
+  if (!host) throw new Error("Missing host for /api/fuel-prices");
+
+  const proto = req.headers?.["x-forwarded-proto"] || (String(host).includes("localhost") ? "http" : "https");
+  const response = await fetch(`${proto}://${host}/api/fuel-prices?v=${Date.now()}`, {
+    headers: { "Accept": "application/json" }
+  });
+
+  if (!response.ok) throw new Error(`/api/fuel-prices HTTP ${response.status}`);
+  return response.json();
+}
+
+function priceDebug(priceResult, priceData, apiStationsWithCoords, apiWithoutCoords) {
+  if (priceResult.status !== "fulfilled") {
+    return {
+      ok: false,
+      error: priceResult.reason?.message || String(priceResult.reason),
+      apiStations: 0,
+      apiWithoutCoords: 0
+    };
+  }
+
+  return {
+    ok: Boolean(priceData.ok),
+    sources: priceData.sources || [],
+    stations: Array.isArray(priceData.stations) ? priceData.stations.length : 0,
+    apiStations: apiStationsWithCoords,
+    apiWithoutCoords
+  };
 }
 
 function normalizeOsmFuel(element) {
-  const lat = typeof element.lat === 'number' ? element.lat : element.center?.lat;
-  const lng = typeof element.lon === 'number' ? element.lon : element.center?.lon;
-  if (!isLat(lat) || !isLng(lng)) return null;
+  const lat = element.type === "node" ? Number(element.lat) : Number(element.center?.lat);
+  const lng = element.type === "node" ? Number(element.lon) : Number(element.center?.lon);
+
+  if (!hasCoordinate(lat, lng)) return null;
 
   const tags = element.tags || {};
 
   return {
     id: `${element.type}-${element.id}`,
-    source: 'OSM',
+    osmType: element.type,
+    osmId: element.id,
+    source: "OSM",
     lat,
     lng,
-    name: tags.name || tags.brand || tags.operator || 'Tankstation',
-    brand: tags.brand || tags.operator || tags.name || '',
-    addressText: [tags['addr:street'], tags['addr:housenumber']].filter(Boolean).join(' '),
-    postalCode: tags['addr:postcode'] || '',
-    city: tags['addr:city'] || ''
+    name: tags.name || tags.brand || tags.operator || "Tankstation",
+    brand: tags.brand || tags.operator || tags.name || "",
+    addressText: [tags["addr:street"], tags["addr:housenumber"]].filter(Boolean).join(" "),
+    postalCode: tags["addr:postcode"] || "",
+    city: tags["addr:city"] || "",
+    tags
   };
 }
 
 function attachPrice(station, prices, fuelType) {
-  const product = chooseProduct(station.prices || [], fuelType);
+  const match = findMatchingPriceStation(station, prices.stations || []);
+  const product = match ? chooseProduct(match.prices || [], fuelType) : null;
+
   if (product) {
     return {
       ...station,
       price: Number(product.price),
-      priceProduct: product.productName || product.displayName || product.fuelType,
-      priceSource: station.source
+      priceProduct: product.productName || product.displayName || product.fuelType || fuelType,
+      priceSource: match.source || "price API"
     };
   }
 
   const brand = norm(`${station.brand} ${station.name}`);
-  if (brand.includes('circle') || brand.includes('ingo')) {
-    const p = prices.listPrices?.[fuelType];
-    if (p && Number.isFinite(Number(p.price))) {
+  if (brand.includes("circle") || brand.includes("ingo")) {
+    const listed = prices.listPrices?.[fuelType];
+    if (listed && Number.isFinite(Number(listed.price))) {
       return {
         ...station,
-        price: Number(p.price),
-        priceProduct: p.productName || fuelType,
-        priceSource: p.source
+        price: Number(listed.price),
+        priceProduct: listed.productName || fuelType,
+        priceSource: listed.source
       };
     }
   }
@@ -296,26 +357,56 @@ function attachPrice(station, prices, fuelType) {
   return { ...station, price: null };
 }
 
+function findMatchingPriceStation(station, priceStations) {
+  const stationBrand = norm(`${station.brand} ${station.name}`);
+  const stationAddress = norm(station.addressText);
+  const stationCity = norm(station.city);
+  let best = null;
+  let bestScore = 0;
+
+  for (const candidate of priceStations) {
+    const candidateBrand = norm(`${candidate.brand} ${candidate.name}`);
+    const candidateAddress = norm(candidate.addressText || candidate.address);
+    const candidateCity = norm(candidate.city);
+    let score = 0;
+
+    if (stationBrand && candidateBrand && (stationBrand.includes(candidateBrand) || candidateBrand.includes(stationBrand))) score += 4;
+    if (stationBrand.includes("circle") && candidateBrand.includes("circle")) score += 3;
+    if (stationBrand.includes("ingo") && candidateBrand.includes("ingo")) score += 3;
+    if (stationCity && candidateCity && stationCity === candidateCity) score += 2;
+    if (stationAddress && candidateAddress && (stationAddress.includes(candidateAddress) || candidateAddress.includes(stationAddress))) score += 3;
+
+    if (score > bestScore) {
+      best = candidate;
+      bestScore = score;
+    }
+  }
+
+  return bestScore >= 5 ? best : null;
+}
+
 function chooseProduct(prices, fuelType) {
   const items = prices.filter(price => Number.isFinite(Number(price.price)));
   const text = price => norm(`${price.code} ${price.octane} ${price.fuelType} ${price.productName} ${price.displayName}`);
 
-  if (fuelType === 'diesel') {
-    return items.find(p => /diesel/.test(text(p)) && !/premium|plus|extra|hvo/.test(text(p))) ||
-      items.find(p => /diesel/.test(text(p))) || null;
+  if (fuelType === "diesel") {
+    return items.find(price => /diesel/.test(text(price)) && !/premium|plus|extra|hvo/.test(text(price))) ||
+      items.find(price => /diesel/.test(text(price))) ||
+      null;
   }
 
-  if (fuelType === 'premiumDiesel') {
-    return items.find(p => /diesel/.test(text(p)) && /premium|plus|extra/.test(text(p))) ||
-      items.find(p => /diesel/.test(text(p))) || null;
+  if (fuelType === "premiumDiesel") {
+    return items.find(price => /diesel/.test(text(price)) && /premium|plus|extra/.test(text(price))) ||
+      items.find(price => /diesel/.test(text(price))) ||
+      null;
   }
 
-  if (fuelType === 'benzin98') {
-    return items.find(p => /98|100|e5/.test(text(p)) && !/diesel/.test(text(p))) || null;
+  if (fuelType === "benzin98") {
+    return items.find(price => /98|100|e5/.test(text(price)) && !/diesel/.test(text(price))) || null;
   }
 
-  return items.find(p => /95|e10|benzin|gasoline|petrol/.test(text(p)) && !/98|100|premium|diesel/.test(text(p))) ||
-    items.find(p => /benzin|gasoline|petrol/.test(text(p)) && !/diesel/.test(text(p))) ||
+  return items.find(price => /95|e10|benzin|gasoline|petrol/.test(text(price)) && !/98|100|premium|diesel/.test(text(price))) ||
+    items.find(price => /benzin|gasoline|petrol/.test(text(price)) && !/diesel/.test(text(price))) ||
     null;
 }
 
@@ -323,35 +414,37 @@ function attachRouteDistances(stations, geometry) {
   const segments = [];
   let cumulative = 0;
 
-  for (let i = 1; i < geometry.length; i++) {
-    const a = geometry[i - 1];
-    const b = geometry[i];
+  for (let index = 1; index < geometry.length; index += 1) {
+    const a = geometry[index - 1];
+    const b = geometry[index];
     const length = haversine(a[1], a[0], b[1], b[0]);
     segments.push({ a, b, cumulative, length });
     cumulative += length;
   }
 
   return stations.map(station => {
-    let best = Infinity;
-    let along = Infinity;
+    let distanceToRoute = Infinity;
+    let distanceAlongRoute = Infinity;
 
     for (const segment of segments) {
-      const p = project(station.lat, station.lng, segment.a[1], segment.a[0], segment.b[1], segment.b[0]);
-      if (p.distance < best) {
-        best = p.distance;
-        along = segment.cumulative + segment.length * p.t;
+      const projected = project(station.lat, station.lng, segment.a[1], segment.a[0], segment.b[1], segment.b[0]);
+
+      if (projected.distance < distanceToRoute) {
+        distanceToRoute = projected.distance;
+        distanceAlongRoute = segment.cumulative + segment.length * projected.t;
       }
     }
 
-    return { ...station, distanceToRoute: best, distanceAlongRoute: along };
+    return { ...station, distanceToRoute, distanceAlongRoute };
   });
 }
 
 function normalizeGeometry(geometry) {
   return (Array.isArray(geometry) ? geometry : [])
-    .map(point => Array.isArray(point)
-      ? [Number(point[0]), Number(point[1])]
-      : [Number(point.lng ?? point.lon), Number(point.lat)])
+    .map(point => {
+      if (Array.isArray(point)) return [Number(point[0]), Number(point[1])];
+      return [Number(point.lng ?? point.lon), Number(point.lat)];
+    })
     .filter(point => isLng(point[0]) && isLat(point[1]));
 }
 
@@ -376,31 +469,10 @@ function routeBbox(geometry, padding) {
   };
 }
 
-function sampleRoute(geometry, spacingMeters, maxSamples) {
-  const points = [{ lng: geometry[0][0], lat: geometry[0][1] }];
-  let accumulated = 0;
-
-  for (let i = 1; i < geometry.length; i++) {
-    accumulated += haversine(geometry[i - 1][1], geometry[i - 1][0], geometry[i][1], geometry[i][0]);
-
-    if (accumulated >= spacingMeters) {
-      points.push({ lng: geometry[i][0], lat: geometry[i][1] });
-      accumulated = 0;
-    }
-
-    if (points.length >= maxSamples - 1) break;
-  }
-
-  const last = geometry[geometry.length - 1];
-  points.push({ lng: last[0], lat: last[1] });
-  return points;
-}
-
 function sortStations(a, b) {
-  if (Number.isFinite(a.price) && Number.isFinite(b.price)) return a.price - b.price;
-  if (Number.isFinite(a.price)) return -1;
-  if (Number.isFinite(b.price)) return 1;
-  return a.distanceAlongRoute - b.distanceAlongRoute;
+  return a.distanceAlongRoute - b.distanceAlongRoute ||
+    a.distanceToRoute - b.distanceToRoute ||
+    String(a.name).localeCompare(String(b.name));
 }
 
 function project(lat, lng, lat1, lng1, lat2, lng2) {
@@ -414,11 +486,11 @@ function project(lat, lng, lat1, lng1, lat2, lng2) {
   const by = lat2 * metersLat;
   const dx = bx - ax;
   const dy = by - ay;
-  const len = dx * dx + dy * dy;
+  const lengthSquared = dx * dx + dy * dy;
 
-  if (!len) return { t: 0, distance: Math.hypot(px - ax, py - ay) };
+  if (!lengthSquared) return { t: 0, distance: Math.hypot(px - ax, py - ay) };
 
-  let t = ((px - ax) * dx + (py - ay) * dy) / len;
+  let t = ((px - ax) * dx + (py - ay) * dy) / lengthSquared;
   t = clamp(t, 0, 1);
 
   return {
@@ -427,12 +499,14 @@ function project(lat, lng, lat1, lng1, lat2, lng2) {
   };
 }
 
-function haversine(a, b, c, d) {
+function haversine(lat1, lng1, lat2, lng2) {
   const radius = 6371000;
   const rad = value => value * Math.PI / 180;
-  const dLat = rad(c - a);
-  const dLng = rad(d - b);
-  const x = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a)) * Math.cos(rad(c)) * Math.sin(dLng / 2) ** 2;
+  const dLat = rad(lat2 - lat1);
+  const dLng = rad(lng2 - lng1);
+  const x = Math.sin(dLat / 2) ** 2 +
+    Math.cos(rad(lat1)) * Math.cos(rad(lat2)) * Math.sin(dLng / 2) ** 2;
+
   return radius * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
 }
 
@@ -447,6 +521,15 @@ function dedupe(items) {
   });
 }
 
+function hasCoordinate(lat, lng) {
+  return Number.isFinite(lat) &&
+    Number.isFinite(lng) &&
+    lat >= -90 &&
+    lat <= 90 &&
+    lng >= -180 &&
+    lng <= 180;
+}
+
 function isLat(value) {
   return Number.isFinite(value) && value >= 54.2 && value <= 58.2;
 }
@@ -456,17 +539,18 @@ function isLng(value) {
 }
 
 function clamp(value, min, max) {
+  if (!Number.isFinite(value)) return min;
   return Math.max(min, Math.min(max, value));
 }
 
 function norm(value) {
-  return String(value || '')
+  return String(value || "")
     .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/æ/g, 'ae')
-    .replace(/ø/g, 'oe')
-    .replace(/å/g, 'aa')
-    .replace(/[^a-z0-9]+/g, ' ')
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\u00e6/g, "ae")
+    .replace(/\u00f8/g, "oe")
+    .replace(/\u00e5/g, "aa")
+    .replace(/[^a-z0-9]+/g, " ")
     .trim();
 }
