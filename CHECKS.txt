@@ -1,4 +1,1 @@
-api/overpass.js: OK
-api/fuel-prices.js: OK
-api/fuel-route.js: OK
-app/app.js: OK
+app.js: OK
