@@ -155,7 +155,7 @@ function extractPrice(text, needles) {
 
     const values = [...text.slice(index, index + 900).matchAll(/(\d{1,2},\d{2})/g)]
       .map(match => num(match[1]));
-    const price = values.find(value => value >= 8 && value <= 30);
+    const price = values.find(isValidFuelPrice);
 
     if (Number.isFinite(price)) {
       return {
@@ -178,10 +178,10 @@ function normalizePrices(prices) {
           productName: price.productName || price.displayName || price.name || price.fuelType || "",
           fuelType: price.fuelType || price.productName || price.displayName || price.name || "",
           octane: price.octane || "",
-          price: num(price.price || price.amount || price.value),
+          price: num(price.price ?? price.amount ?? price.value),
           currency: price.currency || "DKK"
         }))
-        .filter(price => Number.isFinite(price.price))
+        .filter(price => isValidFuelPrice(price.price))
     : [];
 }
 
@@ -196,6 +196,11 @@ function stripHtml(html) {
 function num(value) {
   if (value === undefined || value === null || value === "") return NaN;
   return Number(String(value).replace(",", "."));
+}
+
+function isValidFuelPrice(value) {
+  const price = Number(value);
+  return Number.isFinite(price) && price >= 5 && price <= 30;
 }
 
 function isLat(value) {

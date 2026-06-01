@@ -101,7 +101,7 @@ export default async function handler(req, res) {
         apiStations: apiStationsWithCoords.length,
         apiWithoutCoords,
         returned: filtered.length,
-        priced: filtered.filter(station => Number.isFinite(station.price)).length
+        priced: filtered.filter(station => isValidFuelPrice(station.price)).length
       },
       sources: priceData.sources || [],
       debug: {
@@ -133,7 +133,7 @@ export default async function handler(req, res) {
         city: station.city || "",
         distanceToRoute: Math.round(station.distanceToRoute),
         distanceAlongRoute: Math.round(station.distanceAlongRoute),
-        price: Number.isFinite(station.price) ? station.price : null,
+        price: isValidFuelPrice(station.price) ? Number(station.price) : null,
         priceProduct: station.priceProduct || null,
         priceSource: station.priceSource || null
       }))
@@ -332,7 +332,7 @@ function attachPrice(station, prices, fuelType) {
   const match = findMatchingPriceStation(station, prices.stations || []);
   const product = match ? chooseProduct(match.prices || [], fuelType) : null;
 
-  if (product) {
+  if (product && isValidFuelPrice(product.price)) {
     return {
       ...station,
       price: Number(product.price),
@@ -344,7 +344,7 @@ function attachPrice(station, prices, fuelType) {
   const brand = norm(`${station.brand} ${station.name}`);
   if (brand.includes("circle") || brand.includes("ingo")) {
     const listed = prices.listPrices?.[fuelType];
-    if (listed && Number.isFinite(Number(listed.price))) {
+    if (listed && isValidFuelPrice(listed.price)) {
       return {
         ...station,
         price: Number(listed.price),
@@ -386,7 +386,7 @@ function findMatchingPriceStation(station, priceStations) {
 }
 
 function chooseProduct(prices, fuelType) {
-  const items = prices.filter(price => Number.isFinite(Number(price.price)));
+  const items = prices.filter(price => isValidFuelPrice(price.price));
   const text = price => norm(`${price.code} ${price.octane} ${price.fuelType} ${price.productName} ${price.displayName}`);
 
   if (fuelType === "diesel") {
@@ -528,6 +528,11 @@ function hasCoordinate(lat, lng) {
     lat <= 90 &&
     lng >= -180 &&
     lng <= 180;
+}
+
+function isValidFuelPrice(value) {
+  const price = Number(value);
+  return Number.isFinite(price) && price >= 5 && price <= 30;
 }
 
 function isLat(value) {
