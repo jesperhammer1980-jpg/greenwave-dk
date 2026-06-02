@@ -341,10 +341,14 @@ function attachPrice(station, prices, fuelType) {
     };
   }
 
-  const brand = norm(`${station.brand} ${station.name}`);
-  if (brand.includes("circle") || brand.includes("ingo")) {
+  if (isTruckStation(station)) {
+    return { ...station, price: null };
+  }
+
+  if (isCircleKOrIngoStation(station)) {
     const listed = prices.listPrices?.[fuelType];
-    if (listed && isValidFuelPrice(listed.price)) {
+
+    if (listed && isValidFuelPrice(listed.price) && productMatchesFuelType(listed, fuelType)) {
       return {
         ...station,
         price: Number(listed.price),
@@ -387,27 +391,7 @@ function findMatchingPriceStation(station, priceStations) {
 
 function chooseProduct(prices, fuelType) {
   const items = prices.filter(price => isValidFuelPrice(price.price));
-  const text = price => norm(`${price.code} ${price.octane} ${price.fuelType} ${price.productName} ${price.displayName}`);
-
-  if (fuelType === "diesel") {
-    return items.find(price => /diesel/.test(text(price)) && !/premium|plus|extra|hvo/.test(text(price))) ||
-      items.find(price => /diesel/.test(text(price))) ||
-      null;
-  }
-
-  if (fuelType === "premiumDiesel") {
-    return items.find(price => /diesel/.test(text(price)) && /premium|plus|extra/.test(text(price))) ||
-      items.find(price => /diesel/.test(text(price))) ||
-      null;
-  }
-
-  if (fuelType === "benzin98") {
-    return items.find(price => /98|100|e5/.test(text(price)) && !/diesel/.test(text(price))) || null;
-  }
-
-  return items.find(price => /95|e10|benzin|gasoline|petrol/.test(text(price)) && !/98|100|premium|diesel/.test(text(price))) ||
-    items.find(price => /benzin|gasoline|petrol/.test(text(price)) && !/diesel/.test(text(price))) ||
-    null;
+  return items.find(price => productMatchesFuelType(price, fuelType)) || null;
 }
 
 function attachRouteDistances(stations, geometry) {
@@ -533,6 +517,60 @@ function hasCoordinate(lat, lng) {
 function isValidFuelPrice(value) {
   const price = Number(value);
   return Number.isFinite(price) && price >= 5 && price <= 30;
+}
+
+function isCircleKOrIngoStation(station) {
+  const text = stationText(station);
+  return /\b(circle\s*k|circlek|ingo)\b/.test(text);
+}
+
+function isTruckStation(station) {
+  const text = stationText(station);
+  return /\b(truck|lastbil|hgv|lorry)\b/.test(text) ||
+    /\b(truck\s*diesel|diesel\s*truck)\b/.test(text);
+}
+
+function stationText(station) {
+  const tags = station.tags || {};
+
+  return norm([
+    station.brand,
+    station.name,
+    tags.brand,
+    tags.name,
+    tags.operator,
+    tags["fuel:diesel"],
+    tags["fuel:HGV_diesel"],
+    tags.hgv,
+    tags.hgv_service,
+    tags.description
+  ].filter(Boolean).join(" "));
+}
+
+function productMatchesFuelType(product, fuelType) {
+  const text = norm(`${product.code} ${product.octane} ${product.fuelType} ${product.productName} ${product.displayName}`);
+  const isDieselProduct = /\bdiesel\b|hvo|truck|lastbil|hgv/.test(text);
+  const isTruckProduct = /\b(truck|lastbil|hgv)\b/.test(text);
+  const isGasolineProduct = /\b(benzin|gasoline|petrol|miles\s*95|blyfri|e10|e5)\b/.test(text) ||
+    /\b95\b|\b98\b|\b100\b/.test(text);
+
+  if (fuelType === "diesel") {
+    return isDieselProduct && !isGasolineProduct && !/\b(premium|plus|extra)\b/.test(text);
+  }
+
+  if (fuelType === "premiumDiesel") {
+    return isDieselProduct && !isGasolineProduct && /\b(premium|plus|extra)\b/.test(text);
+  }
+
+  if (fuelType === "benzin98") {
+    return isGasolineProduct && !isDieselProduct && !isTruckProduct && /\b(98|100|e5)\b/.test(text);
+  }
+
+  return isGasolineProduct &&
+    !isDieselProduct &&
+    !isTruckProduct &&
+    (/\b(95|e10)\b|miles\s*95|blyfri\s*95/.test(text)) &&
+    !/\b(98|100|premium|plus)\b/.test(text);
 }
 
 function isLat(value) {
