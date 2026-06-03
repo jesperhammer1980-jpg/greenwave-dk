@@ -4,6 +4,8 @@ const OVERPASS_ENDPOINTS = [
   "https://overpass.osm.ch/api/interpreter"
 ];
 
+
+const OK_PRICE_MATCH_MAX_METERS = 300;
 export default async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store");
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -363,6 +365,9 @@ function attachPrice(station, prices, fuelType) {
 }
 
 function findMatchingPriceStation(station, priceStations) {
+  const okMatch = findNearestOkPriceStation(station, priceStations);
+  if (okMatch) return okMatch;
+
   const stationBrand = norm(`${station.brand} ${station.name}`);
   const stationAddress = norm(station.addressText);
   const stationCity = norm(station.city);
@@ -370,6 +375,8 @@ function findMatchingPriceStation(station, priceStations) {
   let bestScore = 0;
 
   for (const candidate of priceStations) {
+    if (!candidateCanMatchStation(candidate, station)) continue;
+
     const candidateBrand = norm(`${candidate.brand} ${candidate.name}`);
     const candidateAddress = norm(candidate.addressText || candidate.address);
     const candidateCity = norm(candidate.city);
@@ -388,6 +395,37 @@ function findMatchingPriceStation(station, priceStations) {
   }
 
   return bestScore >= 5 ? best : null;
+}
+
+function findNearestOkPriceStation(station, priceStations) {
+  if (!isOkStation(station) || !hasCoordinate(Number(station.lat), Number(station.lng))) {
+    return null;
+  }
+
+  let best = null;
+  let bestDistance = Infinity;
+
+  for (const candidate of priceStations) {
+    if (candidate.sourceId !== "ok-api") continue;
+
+    const lat = Number(candidate.lat);
+    const lng = Number(candidate.lng);
+    if (!hasCoordinate(lat, lng)) continue;
+
+    const distance = haversine(Number(station.lat), Number(station.lng), lat, lng);
+    if (distance < bestDistance) {
+      best = candidate;
+      bestDistance = distance;
+    }
+  }
+
+  return best && bestDistance <= OK_PRICE_MATCH_MAX_METERS ? best : null;
+}
+
+function candidateCanMatchStation(candidate, station) {
+  if (candidate.sourceId === "ok-api") return isOkStation(station);
+  if (candidate.sourceId === "circlek-api") return isCircleKOrIngoStation(station);
+  return true;
 }
 
 function candidateCanMatchStation(candidate, station) {
