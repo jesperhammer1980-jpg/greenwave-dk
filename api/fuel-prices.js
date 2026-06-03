@@ -1,33 +1,52 @@
 const CIRCLEK_LIST_PRICE_URL = "https://www.circlek.dk/erhverv/braendstof/priser";
 const CIRCLEK_COUNTRY_URL = "https://api.circlek.com/eu/prices/v1/fuel/countries/DK";
+const OK_FUEL_PRICES_URL = "https://mobility-prices.ok.dk/api/v1/fuel-prices";
 
 export default async function handler(req, res) {
   res.setHeader("Cache-Control", "s-maxage=300, stale-while-revalidate=1800");
   res.setHeader("Access-Control-Allow-Origin", "*");
 
-  const [bulk, list] = await Promise.allSettled([
+  const [circleK, ok, list] = await Promise.allSettled([
     fetchCircleKStations(),
+    fetchOkStations(),
     fetchCircleKListPrices()
   ]);
 
   const sources = [];
-  let stations = [];
+  const stationGroups = [];
   let listPrices = {};
 
-  if (bulk.status === "fulfilled") {
-    stations = bulk.value;
+  if (circleK.status === "fulfilled") {
+    stationGroups.push(circleK.value);
     sources.push({
       id: "circlek-api",
       name: "Circle K / INGO station API",
       ok: true,
-      stations: stations.length
+      stations: circleK.value.length
     });
   } else {
     sources.push({
       id: "circlek-api",
       name: "Circle K / INGO station API",
       ok: false,
-      error: bulk.reason?.message || String(bulk.reason)
+      error: circleK.reason?.message || String(circleK.reason)
+    });
+  }
+
+  if (ok.status === "fulfilled") {
+    stationGroups.push(ok.value);
+    sources.push({
+      id: "ok-api",
+      name: "OK public fuel price API (documented structure, not live-verified here)",
+      ok: true,
+      stations: ok.value.length
+    });
+  } else {
+    sources.push({
+      id: "ok-api",
+      name: "OK public fuel price API (documented structure, not live-verified here)",
+      ok: false,
+      error: ok.reason?.message || String(ok.reason)
     });
   }
 
@@ -52,7 +71,7 @@ export default async function handler(req, res) {
     ok: true,
     generatedAt: new Date().toISOString(),
     sources,
-    stations,
+    stations: stationGroups.flat(),
     listPrices
   });
 }
@@ -129,6 +148,79 @@ function coordPair(a, b, source) {
   if (isLat(b) && isLng(a)) return { lat: b, lng: a, source: `${source} swapped` };
 
   return null;
+}
+
+async function fetchOkStations() {
+  const response = await fetch(OK_FUEL_PRICES_URL, {
+    headers: {
+      "Accept": "application/json",
+      "User-Agent": "GreenWave-DK/1.0"
+    }
+  });
+
+  if (!response.ok) throw new Error(`OK API HTTP ${response.status}`);
+
+  const data = await response.json();
+  const items = Array.isArray(data.items) ? data.items : Array.isArray(data) ? data : [];
+
+  return items
+    .map(normalizeOkStation)
+    .filter(Boolean);
+}
+
+function normalizeOkStation(station) {
+  if (!station || typeof station !== "object") return null;
+
+  const coord = coordPair(
+    station.coordinates?.latitude ?? station.coordinate?.latitude ?? station.latitude ?? station.lat,
+    station.coordinates?.longitude ?? station.coordinate?.longitude ?? station.longitude ?? station.lng,
+    "ok-api"
+  );
+
+  const stationId = String(station.facility_number ?? station.facilityNumber ?? station.id ?? station.station_id ?? "");
+  const street = station.street ?? station.address?.street ?? "";
+  const houseNumber = station.house_number ?? station.houseNumber ?? station.address?.house_number ?? station.address?.houseNumber ?? "";
+  const city = station.city ?? station.address?.city ?? "";
+  const addressText = [street, houseNumber].filter(Boolean).join(" ");
+
+  return {
+    id: `ok-${stationId || `${coord?.lat}:${coord?.lng}` || station.name || addressText}`,
+    source: "OK public fuel price API",
+    sourceId: "ok-api",
+    stationId,
+    name: station.name || ["OK", addressText, city].filter(Boolean).join(" ") || "OK",
+    brand: "OK",
+    addressText,
+    postalCode: String(station.postal_code ?? station.postalCode ?? station.address?.postal_code ?? station.address?.postalCode ?? ""),
+    city,
+    lat: coord ? coord.lat : null,
+    lng: coord ? coord.lng : null,
+    coordinateSource: coord ? coord.source : "none",
+    prices: normalizeOkPrices(
+      station.prices || station.fuel_prices || station.fuelPrices || [],
+      station.last_updated_time ?? station.lastUpdatedTime ?? station.updated_at
+    )
+  };
+}
+
+function normalizeOkPrices(prices, updatedAt) {
+  return Array.isArray(prices)
+    ? prices
+        .map(price => {
+          const productName = price.product_name || price.productName || price.name || price.displayName || price.fuelType || "";
+          return {
+            code: price.product_code || price.productCode || price.product_id || price.productId || price.code || "",
+            displayName: productName,
+            productName,
+            fuelType: productName,
+            octane: price.octane || "",
+            price: num(price.price ?? price.amount ?? price.value),
+            currency: price.currency || "DKK",
+            updatedAt: price.last_updated_time || price.lastUpdatedTime || price.updated_at || updatedAt || null
+          };
+        })
+        .filter(price => isValidFuelPrice(price.price))
+    : [];
 }
 
 async function fetchCircleKListPrices() {

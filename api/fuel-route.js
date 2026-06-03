@@ -331,8 +331,9 @@ function normalizeOsmFuel(element) {
 function attachPrice(station, prices, fuelType) {
   const match = findMatchingPriceStation(station, prices.stations || []);
   const product = match ? chooseProduct(match.prices || [], fuelType) : null;
+  const truckStation = isTruckStation(station);
 
-  if (product && isValidFuelPrice(product.price)) {
+  if (product && isValidFuelPrice(product.price) && (!truckStation || isDieselFuelType(fuelType))) {
     return {
       ...station,
       price: Number(product.price),
@@ -341,7 +342,7 @@ function attachPrice(station, prices, fuelType) {
     };
   }
 
-  if (isTruckStation(station)) {
+  if (truckStation) {
     return { ...station, price: null };
   }
 
@@ -387,6 +388,22 @@ function findMatchingPriceStation(station, priceStations) {
   }
 
   return bestScore >= 5 ? best : null;
+}
+
+function candidateCanMatchStation(candidate, station) {
+  if (candidate.sourceId === "ok-api") return isOkStation(station);
+  if (candidate.sourceId === "circlek-api") return isCircleKOrIngoStation(station);
+  return true;
+}
+
+function isDieselFuelType(fuelType) {
+  return fuelType === "diesel" || fuelType === "premiumDiesel";
+}
+
+function isOkStation(station) {
+  const text = stationText(station);
+  return /\bok\b/.test(text) &&
+    !/\b(circle\s*k|circlek|ingo|shell|uno\s*x|unox|f24|q8|go\s*on|goon)\b/.test(text);
 }
 
 function chooseProduct(prices, fuelType) {
