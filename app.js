@@ -1,31 +1,657 @@
-const SKEY="greenwave_dk_settings_v2",HKEY="greenwave_dk_history_v2";
-const state={map:null,userMarker:null,destinationMarker:null,routeLine:null,routeGlow:null,fuelMarkers:[],currentPosition:null,destination:null,route:null,selectedAutocomplete:null,autocompleteTimer:null,watchId:null,stations:[],history:[],settings:{fuelType:"benzin95",maxFuelDetourMeters:2000,fuelAlongMeters:50000,fuelSort:"cheapest",routeMode:"fast"}};
-const els={},ids=["map","destinationInput","goBtn","autocompleteResults","historySection","historyList","settingsBtn","settingsBackdrop","settingsModal","closeSettingsBtn","saveSettingsBtn","fuelTypeSelect","fuelDetourSelect","fuelAlongSelect","fuelSortSelect","routeModeSelect","statusText","recommendedSpeed","speedLimit","currentSpeed","reasonText","startBtn","stopBtn","recalcBtn","routeDistance","routeDuration","routeEta","fuelRefreshBtn","fuelSummary","fuelList"];
-document.addEventListener("DOMContentLoaded",()=>{ids.forEach(id=>els[id]=document.getElementById(id));bind();loadSettings();loadHistory();initMap();syncSettingsUi();renderHistory();setStatus("Klar");});
-function bind(){on(els.destinationInput,"input",()=>{state.selectedAutocomplete=null;clearTimeout(state.autocompleteTimer);state.autocompleteTimer=setTimeout(searchAutocomplete,250);});on(els.goBtn,"click",calculateRoute);on(els.startBtn,"click",startGreenWave);on(els.stopBtn,"click",stopGreenWave);on(els.recalcBtn,"click",calculateRoute);on(els.fuelRefreshBtn,"click",refreshFuel);on(els.settingsBtn,"click",openSettings);on(els.closeSettingsBtn,"click",closeSettings);on(els.settingsBackdrop,"click",closeSettings);on(els.saveSettingsBtn,"click",saveSettings);document.addEventListener("click",e=>{if(!e.target.closest(".search-card")&&!e.target.closest(".autocomplete"))hideAutocomplete();});}
-function on(el,ev,fn){if(el)el.addEventListener(ev,fn);}
-function initMap(){if(typeof L==="undefined"){setStatus("Kort kunne ikke indlæses.");return;}state.map=L.map("map",{zoomControl:false,attributionControl:false,preferCanvas:true});L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",{subdomains:"abcd",maxZoom:20}).addTo(state.map);state.map.setView([55.6761,12.5683],10);}
-async function searchAutocomplete(){const q=els.destinationInput.value.trim();if(q.length<2){hideAutocomplete();return;}try{const r=await fetch(`/api/geocode?q=${encodeURIComponent(q)}&limit=6&mode=suggest`,{cache:"no-store"});const d=await r.json();const items=Array.isArray(d)?d:(d.results||[]);if(!items.length){hideAutocomplete();return;}els.autocompleteResults.innerHTML=items.map((it,i)=>{const label=it.displayName||it.label||"Ukendt adresse",p=splitAddress(label);return `<button type="button" data-index="${i}"><strong>${esc(p.title)}</strong><small>${esc(p.subtitle)}</small></button>`;}).join("");els.autocompleteResults.classList.remove("hidden");[...els.autocompleteResults.querySelectorAll("button")].forEach(b=>b.addEventListener("click",()=>{const it=items[Number(b.dataset.index)],label=it.displayName||it.label||"Destination",p=splitAddress(label);state.selectedAutocomplete={lat:Number(it.lat),lng:Number(it.lng??it.lon),label:p.title,displayName:label};els.destinationInput.value=p.title;hideAutocomplete();}));}catch(e){console.warn(e);hideAutocomplete();}}
-function hideAutocomplete(){els.autocompleteResults?.classList.add("hidden");}
-async function calculateRoute(){const q=els.destinationInput.value.trim();if(!q){alert("Indtast en destination.");return;}try{setStatus("Finder position og beregner rute...");els.goBtn.disabled=true;els.startBtn.disabled=true;els.recalcBtn.disabled=true;els.fuelRefreshBtn.disabled=true;const pos=await getCurrentPosition();state.currentPosition=pos;updateCurrentMarker(pos,true);const dest=state.selectedAutocomplete||await geocode(q);state.destination=dest;updateDestinationMarker(dest);saveHistory(dest);renderHistory();const route=await fetchRoute(pos,dest);applyRoute(route);els.startBtn.disabled=false;els.recalcBtn.disabled=false;els.fuelRefreshBtn.disabled=false;setStatus("Rute klar. Henter tankstationer...");await refreshFuel();}catch(e){console.error(e);setStatus(`Fejl: ${e.message}`);}finally{els.goBtn.disabled=false;}}
-async function geocode(q){const r=await fetch(`/api/geocode?q=${encodeURIComponent(q)}&limit=1`,{cache:"no-store"});const d=await r.json();const it=Array.isArray(d)?d[0]:(d.result||d.results?.[0]);if(!r.ok||!it)throw new Error(d.message||d.error||"Adresse ikke fundet");const lat=Number(it.lat),lng=Number(it.lng??it.lon);if(!Number.isFinite(lat)||!Number.isFinite(lng))throw new Error("Adresse uden koordinater");const label=it.displayName||it.label||q;return{lat,lng,label:splitAddress(label).title,displayName:label};}
-async function fetchRoute(from,to){const r=await fetch(`/api/route?fromLat=${from.lat}&fromLng=${from.lng}&toLat=${to.lat}&toLng=${to.lng}&mode=${encodeURIComponent(state.settings.routeMode)}`,{cache:"no-store"});const d=await r.json();if(!r.ok||!d.routes?.length)throw new Error(d.error||"Ingen rute fundet");const route=selectRoute(d.routes);return{geometry:normalizeGeometry(route.geometry?.coordinates||route.geometry),distance:Number(route.distance||0),duration:Number(route.duration||0)};}
-function selectRoute(routes){if(state.settings.routeMode!=="eco")return routes[0];return[...routes].sort((a,b)=>(a.distance+a.duration*4)-(b.distance+b.duration*4))[0];}
-function applyRoute(route){state.route=route;drawRoute(route.geometry);updateTrip(route);els.recommendedSpeed.textContent="--";els.speedLimit.textContent="?";els.reasonText.textContent="Maxhastighed ukendt på dette vejstykke.";}
-async function refreshFuel(){if(!state.route)return;els.fuelRefreshBtn.disabled=true;els.fuelSummary.textContent="Henter tankstationer og priser...";try{const r=await fetch("/api/fuel-route",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({geometry:state.route.geometry,fuelType:state.settings.fuelType,maxDetourMeters:state.settings.maxFuelDetourMeters,fuelAlongMeters:state.settings.fuelAlongMeters})});const d=await r.json();if(!r.ok||!d.ok)throw new Error(d.error||`fuel-route ${r.status}`);state.stations=(d.stations||[]).map(s=>({...s,price:isValidFuelPrice(s.price)?Number(s.price):null})).sort(sortStations);renderFuel(d);drawFuelMarkers();}catch(e){console.error(e);els.fuelSummary.textContent=`Kunne ikke hente tankstationer: ${e.message}`;}finally{els.fuelRefreshBtn.disabled=false;}}
-function renderFuel(d){const count=state.stations.length,priced=state.stations.filter(s=>isValidFuelPrice(s.price)).length;if(!count){els.fuelSummary.textContent=`0 stationer. Debug: raw=${d?.debug?.rawElements??"?"}, norm=${d?.debug?.normalizedStations??"?"}, returned=${d?.counts?.returned??0}, API=${d?.counts?.apiStations??0}, bbox=${JSON.stringify(d?.input?.routeBbox||d?.debug?.routeBox||{})}, errors=${(d?.debug?.errors||[]).join(" | ")}`;els.fuelList.innerHTML="";return;}els.fuelSummary.textContent=`${count} stationer langs ruten. ${priced} med kendt pris fra Circle K / INGO, ${count-priced} uden prisdata.`;els.fuelList.innerHTML=state.stations.slice(0,20).map(s=>{const hasPrice=isValidFuelPrice(s.price);const price=hasPrice?formatFuelPrice(s.price):"Pris ikke tilgængelig";const meta=[`${fmtDist(s.distanceAlongRoute)} langs ruten`,`${fmtDist(s.distanceToRoute)} fra ruten`,hasPrice&&s.priceProduct?s.priceProduct:"",hasPrice&&s.priceSource?`Pris fra ${s.priceSource}`:"",!hasPrice?"Der findes endnu ikke prisdata for dette brand.":""].filter(Boolean).join(" · ");return `<article class="fuel-item"><div class="fuel-title"><span>${esc(s.name||"Tankstation")}</span><span class="fuel-price">${esc(price)}</span></div><div class="fuel-meta">${esc(meta)}</div><a target="_blank" href="https://www.google.com/maps/search/?api=1&query=${s.lat},${s.lng}">Åbn i Google Maps</a></article>`;}).join("");}
-function sortStations(a,b){const m=state.settings.fuelSort;if(m==="detour")return a.distanceToRoute-b.distanceToRoute;if(m==="upcoming")return a.distanceAlongRoute-b.distanceAlongRoute;const ap=isValidFuelPrice(a.price),bp=isValidFuelPrice(b.price);if(ap&&bp)return Number(a.price)-Number(b.price);if(ap)return-1;if(bp)return 1;return a.distanceAlongRoute-b.distanceAlongRoute;}
-function drawRoute(g){if(!state.map||typeof L==="undefined")return;if(state.routeLine)state.map.removeLayer(state.routeLine);if(state.routeGlow)state.map.removeLayer(state.routeGlow);const ll=g.map(p=>[p[1],p[0]]);state.routeGlow=L.polyline(ll,{color:"#0a58ff",weight:12,opacity:.25}).addTo(state.map);state.routeLine=L.polyline(ll,{color:"#4aa3ff",weight:6,opacity:.95}).addTo(state.map);state.map.fitBounds(state.routeLine.getBounds(),{padding:[40,40]});}
-function drawFuelMarkers(){if(!state.map||typeof L==="undefined")return;state.fuelMarkers.forEach(m=>state.map.removeLayer(m));state.fuelMarkers=[];state.stations.slice(0,20).forEach(s=>{const label=isValidFuelPrice(s.price)?formatFuelPriceShort(s.price):(s.brand||s.name||"Fuel").slice(0,8);state.fuelMarkers.push(L.marker([s.lat,s.lng],{icon:L.divIcon({className:"fuel-marker",html:esc(label)})}).addTo(state.map));});}
-function updateCurrentMarker(p,center){if(!state.map||typeof L==="undefined")return;if(!state.userMarker)state.userMarker=L.circleMarker([p.lat,p.lng],{radius:9,color:"#8fb7ff",fillColor:"#2e78ff",fillOpacity:.9}).addTo(state.map);else state.userMarker.setLatLng([p.lat,p.lng]);if(center)state.map.setView([p.lat,p.lng],14);}
-function updateDestinationMarker(d){if(!state.map||typeof L==="undefined")return;if(state.destinationMarker)state.map.removeLayer(state.destinationMarker);state.destinationMarker=L.marker([d.lat,d.lng]).addTo(state.map);}
-function getCurrentPosition(){return new Promise((res,rej)=>{if(!navigator.geolocation)return rej(new Error("GPS ikke tilgængelig"));navigator.geolocation.getCurrentPosition(p=>res({lat:p.coords.latitude,lng:p.coords.longitude,speed:p.coords.speed||0}),e=>rej(new Error(e.message||"GPS-fejl")),{enableHighAccuracy:true,timeout:12000,maximumAge:3000});});}
-function startGreenWave(){if(!navigator.geolocation)return;els.startBtn.disabled=true;els.stopBtn.disabled=false;state.watchId=navigator.geolocation.watchPosition(p=>{els.currentSpeed.textContent=Math.round(Math.max(0,(p.coords.speed||0)*3.6));updateCurrentMarker({lat:p.coords.latitude,lng:p.coords.longitude},false);},console.warn,{enableHighAccuracy:true,maximumAge:1000,timeout:10000});}
-function stopGreenWave(){if(state.watchId)navigator.geolocation.clearWatch(state.watchId);state.watchId=null;els.startBtn.disabled=false;els.stopBtn.disabled=true;}
-function updateTrip(r){els.routeDistance.textContent=fmtDist(r.distance);els.routeDuration.textContent=fmtDur(r.duration);els.routeEta.textContent=new Date(Date.now()+r.duration*1000).toLocaleTimeString("da-DK",{hour:"2-digit",minute:"2-digit"});}
-function loadSettings(){try{state.settings={...state.settings,...JSON.parse(localStorage.getItem(SKEY)||"{}")};}catch{}}
-function saveSettings(){state.settings.fuelType=els.fuelTypeSelect.value;state.settings.maxFuelDetourMeters=Number(els.fuelDetourSelect.value);state.settings.fuelAlongMeters=Number(els.fuelAlongSelect.value);state.settings.fuelSort=els.fuelSortSelect.value;state.settings.routeMode=els.routeModeSelect.value;localStorage.setItem(SKEY,JSON.stringify(state.settings));closeSettings();if(state.route)refreshFuel();}
-function syncSettingsUi(){els.fuelTypeSelect.value=state.settings.fuelType;els.fuelDetourSelect.value=String(state.settings.maxFuelDetourMeters);els.fuelAlongSelect.value=String(state.settings.fuelAlongMeters);els.fuelSortSelect.value=state.settings.fuelSort;els.routeModeSelect.value=state.settings.routeMode;}
-function openSettings(){els.settingsBackdrop.classList.remove("hidden");els.settingsModal.classList.remove("hidden");syncSettingsUi();}function closeSettings(){els.settingsBackdrop.classList.add("hidden");els.settingsModal.classList.add("hidden");}
-function loadHistory(){try{state.history=JSON.parse(localStorage.getItem(HKEY)||"[]");}catch{state.history=[];}}function saveHistory(d){state.history=[d,...state.history.filter(x=>x.label!==d.label)].slice(0,5);localStorage.setItem(HKEY,JSON.stringify(state.history));}function renderHistory(){if(!state.history.length){els.historySection.classList.add("hidden");return;}els.historySection.classList.remove("hidden");els.historyList.innerHTML=state.history.map((h,i)=>`<button type="button" data-index="${i}"><strong>${esc(h.label)}</strong><small>${esc(h.displayName||"")}</small></button>`).join("");[...els.historyList.querySelectorAll("button")].forEach(b=>b.addEventListener("click",()=>{const h=state.history[Number(b.dataset.index)];state.selectedAutocomplete=h;els.destinationInput.value=h.label;}));}
-function setStatus(t){els.statusText.textContent=t;}function splitAddress(t){const p=String(t||"").split(",").map(x=>x.trim()).filter(Boolean);return{title:p[0]||t,subtitle:p.slice(1).join(", ")}}function normalizeGeometry(g){return(g||[]).map(p=>Array.isArray(p)?[Number(p[0]),Number(p[1])]:[Number(p.lng??p.lon),Number(p.lat)]).filter(p=>Number.isFinite(p[0])&&Number.isFinite(p[1]));}function isValidFuelPrice(value){const price=Number(value);return Number.isFinite(price)&&price>=5&&price<=30;}function formatFuelPrice(value){return isValidFuelPrice(value)?`${Number(value).toFixed(2).replace(".",",")} kr/l`:"Pris ikke tilgængelig";}function formatFuelPriceShort(value){return isValidFuelPrice(value)?Number(value).toFixed(2).replace(".",","):"";}function fmtDist(m){return m>=1000?`${(m/1000).toFixed(m>=10000?0:1).replace(".",",")} km`:`${Math.round(m)} m`;}function fmtDur(sec){const min=Math.round(sec/60);return min<60?`${min} min`:`${Math.floor(min/60)} t ${min%60} min`;}function esc(v){return String(v??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]));}
+const OVERPASS_ENDPOINTS = [
+  "https://overpass-api.de/api/interpreter",
+  "https://overpass.kumi.systems/api/interpreter",
+  "https://overpass.osm.ch/api/interpreter"
+];
+
+const OK_PRICE_MATCH_MAX_METERS = 300;
+
+export default async function handler(req, res) {
+  res.setHeader("Cache-Control", "no-store");
+  res.setHeader("Access-Control-Allow-Origin", "*");
+
+  if (req.method !== "POST") {
+    return res.status(405).json({ ok: false, error: "POST only" });
+  }
+
+  try {
+    const body = parseBody(req.body);
+    const geometry = normalizeGeometry(body.geometry || body.coordinates || body.route?.geometry?.coordinates);
+    const fuelType = String(body.fuelType || "benzin95");
+    const maxDetourMeters = clamp(Number(body.maxDetourMeters ?? body.maxDetour ?? 2000), 0, 20000);
+    const fuelAlongMeters = clamp(Number(body.fuelAlongMeters ?? body.fuelAlong ?? 50000), 0, 250000);
+
+    if (geometry.length < 2) {
+      return res.status(400).json({
+        ok: false,
+        error: "Missing or invalid route geometry",
+        debug: {
+          bodyType: typeof req.body,
+          receivedKeys: Object.keys(body)
+        }
+      });
+    }
+
+    const [osmResult, priceResult] = await Promise.allSettled([
+      fetchOsmFuel(geometry, maxDetourMeters),
+      fetchPrices(req)
+    ]);
+
+    const priceData = priceResult.status === "fulfilled"
+      ? priceResult.value
+      : { ok: false, stations: [], listPrices: {}, sources: [] };
+    const priceStations = Array.isArray(priceData.stations) ? priceData.stations : [];
+    const apiStationsWithCoords = priceStations.filter(station =>
+      hasCoordinate(Number(station.lat), Number(station.lng))
+    );
+    const apiWithoutCoords = priceStations.length - apiStationsWithCoords.length;
+
+    if (osmResult.status !== "fulfilled" || !osmResult.value.ok) {
+      const debug = osmResult.status === "fulfilled"
+        ? osmResult.value.debug
+        : { error: osmResult.reason?.message || String(osmResult.reason) };
+
+      return res.status(502).json({
+        ok: false,
+        error: "Overpass failed",
+        input: {
+          fuelType,
+          maxDetourMeters,
+          fuelAlongMeters,
+          geometryPoints: geometry.length,
+          routeBbox: routeBbox(geometry, 0)
+        },
+        counts: {
+          rawElements: 0,
+          normalizedStations: 0,
+          priceStations: priceStations.length,
+          apiStations: apiStationsWithCoords.length,
+          apiWithoutCoords,
+          returned: 0
+        },
+        sources: priceData.sources || [],
+        debug: {
+          overpass: debug,
+          priceApi: priceDebug(priceResult, priceData, apiStationsWithCoords.length, apiWithoutCoords)
+        },
+        stations: []
+      });
+    }
+
+    const osmStations = osmResult.value.stations;
+    const attached = attachRouteDistances(osmStations, geometry);
+    const filtered = attached
+      .filter(station => station.distanceToRoute <= maxDetourMeters)
+      .filter(station => station.distanceAlongRoute <= fuelAlongMeters)
+      .map(station => attachPrice(station, priceData, fuelType))
+      .sort(sortStations);
+
+    return res.status(200).json({
+      ok: true,
+      input: {
+        fuelType,
+        maxDetourMeters,
+        fuelAlongMeters,
+        geometryPoints: geometry.length,
+        routeBbox: routeBbox(geometry, 0)
+      },
+      counts: {
+        rawElements: osmResult.value.debug.rawElements,
+        normalizedStations: osmResult.value.debug.normalizedStations,
+        osmStations: osmStations.length,
+        priceStations: priceStations.length,
+        apiStations: apiStationsWithCoords.length,
+        apiWithoutCoords,
+        returned: filtered.length,
+        priced: filtered.filter(station => isValidFuelPrice(station.price)).length
+      },
+      sources: priceData.sources || [],
+      debug: {
+        overpass: osmResult.value.debug,
+        priceApi: priceDebug(priceResult, priceData, apiStationsWithCoords.length, apiWithoutCoords),
+        nearestRaw: attached
+          .slice()
+          .sort((a, b) => a.distanceToRoute - b.distanceToRoute)
+          .slice(0, 12)
+          .map(station => ({
+            name: station.name,
+            brand: station.brand,
+            lat: station.lat,
+            lng: station.lng,
+            distanceToRoute: Math.round(station.distanceToRoute),
+            distanceAlongRoute: Math.round(station.distanceAlongRoute)
+          }))
+      },
+      stations: filtered.slice(0, 120).map(station => ({
+        id: station.id,
+        osmType: station.osmType,
+        osmId: station.osmId,
+        name: station.name,
+        brand: station.brand,
+        lat: station.lat,
+        lng: station.lng,
+        addressText: station.addressText || "",
+        postalCode: station.postalCode || "",
+        city: station.city || "",
+        distanceToRoute: Math.round(station.distanceToRoute),
+        distanceAlongRoute: Math.round(station.distanceAlongRoute),
+        price: isValidFuelPrice(station.price) ? Number(station.price) : null,
+        priceProduct: station.priceProduct || null,
+        priceSource: station.priceSource || null
+      }))
+    });
+  } catch (error) {
+    return res.status(500).json({
+      ok: false,
+      error: error.message,
+      stack: error.stack
+    });
+  }
+}
+
+function parseBody(body) {
+  if (!body) return {};
+  if (typeof body === "string") {
+    try {
+      return JSON.parse(body);
+    } catch {
+      return {};
+    }
+  }
+  return body;
+}
+
+async function fetchOsmFuel(geometry, maxDetourMeters) {
+  const padding = clamp(maxDetourMeters / 111320 + 0.09, 0.10, 0.24);
+  const bbox = routeBbox(geometry, padding);
+  const query = bboxQuery(bbox);
+  const result = await runOverpass(query, 25000);
+
+  if (!result.ok) {
+    return {
+      ok: false,
+      stations: [],
+      debug: {
+        bbox,
+        query,
+        attempts: result.attempts,
+        rawElements: 0,
+        normalizedStations: 0
+      }
+    };
+  }
+
+  const elements = Array.isArray(result.data.elements) ? result.data.elements : [];
+  const stations = dedupe(elements.map(normalizeOsmFuel).filter(Boolean));
+
+  return {
+    ok: true,
+    stations,
+    debug: {
+      bbox,
+      query,
+      endpoint: result.endpoint,
+      status: result.status,
+      attempts: result.attempts,
+      rawElements: elements.length,
+      normalizedStations: stations.length
+    }
+  };
+}
+
+function bboxQuery(box) {
+  const { south, west, north, east } = box;
+
+  return `[out:json][timeout:25];
+(
+  node["amenity"="fuel"](${south},${west},${north},${east});
+  way["amenity"="fuel"](${south},${west},${north},${east});
+  relation["amenity"="fuel"](${south},${west},${north},${east});
+);
+out center tags;`;
+}
+
+async function runOverpass(query, timeoutMs) {
+  const attempts = [];
+  let firstEmpty = null;
+
+  for (const endpoint of OVERPASS_ENDPOINTS) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+          "Accept": "application/json",
+          "User-Agent": "GreenWave-DK/1.0"
+        },
+        body: new URLSearchParams({ data: query }).toString(),
+        signal: controller.signal
+      });
+
+      const text = await response.text();
+      clearTimeout(timeout);
+
+      if (!response.ok) {
+        attempts.push({
+          endpoint,
+          ok: false,
+          status: response.status,
+          statusText: response.statusText,
+          body: text.slice(0, 500)
+        });
+        continue;
+      }
+
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch (error) {
+        attempts.push({
+          endpoint,
+          ok: false,
+          status: response.status,
+          error: `Invalid Overpass JSON: ${error.message}`,
+          body: text.slice(0, 500)
+        });
+        continue;
+      }
+
+      const rawElements = Array.isArray(data.elements) ? data.elements.length : 0;
+      attempts.push({ endpoint, ok: true, status: response.status, rawElements });
+
+      const result = { ok: true, endpoint, status: response.status, data, attempts };
+      if (rawElements > 0) return result;
+      if (!firstEmpty) firstEmpty = result;
+    } catch (error) {
+      clearTimeout(timeout);
+      attempts.push({ endpoint, ok: false, error: error.message });
+    }
+  }
+
+  return firstEmpty || { ok: false, attempts };
+}
+
+async function fetchPrices(req) {
+  const host = req.headers?.["x-forwarded-host"] || req.headers?.host || process.env.VERCEL_URL;
+  if (!host) throw new Error("Missing host for /api/fuel-prices");
+
+  const proto = req.headers?.["x-forwarded-proto"] || (String(host).includes("localhost") ? "http" : "https");
+  const response = await fetch(`${proto}://${host}/api/fuel-prices?v=${Date.now()}`, {
+    headers: { "Accept": "application/json" }
+  });
+
+  const text = await response.text();
+
+  if (!response.ok) {
+    throw new Error(`/api/fuel-prices HTTP ${response.status}: ${text.slice(0, 160)}`);
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    throw new Error(`/api/fuel-prices returned non-JSON: ${text.slice(0, 160)}`);
+  }
+}
+
+function priceDebug(priceResult, priceData, apiStationsWithCoords, apiWithoutCoords) {
+  if (priceResult.status !== "fulfilled") {
+    return {
+      ok: false,
+      error: priceResult.reason?.message || String(priceResult.reason),
+      apiStations: 0,
+      apiWithoutCoords: 0
+    };
+  }
+
+  return {
+    ok: Boolean(priceData.ok),
+    sources: priceData.sources || [],
+    stations: Array.isArray(priceData.stations) ? priceData.stations.length : 0,
+    apiStations: apiStationsWithCoords,
+    apiWithoutCoords
+  };
+}
+
+function normalizeOsmFuel(element) {
+  const lat = element.type === "node" ? Number(element.lat) : Number(element.center?.lat);
+  const lng = element.type === "node" ? Number(element.lon) : Number(element.center?.lon);
+
+  if (!hasCoordinate(lat, lng)) return null;
+
+  const tags = element.tags || {};
+
+  return {
+    id: `${element.type}-${element.id}`,
+    osmType: element.type,
+    osmId: element.id,
+    source: "OSM",
+    lat,
+    lng,
+    name: tags.name || tags.brand || tags.operator || "Tankstation",
+    brand: tags.brand || tags.operator || tags.name || "",
+    addressText: [tags["addr:street"], tags["addr:housenumber"]].filter(Boolean).join(" "),
+    postalCode: tags["addr:postcode"] || "",
+    city: tags["addr:city"] || "",
+    tags
+  };
+}
+
+function attachPrice(station, prices, fuelType) {
+  const match = findMatchingPriceStation(station, prices.stations || []);
+  const product = match ? chooseProduct(match.prices || [], fuelType) : null;
+  const truckStation = isTruckStation(station);
+
+  if (product && isValidFuelPrice(product.price) && (!truckStation || isDieselFuelType(fuelType))) {
+    return {
+      ...station,
+      price: Number(product.price),
+      priceProduct: product.productName || product.displayName || product.fuelType || fuelType,
+      priceSource: match.source || "price API"
+    };
+  }
+
+  if (truckStation) {
+    return { ...station, price: null };
+  }
+
+  if (isCircleKOrIngoStation(station)) {
+    const listed = prices.listPrices?.[fuelType];
+
+    if (listed && isValidFuelPrice(listed.price) && productMatchesFuelType(listed, fuelType)) {
+      return {
+        ...station,
+        price: Number(listed.price),
+        priceProduct: listed.productName || fuelType,
+        priceSource: listed.source
+      };
+    }
+  }
+
+  return { ...station, price: null };
+}
+
+function findMatchingPriceStation(station, priceStations) {
+  const okMatch = findNearestOkPriceStation(station, priceStations);
+  if (okMatch) return okMatch;
+
+  const stationBrand = norm(`${station.brand} ${station.name}`);
+  const stationAddress = norm(station.addressText);
+  const stationCity = norm(station.city);
+  let best = null;
+  let bestScore = 0;
+
+  for (const candidate of priceStations) {
+    if (!candidateCanMatchStation(candidate, station)) continue;
+
+    const candidateBrand = norm(`${candidate.brand} ${candidate.name}`);
+    const candidateAddress = norm(candidate.addressText || candidate.address);
+    const candidateCity = norm(candidate.city);
+    let score = 0;
+
+    if (stationBrand && candidateBrand && (stationBrand.includes(candidateBrand) || candidateBrand.includes(stationBrand))) score += 4;
+    if (stationBrand.includes("circle") && candidateBrand.includes("circle")) score += 3;
+    if (stationBrand.includes("ingo") && candidateBrand.includes("ingo")) score += 3;
+    if (stationCity && candidateCity && stationCity === candidateCity) score += 2;
+    if (stationAddress && candidateAddress && (stationAddress.includes(candidateAddress) || candidateAddress.includes(stationAddress))) score += 3;
+
+    if (score > bestScore) {
+      best = candidate;
+      bestScore = score;
+    }
+  }
+
+  return bestScore >= 5 ? best : null;
+}
+
+function findNearestOkPriceStation(station, priceStations) {
+  if (!isOkStation(station) || !hasCoordinate(Number(station.lat), Number(station.lng))) {
+    return null;
+  }
+
+  let best = null;
+  let bestDistance = Infinity;
+
+  for (const candidate of priceStations) {
+    if (candidate.sourceId !== "ok-api") continue;
+
+    const lat = Number(candidate.lat);
+    const lng = Number(candidate.lng);
+    if (!hasCoordinate(lat, lng)) continue;
+
+    const distance = haversine(Number(station.lat), Number(station.lng), lat, lng);
+    if (distance < bestDistance) {
+      best = candidate;
+      bestDistance = distance;
+    }
+  }
+
+  return best && bestDistance <= OK_PRICE_MATCH_MAX_METERS ? best : null;
+}
+
+function candidateCanMatchStation(candidate, station) {
+  if (candidate.sourceId === "ok-api") return isOkStation(station);
+  if (candidate.sourceId === "circlek-api") return isCircleKOrIngoStation(station);
+  return true;
+}
+
+function isDieselFuelType(fuelType) {
+  return fuelType === "diesel" || fuelType === "premiumDiesel";
+}
+
+function isOkStation(station) {
+  const text = stationText(station);
+  return /\bok\b/.test(text) &&
+    !/\b(circle\s*k|circlek|ingo|shell|uno\s*x|unox|f24|q8|go\s*on|goon)\b/.test(text);
+}
+
+function chooseProduct(prices, fuelType) {
+  const items = prices.filter(price => isValidFuelPrice(price.price));
+  return items.find(price => productMatchesFuelType(price, fuelType)) || null;
+}
+
+function attachRouteDistances(stations, geometry) {
+  const segments = [];
+  let cumulative = 0;
+
+  for (let index = 1; index < geometry.length; index += 1) {
+    const a = geometry[index - 1];
+    const b = geometry[index];
+    const length = haversine(a[1], a[0], b[1], b[0]);
+    segments.push({ a, b, cumulative, length });
+    cumulative += length;
+  }
+
+  return stations.map(station => {
+    let distanceToRoute = Infinity;
+    let distanceAlongRoute = Infinity;
+
+    for (const segment of segments) {
+      const projected = project(station.lat, station.lng, segment.a[1], segment.a[0], segment.b[1], segment.b[0]);
+
+      if (projected.distance < distanceToRoute) {
+        distanceToRoute = projected.distance;
+        distanceAlongRoute = segment.cumulative + segment.length * projected.t;
+      }
+    }
+
+    return { ...station, distanceToRoute, distanceAlongRoute };
+  });
+}
+
+function normalizeGeometry(geometry) {
+  return (Array.isArray(geometry) ? geometry : [])
+    .map(point => {
+      if (Array.isArray(point)) return [Number(point[0]), Number(point[1])];
+      return [Number(point.lng ?? point.lon), Number(point.lat)];
+    })
+    .filter(point => isLng(point[0]) && isLat(point[1]));
+}
+
+function routeBbox(geometry, padding) {
+  let south = Infinity;
+  let west = Infinity;
+  let north = -Infinity;
+  let east = -Infinity;
+
+  for (const point of geometry) {
+    west = Math.min(west, point[0]);
+    east = Math.max(east, point[0]);
+    south = Math.min(south, point[1]);
+    north = Math.max(north, point[1]);
+  }
+
+  return {
+    south: south - padding,
+    west: west - padding,
+    north: north + padding,
+    east: east + padding
+  };
+}
+
+function sortStations(a, b) {
+  return a.distanceAlongRoute - b.distanceAlongRoute ||
+    a.distanceToRoute - b.distanceToRoute ||
+    String(a.name).localeCompare(String(b.name));
+}
+
+function project(lat, lng, lat1, lng1, lat2, lng2) {
+  const metersLat = 111320;
+  const metersLng = 111320 * Math.cos(lat * Math.PI / 180);
+  const px = lng * metersLng;
+  const py = lat * metersLat;
+  const ax = lng1 * metersLng;
+  const ay = lat1 * metersLat;
+  const bx = lng2 * metersLng;
+  const by = lat2 * metersLat;
+  const dx = bx - ax;
+  const dy = by - ay;
+  const lengthSquared = dx * dx + dy * dy;
+
+  if (!lengthSquared) return { t: 0, distance: Math.hypot(px - ax, py - ay) };
+
+  let t = ((px - ax) * dx + (py - ay) * dy) / lengthSquared;
+  t = clamp(t, 0, 1);
+
+  return {
+    t,
+    distance: Math.hypot(px - (ax + t * dx), py - (ay + t * dy))
+  };
+}
+
+function haversine(lat1, lng1, lat2, lng2) {
+  const radius = 6371000;
+  const rad = value => value * Math.PI / 180;
+  const dLat = rad(lat2 - lat1);
+  const dLng = rad(lng2 - lng1);
+  const x = Math.sin(dLat / 2) ** 2 +
+    Math.cos(rad(lat1)) * Math.cos(rad(lat2)) * Math.sin(dLng / 2) ** 2;
+
+  return radius * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
+}
+
+function dedupe(items) {
+  const seen = new Set();
+
+  return items.filter(item => {
+    const key = item.id || `${Math.round(item.lat * 10000)}:${Math.round(item.lng * 10000)}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function hasCoordinate(lat, lng) {
+  return Number.isFinite(lat) &&
+    Number.isFinite(lng) &&
+    lat >= -90 &&
+    lat <= 90 &&
+    lng >= -180 &&
+    lng <= 180;
+}
+
+function isValidFuelPrice(value) {
+  const price = Number(value);
+  return Number.isFinite(price) && price >= 5 && price <= 30;
+}
+
+function isCircleKOrIngoStation(station) {
+  const text = stationText(station);
+  return /\b(circle\s*k|circlek|ingo)\b/.test(text);
+}
+
+function isTruckStation(station) {
+  const text = stationText(station);
+  return /\b(truck|lastbil|hgv|lorry)\b/.test(text) ||
+    /\b(truck\s*diesel|diesel\s*truck)\b/.test(text);
+}
+
+function stationText(station) {
+  const tags = station.tags || {};
+
+  return norm([
+    station.brand,
+    station.name,
+    tags.brand,
+    tags.name,
+    tags.operator,
+    tags["fuel:diesel"],
+    tags["fuel:HGV_diesel"],
+    tags.hgv,
+    tags.hgv_service,
+    tags.description
+  ].filter(Boolean).join(" "));
+}
+
+function productMatchesFuelType(product, fuelType) {
+  const text = norm(`${product.code} ${product.octane} ${product.fuelType} ${product.productName} ${product.displayName}`);
+  const isDieselProduct = /\bdiesel\b|hvo|truck|lastbil|hgv/.test(text);
+  const isTruckProduct = /\b(truck|lastbil|hgv)\b/.test(text);
+  const isGasolineProduct = /\b(benzin|gasoline|petrol|miles\s*95|blyfri|e10|e5)\b/.test(text) ||
+    /\b95\b|\b98\b|\b100\b/.test(text);
+
+  if (fuelType === "diesel") {
+    return isDieselProduct && !isGasolineProduct && !/\b(premium|plus|extra)\b/.test(text);
+  }
+
+  if (fuelType === "premiumDiesel") {
+    return isDieselProduct && !isGasolineProduct && /\b(premium|plus|extra)\b/.test(text);
+  }
+
+  if (fuelType === "benzin98") {
+    return isGasolineProduct && !isDieselProduct && !isTruckProduct && /\b(98|100|e5)\b/.test(text);
+  }
+
+  return isGasolineProduct &&
+    !isDieselProduct &&
+    !isTruckProduct &&
+    (/\b(95|e10)\b|miles\s*95|blyfri\s*95/.test(text)) &&
+    !/\b(98|100|premium|plus)\b/.test(text);
+}
+
+function isLat(value) {
+  return Number.isFinite(value) && value >= 54.2 && value <= 58.2;
+}
+
+function isLng(value) {
+  return Number.isFinite(value) && value >= 7.5 && value <= 15.8;
+}
+
+function clamp(value, min, max) {
+  if (!Number.isFinite(value)) return min;
+  return Math.max(min, Math.min(max, value));
+}
+
+function norm(value) {
+  return String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\u00e6/g, "ae")
+    .replace(/\u00f8/g, "oe")
+    .replace(/\u00e5/g, "aa")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
