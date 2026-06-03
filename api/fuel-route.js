@@ -4,8 +4,8 @@ const OVERPASS_ENDPOINTS = [
   "https://overpass.osm.ch/api/interpreter"
 ];
 
-
 const OK_PRICE_MATCH_MAX_METERS = 300;
+
 export default async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store");
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -283,8 +283,17 @@ async function fetchPrices(req) {
     headers: { "Accept": "application/json" }
   });
 
-  if (!response.ok) throw new Error(`/api/fuel-prices HTTP ${response.status}`);
-  return response.json();
+  const text = await response.text();
+
+  if (!response.ok) {
+    throw new Error(`/api/fuel-prices HTTP ${response.status}: ${text.slice(0, 160)}`);
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    throw new Error(`/api/fuel-prices returned non-JSON: ${text.slice(0, 160)}`);
+  }
 }
 
 function priceDebug(priceResult, priceData, apiStationsWithCoords, apiWithoutCoords) {
@@ -420,12 +429,6 @@ function findNearestOkPriceStation(station, priceStations) {
   }
 
   return best && bestDistance <= OK_PRICE_MATCH_MAX_METERS ? best : null;
-}
-
-function candidateCanMatchStation(candidate, station) {
-  if (candidate.sourceId === "ok-api") return isOkStation(station);
-  if (candidate.sourceId === "circlek-api") return isCircleKOrIngoStation(station);
-  return true;
 }
 
 function candidateCanMatchStation(candidate, station) {
