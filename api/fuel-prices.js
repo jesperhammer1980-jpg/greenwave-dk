@@ -1,14 +1,23 @@
 const CIRCLEK_LIST_PRICE_URL = "https://www.circlek.dk/erhverv/braendstof/priser";
 const CIRCLEK_COUNTRY_URL = "https://api.circlek.com/eu/prices/v1/fuel/countries/DK";
 const OK_FUEL_PRICES_URL = "https://mobility-prices.ok.dk/api/v1/fuel-prices";
+const UNOX_FUEL_PRICES_URL_ENV = "UNOX_FUEL_PRICES_URL";
+const UNOX_TOKEN_URL_ENV = "UNOX_TOKEN_URL";
+const UNOX_CLIENT_ID_ENV = "UNOX_CLIENT_ID";
+const UNOX_CLIENT_SECRET_ENV = "UNOX_CLIENT_SECRET";
+const UNOX_DEFAULT_TOKEN_URL = "https://auth.unoxmobility.net/realms/production-api-gateway/protocol/openid-connect/token";
+const UNOX_DEFAULT_FUEL_PRICES_URL = "https://api.unoxmobility.net/gasstations/v1/getStationsAndPrices";
+const Q8_F24_FUEL_PRICES_URL_ENV = "Q8_F24_FUEL_PRICES_URL";
 
 export default async function handler(req, res) {
   res.setHeader("Cache-Control", "s-maxage=300, stale-while-revalidate=1800");
   res.setHeader("Access-Control-Allow-Origin", "*");
 
-  const [circleK, ok, list] = await Promise.allSettled([
+  const [circleK, ok, unoX, q8F24, list] = await Promise.allSettled([
     fetchCircleKStations(),
     fetchOkStations(),
+    fetchUnoXStations(),
+    fetchQ8F24Stations(),
     fetchCircleKListPrices()
   ]);
 
@@ -49,6 +58,24 @@ export default async function handler(req, res) {
       error: ok.reason?.message || String(ok.reason)
     });
   }
+
+  addConfiguredStationSource({
+    result: unoX,
+    sources,
+    stationGroups,
+    id: "unox-api",
+    name: "Uno-X fuel price API",
+    urlEnv: `${UNOX_CLIENT_ID_ENV} and ${UNOX_CLIENT_SECRET_ENV}`
+  });
+
+  addConfiguredStationSource({
+    result: q8F24,
+    sources,
+    stationGroups,
+    id: "q8-f24-api",
+    name: "Q8 / F24 fuel price API",
+    urlEnv: Q8_F24_FUEL_PRICES_URL_ENV
+  });
 
   if (list.status === "fulfilled") {
     listPrices = list.value;
@@ -221,6 +248,271 @@ function normalizeOkPrices(prices, updatedAt) {
         })
         .filter(price => isValidFuelPrice(price.price))
     : [];
+}
+
+async function fetchUnoXStations() {
+  const clientId = process.env[UNOX_CLIENT_ID_ENV];
+  const clientSecret = process.env[UNOX_CLIENT_SECRET_ENV];
+
+  if (!clientId || !clientSecret) {
+    return {
+      configured: false,
+      stations: [],
+      missingEnv: !clientId ? UNOX_CLIENT_ID_ENV : UNOX_CLIENT_SECRET_ENV
+    };
+  }
+
+  const tokenUrl = process.env[UNOX_TOKEN_URL_ENV] || UNOX_DEFAULT_TOKEN_URL;
+  const fuelPricesUrl = process.env[UNOX_FUEL_PRICES_URL_ENV] || UNOX_DEFAULT_FUEL_PRICES_URL;
+  const accessToken = await fetchUnoXAccessToken(tokenUrl, clientId, clientSecret);
+
+  const response = await fetch(fuelPricesUrl, {
+    headers: {
+      "Accept": "application/json",
+      "User-Agent": "GreenWave-DK/1.0",
+      "Authorization": `Bearer ${accessToken}`
+    }
+  });
+
+  if (!response.ok) throw new Error(`Uno-X fuel price API HTTP ${response.status}`);
+
+  const data = await response.json();
+  const items = Array.isArray(data?.Data) ? data.Data : extractStationItems(data);
+
+  return {
+    configured: true,
+    stations: items
+      .map(normalizeUnoXStation)
+      .filter(Boolean)
+  };
+}
+
+async function fetchUnoXAccessToken(tokenUrl, clientId, clientSecret) {
+  const basic = Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
+  const response = await fetch(tokenUrl, {
+    method: "POST",
+    headers: {
+      "Accept": "application/json",
+      "Content-Type": "application/x-www-form-urlencoded",
+      "Authorization": `Basic ${basic}`
+    },
+    body: new URLSearchParams({ grant_type: "client_credentials" }).toString()
+  });
+
+  if (!response.ok) throw new Error(`Uno-X token HTTP ${response.status}`);
+
+  const data = await response.json();
+  if (!data.access_token) throw new Error("Uno-X token response missing access_token");
+  return data.access_token;
+}
+
+function normalizeUnoXStation(station) {
+  if (!station || typeof station !== "object") return null;
+
+  const address = station.address || {};
+  const coord = coordPair(
+    address.coordinates?.latitude ?? station.coordinates?.latitude ?? station.latitude ?? station.lat,
+    address.coordinates?.longitude ?? station.coordinates?.longitude ?? station.longitude ?? station.lng,
+    "unox-api"
+  );
+
+  const stationId = String(station.stationId ?? station.id ?? station.station_id ?? "");
+  const addressText = address.addressHouseNumber ?? station.addressHouseNumber ?? "";
+  const city = address.city ?? station.city ?? "";
+
+  return {
+    id: `unox-${stationId || `${coord?.lat}:${coord?.lng}` || station.stationName || addressText}`,
+    source: "Uno-X fuel price API",
+    sourceId: "unox-api",
+    stationId,
+    name: station.stationName || station.name || ["Uno-X", addressText, city].filter(Boolean).join(" ") || "Uno-X",
+    brand: "Uno-X",
+    addressText,
+    postalCode: String(address.postalCode ?? station.postalCode ?? ""),
+    city,
+    lat: coord ? coord.lat : null,
+    lng: coord ? coord.lng : null,
+    coordinateSource: coord ? coord.source : "none",
+    prices: normalizeBrandPrices(
+      station.products || station.prices || station.fuel_prices || station.fuelPrices || [],
+      station.lastUpdated ?? station.last_updated_time ?? station.updated_at
+    )
+  };
+}
+
+async function fetchQ8F24Stations() {
+  return fetchConfiguredBrandStations({
+    sourceId: "q8-f24-api",
+    source: "Q8 / F24 fuel price API",
+    brand: "Q8/F24",
+    urlEnv: Q8_F24_FUEL_PRICES_URL_ENV,
+    apiKeyEnv: "Q8_F24_API_KEY",
+    tokenEnv: "Q8_F24_API_TOKEN",
+    authHeaderEnv: "Q8_F24_API_AUTH_HEADER",
+    authSchemeEnv: "Q8_F24_API_AUTH_SCHEME",
+    brandFromStation: station => detectQ8F24Brand(station)
+  });
+}
+
+async function fetchConfiguredBrandStations(config) {
+  const url = process.env[config.urlEnv];
+  if (!url) {
+    return {
+      configured: false,
+      stations: [],
+      missingEnv: config.urlEnv
+    };
+  }
+
+  const response = await fetch(url, {
+    headers: configuredApiHeaders(config)
+  });
+
+  if (!response.ok) throw new Error(`${config.source} HTTP ${response.status}`);
+
+  const data = await response.json();
+  const items = extractStationItems(data);
+
+  return {
+    configured: true,
+    stations: items
+      .map(station => normalizeConfiguredBrandStation(station, config))
+      .filter(Boolean)
+  };
+}
+
+function configuredApiHeaders(config) {
+  const headers = {
+    "Accept": "application/json",
+    "User-Agent": "GreenWave-DK/1.0"
+  };
+  const key = process.env[config.apiKeyEnv] || process.env[config.tokenEnv];
+
+  if (key) {
+    const header = process.env[config.authHeaderEnv] || "Authorization";
+    const scheme = process.env[config.authSchemeEnv] || "Bearer";
+    headers[header] = header.toLowerCase() === "authorization" && scheme
+      ? `${scheme} ${key}`
+      : key;
+  }
+
+  return headers;
+}
+
+function extractStationItems(data) {
+  if (Array.isArray(data)) return data;
+
+  const containers = [
+    data?.items,
+    data?.stations,
+    data?.sites,
+    data?.facilities,
+    data?.results,
+    data?.data?.items,
+    data?.data?.stations,
+    data?.data?.sites,
+    data?.data
+  ];
+
+  return containers.find(Array.isArray) || [];
+}
+
+function normalizeConfiguredBrandStation(station, config) {
+  if (!station || typeof station !== "object") return null;
+
+  const coord = coordPair(
+    station.coordinates?.latitude ?? station.coordinate?.latitude ?? station.location?.latitude ?? station.location?.lat ?? station.latitude ?? station.lat,
+    station.coordinates?.longitude ?? station.coordinate?.longitude ?? station.location?.longitude ?? station.location?.lng ?? station.longitude ?? station.lng,
+    config.sourceId
+  );
+  const address = station.address || {};
+  const stationId = String(station.facility_number ?? station.facilityNumber ?? station.siteId ?? station.stationId ?? station.id ?? station.station_id ?? "");
+  const brand = config.brandFromStation ? config.brandFromStation(station) : config.brand;
+  const street = station.street ?? address.street ?? address.addressLine1 ?? "";
+  const houseNumber = station.house_number ?? station.houseNumber ?? address.house_number ?? address.houseNumber ?? "";
+  const city = station.city ?? address.city ?? "";
+  const addressText = [street, houseNumber].filter(Boolean).join(" ");
+
+  return {
+    id: `${config.sourceId}-${stationId || `${coord?.lat}:${coord?.lng}` || station.name || addressText}`,
+    source: config.source,
+    sourceId: config.sourceId,
+    stationId,
+    name: station.name || station.siteName || [brand, addressText, city].filter(Boolean).join(" ") || brand,
+    brand,
+    addressText,
+    postalCode: String(station.postal_code ?? station.postalCode ?? address.postal_code ?? address.postalCode ?? ""),
+    city,
+    lat: coord ? coord.lat : null,
+    lng: coord ? coord.lng : null,
+    coordinateSource: coord ? coord.source : "none",
+    prices: normalizeBrandPrices(
+      station.prices || station.fuel_prices || station.fuelPrices || station.fuels || station.products || [],
+      station.last_updated_time ?? station.lastUpdatedTime ?? station.updated_at ?? station.updatedAt
+    )
+  };
+}
+
+function normalizeBrandPrices(prices, updatedAt) {
+  return Array.isArray(prices)
+    ? prices
+        .map(price => {
+          const productName = price.product_name || price.productName || price.name || price.displayName || price.fuelType || "";
+          return {
+            code: price.product_code || price.productCode || price.product_id || price.productId || price.code || price.id || "",
+            displayName: productName,
+            productName,
+            fuelType: productName,
+            octane: price.octane || "",
+            price: num(price.price ?? price.amount ?? price.value),
+            currency: price.currency || "DKK",
+            updatedAt: price.last_updated_time || price.lastUpdatedTime || price.updated_at || price.updatedAt || updatedAt || null
+          };
+        })
+        .filter(price => isValidFuelPrice(price.price))
+    : [];
+}
+
+function detectQ8F24Brand(station) {
+  const text = String([
+    station.brand,
+    station.name,
+    station.operator,
+    station.siteName
+  ].filter(Boolean).join(" ")).toLowerCase();
+
+  if (/\bf24\b/.test(text)) return "F24";
+  if (/\bq8\b/.test(text)) return "Q8";
+  return "Q8/F24";
+}
+
+function addConfiguredStationSource({ result, sources, stationGroups, id, name, urlEnv }) {
+  if (result.status !== "fulfilled") {
+    sources.push({
+      id,
+      name,
+      ok: false,
+      configured: true,
+      stations: 0,
+      error: result.reason?.message || String(result.reason)
+    });
+    return;
+  }
+
+  const payload = result.value;
+  const stations = Array.isArray(payload.stations) ? payload.stations : [];
+  const configured = payload.configured !== false;
+
+  if (configured) stationGroups.push(stations);
+
+  sources.push({
+    id,
+    name,
+    ok: configured,
+    configured,
+    stations: stations.length,
+    error: configured ? null : `Set ${urlEnv} to enable this source`
+  });
 }
 
 async function fetchCircleKListPrices() {

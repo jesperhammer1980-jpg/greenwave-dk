@@ -5,6 +5,8 @@ const OVERPASS_ENDPOINTS = [
 ];
 
 const OK_PRICE_MATCH_MAX_METERS = 300;
+const STRICT_BRAND_PRICE_MATCH_MAX_METERS = 300;
+const STRICT_BRAND_PRICE_SOURCE_IDS = new Set(["circlek-api", "ok-api", "unox-api", "q8-f24-api"]);
 
 export default async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store");
@@ -374,6 +376,9 @@ function attachPrice(station, prices, fuelType) {
 }
 
 function findMatchingPriceStation(station, priceStations) {
+  const strictBrandMatch = findNearestStrictBrandPriceStation(station, priceStations);
+  if (strictBrandMatch) return strictBrandMatch;
+
   const okMatch = findNearestOkPriceStation(station, priceStations);
   if (okMatch) return okMatch;
 
@@ -406,6 +411,32 @@ function findMatchingPriceStation(station, priceStations) {
   return bestScore >= 5 ? best : null;
 }
 
+function findNearestStrictBrandPriceStation(station, priceStations) {
+  if (!hasCoordinate(Number(station.lat), Number(station.lng))) {
+    return null;
+  }
+
+  let best = null;
+  let bestDistance = Infinity;
+
+  for (const candidate of priceStations) {
+    if (!STRICT_BRAND_PRICE_SOURCE_IDS.has(candidate.sourceId)) continue;
+    if (!candidateCanMatchStation(candidate, station)) continue;
+
+    const lat = Number(candidate.lat);
+    const lng = Number(candidate.lng);
+    if (!hasCoordinate(lat, lng)) continue;
+
+    const distance = haversine(Number(station.lat), Number(station.lng), lat, lng);
+    if (distance < bestDistance) {
+      best = candidate;
+      bestDistance = distance;
+    }
+  }
+
+  return best && bestDistance <= STRICT_BRAND_PRICE_MATCH_MAX_METERS ? best : null;
+}
+
 function findNearestOkPriceStation(station, priceStations) {
   if (!isOkStation(station) || !hasCoordinate(Number(station.lat), Number(station.lng))) {
     return null;
@@ -434,6 +465,8 @@ function findNearestOkPriceStation(station, priceStations) {
 function candidateCanMatchStation(candidate, station) {
   if (candidate.sourceId === "ok-api") return isOkStation(station);
   if (candidate.sourceId === "circlek-api") return isCircleKOrIngoStation(station);
+  if (candidate.sourceId === "unox-api") return isUnoXStation(station);
+  if (candidate.sourceId === "q8-f24-api") return isMatchingQ8F24Station(candidate, station);
   return true;
 }
 
@@ -445,6 +478,30 @@ function isOkStation(station) {
   const text = stationText(station);
   return /\bok\b/.test(text) &&
     !/\b(circle\s*k|circlek|ingo|shell|uno\s*x|unox|f24|q8|go\s*on|goon)\b/.test(text);
+}
+
+function isUnoXStation(station) {
+  const text = stationText(station);
+  return /\b(uno\s*x|unox)\b/.test(text) &&
+    !/\b(circle\s*k|circlek|ingo|ok|shell|f24|q8|go\s*on|goon)\b/.test(text);
+}
+
+function isQ8Station(station) {
+  const text = stationText(station);
+  return /\bq8\b/.test(text) &&
+    !/\b(circle\s*k|circlek|ingo|ok|shell|uno\s*x|unox|f24|go\s*on|goon)\b/.test(text);
+}
+
+function isF24Station(station) {
+  const text = stationText(station);
+  return /\bf24\b/.test(text) &&
+    !/\b(circle\s*k|circlek|ingo|ok|shell|uno\s*x|unox|q8|go\s*on|goon)\b/.test(text);
+}
+
+function isMatchingQ8F24Station(candidate, station) {
+  if (isQ8Station(station)) return isQ8Station(candidate);
+  if (isF24Station(station)) return isF24Station(candidate);
+  return false;
 }
 
 function chooseProduct(prices, fuelType) {
