@@ -8,6 +8,7 @@ const UNOX_CLIENT_SECRET_ENV = "UNOX_CLIENT_SECRET";
 const UNOX_DEFAULT_TOKEN_URL = "https://auth.unoxmobility.net/realms/production-api-gateway/protocol/openid-connect/token";
 const UNOX_DEFAULT_FUEL_PRICES_URL = "https://api.unoxmobility.net/gasstations/v1/getStationsAndPrices";
 const Q8_F24_FUEL_PRICES_URL_ENV = "Q8_F24_FUEL_PRICES_URL";
+const Q8_F24_DEFAULT_HEADER_ENV = "Q8_F24_DEFAULT_HEADER";
 
 export default async function handler(req, res) {
   res.setHeader("Cache-Control", "s-maxage=300, stale-while-revalidate=1800");
@@ -350,6 +351,8 @@ async function fetchQ8F24Stations() {
     tokenEnv: "Q8_F24_API_TOKEN",
     authHeaderEnv: "Q8_F24_API_AUTH_HEADER",
     authSchemeEnv: "Q8_F24_API_AUTH_SCHEME",
+    defaultHeaderEnv: Q8_F24_DEFAULT_HEADER_ENV,
+    defaultHeaderRequired: true,
     brandFromStation: station => detectQ8F24Brand(station)
   });
 }
@@ -390,13 +393,28 @@ function configuredApiHeaders(config) {
 
   if (key) {
     const header = process.env[config.authHeaderEnv] || "Authorization";
-    const scheme = process.env[config.authSchemeEnv] || "Bearer";
+    const scheme = process.env[config.authSchemeEnv] || "";
     headers[header] = header.toLowerCase() === "authorization" && scheme
       ? `${scheme} ${key}`
       : key;
   }
 
+  if (config.defaultHeaderEnv) {
+    headers.DefaultHeader = process.env[config.defaultHeaderEnv] || makeDefaultHeader(config.sourceId);
+  }
+
   return headers;
+}
+
+function makeDefaultHeader(sourceId) {
+  return JSON.stringify({
+    transactionId: `${sourceId}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+    systemName: "GreenWave",
+    ipAddress: "0.0.0.0",
+    hostName: "greenwave-dk.vercel.app",
+    userToken: "GreenWave",
+    serviceToken: "GreenWave"
+  });
 }
 
 function extractStationItems(data) {
