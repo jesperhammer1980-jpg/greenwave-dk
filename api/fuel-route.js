@@ -379,6 +379,9 @@ function findMatchingPriceStation(station, priceStations) {
   const strictBrandMatch = findNearestStrictBrandPriceStation(station, priceStations);
   if (strictBrandMatch) return strictBrandMatch;
 
+  const q8F24AddressMatch = findMatchingQ8F24AddressStation(station, priceStations);
+  if (q8F24AddressMatch) return q8F24AddressMatch;
+
   const okMatch = findNearestOkPriceStation(station, priceStations);
   if (okMatch) return okMatch;
 
@@ -409,6 +412,63 @@ function findMatchingPriceStation(station, priceStations) {
   }
 
   return bestScore >= 5 ? best : null;
+}
+
+function findMatchingQ8F24AddressStation(station, priceStations) {
+  if (!isQ8Station(station) && !isF24Station(station)) return null;
+
+  const stationAddress = addressKey(station.addressText);
+  const stationCity = addressKey(station.city);
+  const stationPostalCode = String(station.postalCode || "").trim();
+  let best = null;
+  let bestScore = 0;
+
+  for (const candidate of priceStations) {
+    if (candidate.sourceId !== "q8-f24-api") continue;
+    if (!isMatchingQ8F24Station(candidate, station)) continue;
+
+    const candidateAddress = addressKey(candidate.addressText || candidate.address || "");
+    const candidateCity = addressKey(candidate.city || "");
+    const candidatePostalCode = String(candidate.postalCode || "").trim();
+    let score = 0;
+
+    if (stationPostalCode && candidatePostalCode && stationPostalCode === candidatePostalCode) score += 4;
+    if (stationCity && candidateCity && stationCity === candidateCity) score += 3;
+
+    if (stationAddress && candidateAddress) {
+      if (stationAddress === candidateAddress) score += 8;
+      else if (stationAddress.includes(candidateAddress) || candidateAddress.includes(stationAddress)) score += 5;
+      else if (addressTokenOverlap(stationAddress, candidateAddress) >= 2) score += 3;
+    }
+
+    if (score > bestScore) {
+      best = candidate;
+      bestScore = score;
+    }
+  }
+
+  return bestScore >= 7 ? best : null;
+}
+
+function addressKey(value) {
+  return norm(value)
+    .replace(/\bvej\b/g, "vej")
+    .replace(/\bgade\b/g, "gade")
+    .replace(/\balle\b/g, "alle")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function addressTokenOverlap(a, b) {
+  const aa = new Set(String(a || "").split(" ").filter(token => token.length > 1));
+  const bb = new Set(String(b || "").split(" ").filter(token => token.length > 1));
+  let count = 0;
+
+  for (const token of aa) {
+    if (bb.has(token)) count += 1;
+  }
+
+  return count;
 }
 
 function findNearestStrictBrandPriceStation(station, priceStations) {
