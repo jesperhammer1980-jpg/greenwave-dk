@@ -342,19 +342,92 @@ function normalizeUnoXStation(station) {
 }
 
 async function fetchQ8F24Stations() {
-  return fetchConfiguredBrandStations({
-    sourceId: "q8-f24-api",
-    source: "Q8 / F24 fuel price API",
-    brand: "Q8/F24",
-    urlEnv: Q8_F24_FUEL_PRICES_URL_ENV,
-    apiKeyEnv: "Q8_F24_API_KEY",
-    tokenEnv: "Q8_F24_API_TOKEN",
-    authHeaderEnv: "Q8_F24_API_AUTH_HEADER",
-    authSchemeEnv: "Q8_F24_API_AUTH_SCHEME",
-    defaultHeaderEnv: Q8_F24_DEFAULT_HEADER_ENV,
-    defaultHeaderRequired: true,
-    brandFromStation: station => detectQ8F24Brand(station)
+  const url = process.env[Q8_F24_FUEL_PRICES_URL_ENV];
+  if (!url) {
+    return {
+      configured: false,
+      stations: [],
+      missingEnv: Q8_F24_FUEL_PRICES_URL_ENV
+    };
+  }
+
+  const response = await fetch(url, {
+    headers: configuredApiHeaders({
+      sourceId: "q8-f24-api",
+      source: "Q8 / F24 fuel price API",
+      apiKeyEnv: "Q8_F24_API_KEY",
+      tokenEnv: "Q8_F24_API_TOKEN",
+      authHeaderEnv: "Q8_F24_API_AUTH_HEADER",
+      authSchemeEnv: "Q8_F24_API_AUTH_SCHEME",
+      defaultHeaderEnv: Q8_F24_DEFAULT_HEADER_ENV
+    })
   });
+
+  const body = await response.text();
+
+  if (!response.ok) {
+    throw new Error(`Q8 / F24 fuel price API HTTP ${response.status}: ${body.slice(0, 300)}`);
+  }
+
+  let data;
+  try {
+    data = JSON.parse(body);
+  } catch (error) {
+    throw new Error(`Q8 / F24 fuel price API returned non-JSON: ${body.slice(0, 300)}`);
+  }
+
+  const items = Array.isArray(data?.stationsPrices) ? data.stationsPrices : [];
+
+  return {
+    configured: true,
+    stations: items
+      .map(normalizeQ8F24Station)
+      .filter(Boolean)
+  };
+}
+
+function normalizeQ8F24Station(station) {
+  if (!station || typeof station !== "object") return null;
+
+  const stationId = String(station.stationId ?? station.id ?? "");
+  const brand = detectQ8F24Brand(station);
+  const parsed = parseQ8F24Address(station.address || "");
+
+  return {
+    id: `q8-f24-${stationId || station.address || station.stationName}`,
+    source: "Q8 / F24 fuel price API",
+    sourceId: "q8-f24-api",
+    stationId,
+    name: station.stationName || brand,
+    brand,
+    addressText: parsed.addressText,
+    postalCode: parsed.postalCode,
+    city: parsed.city,
+    lat: null,
+    lng: null,
+    coordinateSource: "none",
+    prices: normalizeBrandPrices(station.products || [], null)
+  };
+}
+
+function parseQ8F24Address(value) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  const withoutCountry = text.replace(/\s+Danmark$/i, "").trim();
+  const match = withoutCountry.match(/^(.*?)(?:\s+)(\d{4})(?:\s+)(.+)$/);
+
+  if (!match) {
+    return {
+      addressText: withoutCountry,
+      postalCode: "",
+      city: ""
+    };
+  }
+
+  return {
+    addressText: match[1].trim(),
+    postalCode: match[2],
+    city: match[3].trim()
+  };
 }
 
 async function fetchConfiguredBrandStations(config) {
@@ -409,9 +482,9 @@ function configuredApiHeaders(config) {
 function makeDefaultHeader(sourceId) {
   return JSON.stringify({
     transactionId: `${sourceId}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
-    systemName: "GreenWave",
-    ipAddress: "0.0.0.0",
-    hostName: "greenwave-dk.vercel.app",
+    systemName: "1012",
+    ipAddress: "100.45.67.01",
+    hostName: "HOSTPC",
     userToken: "GreenWave",
     serviceToken: "GreenWave"
   });
