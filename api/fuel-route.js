@@ -417,9 +417,10 @@ function findMatchingPriceStation(station, priceStations) {
 function findMatchingQ8F24AddressStation(station, priceStations) {
   if (!isQ8Station(station) && !isF24Station(station)) return null;
 
-  const stationAddress = addressKey(station.addressText);
-  const stationCity = addressKey(station.city);
-  const stationPostalCode = String(station.postalCode || "").trim();
+  const stationParts = q8F24StationAddressParts(station);
+  const stationAddress = addressKey(stationParts.addressText);
+  const stationCity = addressKey(stationParts.city);
+  const stationPostalCode = String(stationParts.postalCode || "").trim();
   let best = null;
   let bestScore = 0;
 
@@ -448,6 +449,20 @@ function findMatchingQ8F24AddressStation(station, priceStations) {
   }
 
   return bestScore >= 7 ? best : null;
+}
+
+function q8F24StationAddressParts(station) {
+  const tags = station.tags || {};
+  const street = tags["addr:street"] || tags.street || "";
+  const houseNumber = tags["addr:housenumber"] || tags.houseNumber || "";
+  const postcode = tags["addr:postcode"] || station.postalCode || "";
+  const city = tags["addr:city"] || station.city || "";
+
+  return {
+    addressText: station.addressText || [street, houseNumber].filter(Boolean).join(" "),
+    postalCode: postcode,
+    city
+  };
 }
 
 function addressKey(value) {
