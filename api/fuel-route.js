@@ -9,7 +9,8 @@ const STRICT_BRAND_PRICE_MATCH_MAX_METERS = 300;
 const STRICT_BRAND_PRICE_SOURCE_IDS = new Set(["circlek-api", "ok-api", "unox-api", "q8-f24-api"]);
 
 export default async function hasCoords(item) {
-  return Number.isFinite(Number(item?.lat)) && Number.isFinite(Number(item?.lng));
+  if (!item) return false;
+  return Number.isFinite(Number(item.lat)) && Number.isFinite(Number(item.lng));
 }
 
 function handler(req, res) {
@@ -473,9 +474,6 @@ function findMatchingPriceStation(station, priceStations) {
   const strictBrandMatch = findNearestStrictBrandPriceStation(station, priceStations);
   if (strictBrandMatch) return strictBrandMatch;
 
-  const q8F24NearestMatch = findNearestQ8F24PriceStation(station, priceStations);
-  if (q8F24NearestMatch) return q8F24NearestMatch;
-
   const q8F24AddressMatch = findMatchingQ8F24AddressStation(station, priceStations);
   if (q8F24AddressMatch) return q8F24AddressMatch;
 
@@ -509,27 +507,6 @@ function findMatchingPriceStation(station, priceStations) {
   }
 
   return bestScore >= 5 ? best : null;
-}
-
-function findNearestQ8F24PriceStation(station, priceStations) {
-  if (!isQ8Station(station) && !isF24Station(station)) return null;
-
-  let best = null;
-  let bestDistance = Infinity;
-
-  for (const candidate of priceStations) {
-    if (candidate.sourceId !== "q8-f24-api") continue;
-    if (!isMatchingQ8F24Station(candidate, station)) continue;
-    if (!hasCoords(candidate)) continue;
-
-    const distance = haversineMeters(station.lat, station.lng, candidate.lat, candidate.lng);
-    if (distance < bestDistance) {
-      best = candidate;
-      bestDistance = distance;
-    }
-  }
-
-  return best && bestDistance <= 300 ? best : null;
 }
 
 function findMatchingQ8F24AddressStation(station, priceStations) {
