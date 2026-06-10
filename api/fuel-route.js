@@ -690,8 +690,13 @@ function isMatchingQ8F24Station(candidate, station) {
 }
 
 function chooseProduct(prices, fuelType) {
-  const items = prices.filter(price => isValidFuelPrice(price.price));
-  return items.find(price => productMatchesFuelType(price, fuelType)) || null;
+  const items = prices
+    .filter(price => isValidFuelPrice(price.price))
+    .map(price => ({ price, score: productScoreForFuelType(price, fuelType) }))
+    .filter(item => Number.isFinite(item.score))
+    .sort((a, b) => a.score - b.score || Number(a.price.price) - Number(b.price.price));
+
+  return items[0]?.price || null;
 }
 
 function attachRouteDistances(stations, geometry) {
@@ -848,29 +853,46 @@ function stationText(station) {
 }
 
 function productMatchesFuelType(product, fuelType) {
+  return Number.isFinite(productScoreForFuelType(product, fuelType));
+}
+
+function productScoreForFuelType(product, fuelType) {
   const text = norm(`${product.code} ${product.octane} ${product.fuelType} ${product.productName} ${product.displayName}`);
   const isDieselProduct = /\bdiesel\b|hvo|truck|lastbil|hgv/.test(text);
   const isTruckProduct = /\b(truck|lastbil|hgv)\b/.test(text);
   const isGasolineProduct = /\b(benzin|gasoline|petrol|miles\s*95|blyfri|e10|e5)\b/.test(text) ||
     /\b95\b|\b98\b|\b100\b/.test(text);
+  const isPremium = /\b(premium|plus|extra|ultimate|v power)\b/.test(text);
 
   if (fuelType === "diesel") {
-    return isDieselProduct && !isGasolineProduct && !/\b(premium|plus|extra)\b/.test(text);
+    if (!isDieselProduct || isGasolineProduct || isPremium) return Infinity;
+    return 10;
   }
 
   if (fuelType === "premiumDiesel") {
-    return isDieselProduct && !isGasolineProduct && /\b(premium|plus|extra)\b/.test(text);
+    if (!isDieselProduct || isGasolineProduct || !isPremium) return Infinity;
+    return 10;
   }
 
   if (fuelType === "benzin98") {
-    return isGasolineProduct && !isDieselProduct && !isTruckProduct && /\b(98|100|e5)\b/.test(text);
+    if (!isGasolineProduct || isDieselProduct || isTruckProduct) return Infinity;
+    if (/\b(100)\b/.test(text)) return 8;
+    if (/\b(98)\b/.test(text)) return 10;
+    if (/\be5\b/.test(text) && isPremium) return 20;
+    return Infinity;
   }
 
-  return isGasolineProduct &&
-    !isDieselProduct &&
-    !isTruckProduct &&
-    (/\b(95|e10)\b|miles\s*95|blyfri\s*95/.test(text)) &&
-    !/\b(98|100|premium|plus)\b/.test(text);
+  // Standard benzin 95 must prefer normal 95 E10. Do NOT use Q8/F24 "GoEasy 95 Extra E5"
+  // as normal 95, because that is a premium/extra product and gives a misleading high price.
+  if (!isGasolineProduct || isDieselProduct || isTruckProduct) return Infinity;
+  if (/\b(98|100)\b/.test(text)) return Infinity;
+  if (isPremium) return Infinity;
+
+  if (/\b(e10)\b/.test(text) && /\b95\b/.test(text)) return 1;
+  if (/\b(e10)\b/.test(text)) return 2;
+  if (/miles\s*95|blyfri\s*95|benzin\s*95|\b95\b/.test(text)) return 5;
+
+  return Infinity;
 }
 
 function isLat(value) {
