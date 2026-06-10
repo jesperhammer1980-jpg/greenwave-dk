@@ -378,11 +378,13 @@ async function fetchQ8F24Stations() {
 
   const items = Array.isArray(data?.stationsPrices) ? data.stationsPrices : [];
 
+  const stations = items
+    .map(normalizeQ8F24Station)
+    .filter(Boolean);
+
   return {
     configured: true,
-    stations: items
-      .map(normalizeQ8F24Station)
-      .filter(Boolean)
+    stations: await geocodeQ8F24Stations(stations)
   };
 }
 
@@ -403,6 +405,7 @@ function normalizeQ8F24Station(station) {
     addressText: parsed.addressText,
     postalCode: parsed.postalCode,
     city: parsed.city,
+    rawAddress: station.address || "",
     lat: null,
     lng: null,
     coordinateSource: "none",
@@ -428,6 +431,101 @@ function parseQ8F24Address(value) {
     postalCode: match[2],
     city: match[3].trim()
   };
+}
+
+const q8F24GeocodeCache = new Map();
+
+async function geocodeQ8F24Stations(stations) {
+  const result = [];
+  const batchSize = 6;
+
+  for (let index = 0; index < stations.length; index += batchSize) {
+    const batch = stations.slice(index, index + batchSize);
+    const geocoded = await Promise.all(batch.map(geocodeQ8F24Station));
+    result.push(...geocoded);
+  }
+
+  return result;
+}
+
+async function geocodeQ8F24Station(station) {
+  const query = [station.addressText, station.postalCode, station.city].filter(Boolean).join(" ").trim();
+  if (!query) return station;
+
+  const cacheKey = query.toLowerCase();
+  if (q8F24GeocodeCache.has(cacheKey)) {
+    return { ...station, ...q8F24GeocodeCache.get(cacheKey) };
+  }
+
+  const coord = await geocodeDanishAddress(query);
+
+  if (!coord) {
+    q8F24GeocodeCache.set(cacheKey, {
+      lat: null,
+      lng: null,
+      coordinateSource: "dawa-none"
+    });
+    return { ...station, coordinateSource: "dawa-none" };
+  }
+
+  const patch = {
+    lat: coord.lat,
+    lng: coord.lng,
+    coordinateSource: "dawa-address"
+  };
+
+  q8F24GeocodeCache.set(cacheKey, patch);
+  return { ...station, ...patch };
+}
+
+async function geocodeDanishAddress(query) {
+  const urls = [
+    `https://api.dataforsyningen.dk/adresser?q=${encodeURIComponent(query)}&struktur=mini&per_side=1`,
+    `https://api.dataforsyningen.dk/adgangsadresser?q=${encodeURIComponent(query)}&struktur=mini&per_side=1`
+  ];
+
+  for (const url of urls) {
+    try {
+      const response = await fetch(url, {
+        headers: {
+          "Accept": "application/json",
+          "User-Agent": "GreenWave-DK/1.0"
+        }
+      });
+
+      if (!response.ok) continue;
+
+      const data = await response.json();
+      const item = Array.isArray(data) ? data[0] : null;
+      const coord = extractDawaCoord(item);
+
+      if (coord) return coord;
+    } catch (error) {
+      // Continue to next lookup method. Source status remains ok because prices are still valid.
+    }
+  }
+
+  return null;
+}
+
+function extractDawaCoord(item) {
+  if (!item || typeof item !== "object") return null;
+
+  const candidates = [
+    [item.y, item.x],
+    [item.lat, item.lng],
+    [item.latitude, item.longitude],
+    [item.adgangspunkt?.koordinater?.[1], item.adgangspunkt?.koordinater?.[0]],
+    [item.adgangsadresse?.adgangspunkt?.koordinater?.[1], item.adgangsadresse?.adgangspunkt?.koordinater?.[0]]
+  ];
+
+  for (const [latRaw, lngRaw] of candidates) {
+    const lat = num(latRaw);
+    const lng = num(lngRaw);
+    if (isLat(lat) && isLng(lng)) return { lat, lng };
+  }
+
+  return null;
 }
 
 async function fetchConfiguredBrandStations(config) {

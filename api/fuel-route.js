@@ -364,17 +364,6 @@ function attachPrice(station, prices, fuelType) {
     };
   }
 
-  const q8F24Fallback = chooseQ8F24BrandFallbackProduct(station, priceStations, fuelType);
-  if (q8F24Fallback && isValidFuelPrice(q8F24Fallback.price) && (!truckStation || isDieselFuelType(fuelType))) {
-    return {
-      ...station,
-      price: Number(q8F24Fallback.price),
-      priceProduct: q8F24Fallback.productName || q8F24Fallback.displayName || q8F24Fallback.fuelType || fuelType,
-      priceSource: "Q8 / F24 fuel price API (brand fallback)",
-      matchDebug: { ...matchDebug, matched: true, fallback: "q8-f24-brand" }
-    };
-  }
-
   if (truckStation) {
     return { ...station, price: null, matchDebug: { ...matchDebug, matched: false, reason: "truck station without safe diesel product" } };
   }
@@ -394,27 +383,6 @@ function attachPrice(station, prices, fuelType) {
   }
 
   return { ...station, price: null, matchDebug: { ...matchDebug, matched: false, reason: match ? "candidate found but no safe product match" : "no safe station match" } };
-}
-
-function chooseQ8F24BrandFallbackProduct(station, priceStations, fuelType) {
-  if (!isQ8Station(station) && !isF24Station(station)) return null;
-
-  const products = [];
-
-  for (const candidate of priceStations) {
-    if (candidate.sourceId !== "q8-f24-api") continue;
-    if (!isMatchingQ8F24Station(candidate, station)) continue;
-
-    const product = chooseProduct(candidate.prices || [], fuelType);
-    if (product && isValidFuelPrice(product.price)) {
-      products.push(product);
-    }
-  }
-
-  if (!products.length) return null;
-
-  products.sort((a, b) => Number(a.price) - Number(b.price));
-  return products[0];
 }
 
 function buildMatchDebug(station, priceStations, fuelType, match, product) {
@@ -454,6 +422,9 @@ function buildMatchDebug(station, priceStations, fuelType, match, product) {
       addressText: match.addressText,
       postalCode: match.postalCode,
       city: match.city,
+      lat: match.lat,
+      lng: match.lng,
+      coordinateSource: match.coordinateSource,
       priceProducts: Array.isArray(match.prices) ? match.prices.map(price => price.productName || price.displayName || price.fuelType).filter(Boolean).slice(0, 8) : []
     } : null,
     product: product ? {
@@ -712,13 +683,8 @@ function isMatchingQ8F24Station(candidate, station) {
     candidate.address
   ].filter(Boolean).join(" "));
 
-  if (isF24Station(station)) {
-    return candidateText.includes("f24");
-  }
-
-  if (isQ8Station(station)) {
-    return candidateText.includes("q8");
-  }
+  if (isF24Station(station)) return candidateText.includes("f24");
+  if (isQ8Station(station)) return candidateText.includes("q8");
 
   return false;
 }
