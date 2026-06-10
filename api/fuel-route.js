@@ -8,12 +8,12 @@ const OK_PRICE_MATCH_MAX_METERS = 300;
 const STRICT_BRAND_PRICE_MATCH_MAX_METERS = 300;
 const STRICT_BRAND_PRICE_SOURCE_IDS = new Set(["circlek-api", "ok-api", "unox-api", "q8-f24-api"]);
 
-export default async function hasCoords(item) {
+function hasCoords(item) {
   if (!item) return false;
   return Number.isFinite(Number(item.lat)) && Number.isFinite(Number(item.lng));
 }
 
-function handler(req, res) {
+export default async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store");
   res.setHeader("Access-Control-Allow-Origin", "*");
 
