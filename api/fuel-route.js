@@ -437,7 +437,7 @@ function q8F24CandidateDiagnostics(station, priceStations) {
   const stationPostalCode = String(stationParts.postalCode || "").trim();
 
   return priceStations
-    .filter(candidate => candidate.sourceId === "q8-f24-api" && isMatchingQ8F24Station(candidate, station))
+    .filter(candidate => candidate.sourceId === "q8-f24-api" && (isMatchingQ8F24Station(candidate, station) || isQ8Station(station) || isF24Station(station)))
     .map(candidate => {
       const candidateAddress = addressKey(candidate.addressText || candidate.address || "");
       const candidateCity = addressKey(candidate.city || "");
@@ -468,6 +468,9 @@ function q8F24CandidateDiagnostics(station, priceStations) {
 function findMatchingPriceStation(station, priceStations) {
   const strictBrandMatch = findNearestStrictBrandPriceStation(station, priceStations);
   if (strictBrandMatch) return strictBrandMatch;
+
+  const q8F24NearestMatch = findNearestQ8F24PriceStation(station, priceStations);
+  if (q8F24NearestMatch) return q8F24NearestMatch;
 
   const q8F24AddressMatch = findMatchingQ8F24AddressStation(station, priceStations);
   if (q8F24AddressMatch) return q8F24AddressMatch;
@@ -502,6 +505,27 @@ function findMatchingPriceStation(station, priceStations) {
   }
 
   return bestScore >= 5 ? best : null;
+}
+
+function findNearestQ8F24PriceStation(station, priceStations) {
+  if (!isQ8Station(station) && !isF24Station(station)) return null;
+
+  let best = null;
+  let bestDistance = Infinity;
+
+  for (const candidate of priceStations) {
+    if (candidate.sourceId !== "q8-f24-api") continue;
+    if (!isMatchingQ8F24Station(candidate, station)) continue;
+    if (!hasCoords(candidate)) continue;
+
+    const distance = haversineMeters(station.lat, station.lng, candidate.lat, candidate.lng);
+    if (distance < bestDistance) {
+      best = candidate;
+      bestDistance = distance;
+    }
+  }
+
+  return best && bestDistance <= 300 ? best : null;
 }
 
 function findMatchingQ8F24AddressStation(station, priceStations) {
@@ -664,8 +688,25 @@ function isF24Station(station) {
 }
 
 function isMatchingQ8F24Station(candidate, station) {
-  if (isQ8Station(station)) return isQ8Station(candidate);
-  if (isF24Station(station)) return isF24Station(candidate);
+  if (!candidate || candidate.sourceId !== "q8-f24-api") return false;
+
+  const candidateText = norm([
+    candidate.brand,
+    candidate.name,
+    candidate.stationName,
+    candidate.source,
+    candidate.addressText,
+    candidate.address
+  ].filter(Boolean).join(" "));
+
+  if (isF24Station(station)) {
+    return candidateText.includes("f24");
+  }
+
+  if (isQ8Station(station)) {
+    return candidateText.includes("q8");
+  }
+
   return false;
 }
 
