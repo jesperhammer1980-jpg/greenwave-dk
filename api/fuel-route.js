@@ -139,7 +139,8 @@ export default async function handler(req, res) {
         distanceAlongRoute: Math.round(station.distanceAlongRoute),
         price: isValidFuelPrice(station.price) ? Number(station.price) : null,
         priceProduct: station.priceProduct || null,
-        priceSource: station.priceSource || null
+        priceSource: station.priceSource || null,
+        matchDebug: station.matchDebug || null
       }))
     });
   } catch (error) {
@@ -342,21 +343,24 @@ function normalizeOsmFuel(element) {
 }
 
 function attachPrice(station, prices, fuelType) {
-  const match = findMatchingPriceStation(station, prices.stations || []);
+  const priceStations = prices.stations || [];
+  const match = findMatchingPriceStation(station, priceStations);
   const product = match ? chooseProduct(match.prices || [], fuelType) : null;
   const truckStation = isTruckStation(station);
+  const matchDebug = buildMatchDebug(station, priceStations, fuelType, match, product);
 
   if (product && isValidFuelPrice(product.price) && (!truckStation || isDieselFuelType(fuelType))) {
     return {
       ...station,
       price: Number(product.price),
       priceProduct: product.productName || product.displayName || product.fuelType || fuelType,
-      priceSource: match.source || "price API"
+      priceSource: match.source || "price API",
+      matchDebug: { ...matchDebug, matched: true }
     };
   }
 
   if (truckStation) {
-    return { ...station, price: null };
+    return { ...station, price: null, matchDebug: { ...matchDebug, matched: false, reason: "truck station without safe diesel product" } };
   }
 
   if (isCircleKOrIngoStation(station)) {
@@ -367,12 +371,98 @@ function attachPrice(station, prices, fuelType) {
         ...station,
         price: Number(listed.price),
         priceProduct: listed.productName || fuelType,
-        priceSource: listed.source
+        priceSource: listed.source,
+        matchDebug: { ...matchDebug, matched: true, fallback: "circlek-list" }
       };
     }
   }
 
-  return { ...station, price: null };
+  return { ...station, price: null, matchDebug: { ...matchDebug, matched: false, reason: match ? "candidate found but no safe product match" : "no safe station match" } };
+}
+
+function buildMatchDebug(station, priceStations, fuelType, match, product) {
+  const tags = station.tags || {};
+  const relevantTags = {
+    brand: tags.brand || null,
+    name: tags.name || null,
+    operator: tags.operator || null,
+    street: tags["addr:street"] || null,
+    houseNumber: tags["addr:housenumber"] || null,
+    postcode: tags["addr:postcode"] || null,
+    city: tags["addr:city"] || null
+  };
+
+  return {
+    fuelType,
+    station: {
+      name: station.name || "",
+      brand: station.brand || "",
+      addressText: station.addressText || "",
+      postalCode: station.postalCode || "",
+      city: station.city || "",
+      text: stationText(station),
+      tags: relevantTags
+    },
+    sourceCounts: {
+      q8F24: priceStations.filter(item => item.sourceId === "q8-f24-api").length,
+      unoX: priceStations.filter(item => item.sourceId === "unox-api").length,
+      ok: priceStations.filter(item => item.sourceId === "ok-api").length,
+      circleK: priceStations.filter(item => item.sourceId === "circlek-api").length
+    },
+    q8F24Candidates: q8F24CandidateDiagnostics(station, priceStations).slice(0, 5),
+    match: match ? {
+      sourceId: match.sourceId,
+      name: match.name,
+      brand: match.brand,
+      addressText: match.addressText,
+      postalCode: match.postalCode,
+      city: match.city,
+      priceProducts: Array.isArray(match.prices) ? match.prices.map(price => price.productName || price.displayName || price.fuelType).filter(Boolean).slice(0, 8) : []
+    } : null,
+    product: product ? {
+      productName: product.productName || product.displayName || product.fuelType || "",
+      price: product.price
+    } : null
+  };
+}
+
+function q8F24CandidateDiagnostics(station, priceStations) {
+  if (!isQ8Station(station) && !isF24Station(station)) return [];
+
+  const stationParts = typeof q8F24StationAddressParts === "function"
+    ? q8F24StationAddressParts(station)
+    : { addressText: station.addressText || "", postalCode: station.postalCode || "", city: station.city || "" };
+  const stationAddress = addressKey(stationParts.addressText);
+  const stationCity = addressKey(stationParts.city);
+  const stationPostalCode = String(stationParts.postalCode || "").trim();
+
+  return priceStations
+    .filter(candidate => candidate.sourceId === "q8-f24-api" && isMatchingQ8F24Station(candidate, station))
+    .map(candidate => {
+      const candidateAddress = addressKey(candidate.addressText || candidate.address || "");
+      const candidateCity = addressKey(candidate.city || "");
+      const candidatePostalCode = String(candidate.postalCode || "").trim();
+      let score = 0;
+
+      if (stationPostalCode && candidatePostalCode && stationPostalCode === candidatePostalCode) score += 4;
+      if (stationCity && candidateCity && stationCity === candidateCity) score += 3;
+      if (stationAddress && candidateAddress) {
+        if (stationAddress === candidateAddress) score += 8;
+        else if (stationAddress.includes(candidateAddress) || candidateAddress.includes(stationAddress)) score += 5;
+        else if (addressTokenOverlap(stationAddress, candidateAddress) >= 2) score += 3;
+      }
+
+      return {
+        score,
+        name: candidate.name,
+        brand: candidate.brand,
+        addressText: candidate.addressText,
+        postalCode: candidate.postalCode,
+        city: candidate.city,
+        productNames: Array.isArray(candidate.prices) ? candidate.prices.map(price => price.productName || price.displayName || price.fuelType).filter(Boolean).slice(0, 6) : []
+      };
+    })
+    .sort((a, b) => b.score - a.score);
 }
 
 function findMatchingPriceStation(station, priceStations) {
