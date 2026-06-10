@@ -568,8 +568,10 @@ function detectQ8F24Brand(station) {
   const text = String([
     station.brand,
     station.name,
+    station.stationName,
     station.operator,
-    station.siteName
+    station.siteName,
+    station.address
   ].filter(Boolean).join(" ")).toLowerCase();
 
   if (/\bf24\b/.test(text)) return "F24";
