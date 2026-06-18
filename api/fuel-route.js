@@ -422,6 +422,22 @@ function attachPrice(station, prices, fuelType) {
   };
 }
 
+function sortRecommendedFuelStations(a,b){
+  const aPriced=isValidFuelPrice(a.price);
+  const bPriced=isValidFuelPrice(b.price);
+  if(aPriced&&!bPriced)return-1;
+  if(!aPriced&&bPriced)return 1;
+
+  const aScore=Number.isFinite(Number(a.recommendationScore));
+  const bScore=Number.isFinite(Number(b.recommendationScore));
+  if(aScore&&bScore)return Number(a.recommendationScore)-Number(b.recommendationScore);
+  if(aScore&&!bScore)return-1;
+  if(!aScore&&bScore)return 1;
+
+  if(aPriced&&bPriced)return Number(a.price)-Number(b.price)||Number(a.distanceToRoute||0)-Number(b.distanceToRoute||0);
+  return Number(a.distanceAlongRoute||0)-Number(b.distanceAlongRoute||0)||Number(a.distanceToRoute||0)-Number(b.distanceToRoute||0);
+}
+
 function buildFuelStopRecommendation(station, price, dataQuality, matchStatus) {
   if (!isValidFuelPrice(price)) {
     return {
