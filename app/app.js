@@ -1,3 +1,4 @@
+const GREENWAVE_VERSION="v1.01-flow";
 const SKEY="greenwave_dk_settings_v2",HKEY="greenwave_dk_history_v2";
 const state={map:null,userMarker:null,destinationMarker:null,routeLine:null,routeGlow:null,fuelMarkers:[],currentPosition:null,destination:null,route:null,selectedAutocomplete:null,autocompleteTimer:null,watchId:null,stations:[],history:[],settings:{fuelType:"benzin95",maxFuelDetourMeters:2000,fuelAlongMeters:50000,fuelSort:"cheapest",routeMode:"fast"}};
 const els={},ids=["map","destinationInput","goBtn","autocompleteResults","historySection","historyList","settingsBtn","settingsBackdrop","settingsModal","closeSettingsBtn","saveSettingsBtn","fuelTypeSelect","fuelDetourSelect","fuelAlongSelect","fuelSortSelect","routeModeSelect","statusText","recommendedSpeed","speedLimit","currentSpeed","reasonText","startBtn","stopBtn","recalcBtn","routeDistance","routeDuration","routeEta","fuelRefreshBtn","fuelSummary","fuelList"];
@@ -14,6 +15,27 @@ function selectRoute(routes){if(state.settings.routeMode!=="eco")return routes[0
 function applyRoute(route){state.route=route;drawRoute(route.geometry);updateTrip(route);els.recommendedSpeed.textContent="--";els.speedLimit.textContent="?";els.reasonText.textContent="Maxhastighed ukendt på dette vejstykke.";}
 async function refreshFuel(){if(!state.route)return;els.fuelRefreshBtn.disabled=true;els.fuelSummary.textContent="Henter tankstationer og priser...";try{const r=await fetch("/api/fuel-route",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({geometry:state.route.geometry,fuelType:state.settings.fuelType,maxDetourMeters:state.settings.maxFuelDetourMeters,fuelAlongMeters:state.settings.fuelAlongMeters})});const d=await r.json();if(!r.ok||!d.ok)throw new Error(d.error||`fuel-route ${r.status}`);state.stations=(d.stations||[]).map(s=>({...s,price:isValidFuelPrice(s.price)?Number(s.price):null,matchStatus:s.matchStatus||null,matchReason:s.matchReason||null,sourceStatus:s.sourceStatus||null,dataQuality:s.dataQuality||null})).sort(sortStations);renderFuel(d);renderGreenWaveFlow();drawFuelMarkers();}catch(e){console.error(e);els.fuelSummary.textContent=`Kunne ikke hente tankstationer: ${e.message}`;}finally{els.fuelRefreshBtn.disabled=false;}}
 function renderFuel(d){const count=state.stations.length,priced=state.stations.filter(s=>isValidFuelPrice(s.price)).length;if(!count){const raw=fuelDebugValue(d,"rawElements");const norm=fuelDebugValue(d,"normalizedStations");const returned=d?.counts?.returned??d?.stations?.length??0;const api=d?.counts?.apiStations??d?.debug?.priceApi?.apiStations??"?";els.fuelSummary.textContent=`0 stationer. Debug: raw=${raw}, norm=${norm}, returned=${returned}, API=${api}, bbox=${JSON.stringify(d?.input?.routeBbox||d?.debug?.routeBox||d?.debug?.overpass?.bbox||{})}, errors=${(d?.debug?.errors||d?.debug?.overpass?.attempts?.map(a=>a.error||a.statusText||a.status).filter(Boolean)||[]).join(" | ")}`;els.fuelList.innerHTML="";return;}els.fuelSummary.textContent=`${count} stationer inden for ${fmtDist(state.settings.fuelAlongMeters)} langs ruten. ${priced} med kendt pris. Kilder: ${fuelSourceStatusSummary(d)}.`;els.fuelList.innerHTML=state.stations.slice(0,20).map(s=>{const hasPrice=isValidFuelPrice(s.price);const price=hasPrice?formatFuelPrice(s.price):"Pris ikke tilgængelig";const reason=stationPriceReason(s);const meta=[`${fmtDist(s.distanceAlongRoute)} langs ruten`,`${fmtDist(s.distanceToRoute)} fra ruten`,hasPrice&&s.priceProduct?s.priceProduct:"",hasPrice&&s.priceSource?`Pris fra ${s.priceSource}`:"",!hasPrice&&reason?reason:""].filter(Boolean).join(" · ");return `<article class="fuel-item"><div class="fuel-title"><span>${esc(s.name||"Tankstation")}</span><span class="fuel-price">${esc(price)}</span></div><div class="fuel-meta">${esc(meta)}</div><a target="_blank" href="https://www.google.com/maps/search/?api=1&query=${s.lat},${s.lng}">Åbn i Google Maps</a></article>`;}).join("");}
+function renderGreenWaveVersionBadge(){
+  let badge=document.getElementById("greenwave-version-badge");
+  if(!badge){
+    badge=document.createElement("div");
+    badge.id="greenwave-version-badge";
+    badge.className="greenwave-version-badge";
+    document.body.appendChild(badge);
+  }
+  badge.textContent=`GreenWave ${GREENWAVE_VERSION}`;
+}
+function ensureGreenWaveVersionStyles(){
+  if(document.getElementById("greenwave-version-style"))return;
+  const style=document.createElement("style");
+  style.id="greenwave-version-style";
+  style.textContent=".greenwave-version-badge{position:fixed;right:10px;bottom:10px;z-index:99999;padding:6px 9px;border-radius:999px;background:rgba(8,18,24,.88);border:1px solid rgba(116,255,165,.42);color:#d7ffe3;font:700 11px/1.1 system-ui,-apple-system,Segoe UI,sans-serif;box-shadow:0 8px 22px rgba(0,0,0,.35);pointer-events:none}";
+  document.head.appendChild(style);
+}
+function initGreenWaveVersionBadge(){
+  ensureGreenWaveVersionStyles();
+  renderGreenWaveVersionBadge();
+}
 function greenWaveFlowAdvice(){
   const active=state.route&&Array.isArray(state.route.geometry)&&state.route.geometry.length>1;
   if(!active)return{title:"GreenWave",text:"Planlæg en rute for at få anbefalet jævn hastighed.",level:"neutral"};
@@ -25,7 +47,7 @@ function greenWaveFlowAdvice(){
   if(speedKmh!=null&&speedKmh>target+8){text=`Sænk roligt mod ca. ${target} km/t. Aktuel fart: ${Math.round(speedKmh)} km/t.`;level="warn";}
   else if(speedKmh!=null&&speedKmh<target-10&&speedKmh>5){text=`Øg roligt mod ca. ${target} km/t, hvis fartgrænsen tillader det. Aktuel fart: ${Math.round(speedKmh)} km/t.`;level="neutral";}
   if(remaining&&remaining<700){text="Ruten er næsten færdig. Kør roligt og følg normal navigation.";level="neutral";}
-  return{title:"GreenWave flow",text,level,targetSpeed:target,remainingMeters:remaining||null,currentSpeedKmh:speedKmh};
+  return{title:"GreenWave flow · v1.01-flow",text,level,targetSpeed:target,remainingMeters:remaining||null,currentSpeedKmh:speedKmh};
 }
 function estimateFlowTargetSpeedKmh(speedKmh,remainingMeters){
   const base=Number.isFinite(speedKmh)&&speedKmh>70?70:50;
@@ -93,3 +115,5 @@ function setStatus(t){els.statusText.textContent=t;}function splitAddress(t){con
 
 setInterval(renderGreenWaveFlow,5000);
 setTimeout(renderGreenWaveFlow,500);
+
+initGreenWaveVersionBadge();
