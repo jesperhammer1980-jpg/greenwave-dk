@@ -149,6 +149,9 @@ export default async function handler(req, res) {
         matchStatus: station.matchStatus || null,
         matchReason: station.matchReason || null,
         dataQuality: station.dataQuality || null,
+        recommendationScore: Number.isFinite(Number(station.recommendationScore)) ? Number(station.recommendationScore) : null,
+        recommendationLabel: station.recommendationLabel || null,
+        recommendationReason: station.recommendationReason || null,
         matchDebug: station.matchDebug || null
       }))
     });
@@ -369,6 +372,7 @@ function attachPrice(station, prices, fuelType) {
       matchStatus: "matched",
       matchReason: "Specifik station og produkt matchet",
       dataQuality: baseStatus.dataQuality,
+      ...buildFuelStopRecommendation(station, Number(product.price), baseStatus.dataQuality, "matched"),
       matchDebug: { ...matchDebug, matched: true }
     };
   }
@@ -381,6 +385,7 @@ function attachPrice(station, prices, fuelType) {
       matchStatus: "blocked",
       matchReason: "Truck/diesel-station uden sikkert produkt til valgt brændstoftype",
       dataQuality: "blocked",
+      ...buildFuelStopRecommendation(station, null, "blocked", "blocked"),
       matchDebug: { ...matchDebug, matched: false, reason: "truck station without safe diesel product" }
     };
   }
@@ -398,6 +403,7 @@ function attachPrice(station, prices, fuelType) {
         matchStatus: "fallback-list",
         matchReason: "Stationsspecifik match manglede; bruger officiel Circle K/INGO listepris",
         dataQuality: "list-price",
+        ...buildFuelStopRecommendation(station, Number(listed.price), "list-price", "fallback-list"),
         matchDebug: { ...matchDebug, matched: true, fallback: "circlek-list" }
       };
     }
@@ -411,7 +417,40 @@ function attachPrice(station, prices, fuelType) {
     matchStatus: reason.status,
     matchReason: reason.message,
     dataQuality: reason.dataQuality,
+    ...buildFuelStopRecommendation(station, null, reason.dataQuality, reason.status),
     matchDebug: { ...matchDebug, matched: false, reason: reason.code }
+  };
+}
+
+function buildFuelStopRecommendation(station, price, dataQuality, matchStatus) {
+  if (!isValidFuelPrice(price)) {
+    return {
+      recommendationScore: null,
+      recommendationLabel: "Ikke anbefalet",
+      recommendationReason: matchStatus === "unsupported"
+        ? "Ingen understøttet priskilde"
+        : "Ingen sikker stationsspecifik pris"
+    };
+  }
+
+  const detourMeters = Math.max(0, Number(station.distanceToRoute || 0));
+  const alongMeters = Math.max(0, Number(station.distanceAlongRoute || 0));
+  const qualityPenalty = dataQuality === "specific-match" ? 0 : dataQuality === "list-price" ? 0.18 : 0.5;
+  const score = Number(price) + (detourMeters / 1000 * 0.18) + qualityPenalty + (alongMeters / 100000 * 0.03);
+
+  let label = "Godt alternativ";
+  if (detourMeters <= 250 && dataQuality === "specific-match") label = "Bedste kandidat";
+  else if (detourMeters > 1500) label = "Kun hvis det passer";
+  else if (dataQuality === "list-price") label = "Godt alternativ";
+
+  return {
+    recommendationScore: Number(score.toFixed(3)),
+    recommendationLabel: label,
+    recommendationReason: [
+      `${Number(price).toFixed(2).replace(".", ",")} kr/l`,
+      `${Math.round(detourMeters)} m fra ruten`,
+      dataQuality === "specific-match" ? "stationsspecifik pris" : "listepris"
+    ].join(" · ")
   };
 }
 
