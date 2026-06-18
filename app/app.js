@@ -1,4 +1,4 @@
-const GREENWAVE_VERSION="v1.04-driving-hardhide";
+const GREENWAVE_VERSION="v1.05-driving-safe";
 const SKEY="greenwave_dk_settings_v2",HKEY="greenwave_dk_history_v2";
 const state={map:null,userMarker:null,destinationMarker:null,routeLine:null,routeGlow:null,fuelMarkers:[],currentPosition:null,destination:null,route:null,selectedAutocomplete:null,autocompleteTimer:null,watchId:null,stations:[],history:[],settings:{fuelType:"benzin95",maxFuelDetourMeters:2000,fuelAlongMeters:50000,fuelSort:"cheapest",routeMode:"fast"}};
 const els={},ids=["map","destinationInput","goBtn","autocompleteResults","historySection","historyList","settingsBtn","settingsBackdrop","settingsModal","closeSettingsBtn","saveSettingsBtn","fuelTypeSelect","fuelDetourSelect","fuelAlongSelect","fuelSortSelect","routeModeSelect","statusText","recommendedSpeed","speedLimit","currentSpeed","reasonText","startBtn","stopBtn","recalcBtn","routeDistance","routeDuration","routeEta","fuelRefreshBtn","fuelSummary","fuelList"];
@@ -36,41 +36,40 @@ function initGreenWaveVersionBadge(){
   ensureGreenWaveVersionStyles();
   renderGreenWaveVersionBadge();
 }
-function applyDrivingModeHardHide(){
+function applyDrivingModeSafeHide(){
   const active=document.body.classList.contains("greenwave-driving-mode");
-  const selectors=[".greenwave-hardhide-driving"];
-  document.querySelectorAll(selectors.join(",")).forEach(el=>el.classList.remove("greenwave-hardhide-driving"));
+  document.querySelectorAll(".greenwave-safe-hidden").forEach(el=>el.classList.remove("greenwave-safe-hidden"));
   if(!active)return;
 
-  const candidates=[...document.querySelectorAll("section,article,div,aside")];
-  for(const el of candidates){
+  const nodes=[...document.querySelectorAll("section,article,aside,div")];
+  for(const el of nodes){
+    if(!el||el===document.body||el===document.documentElement)continue;
     if(el.id==="greenwave-flow-card"||el.id==="greenwave-driving-status"||el.id==="greenwave-version-badge")continue;
+    if(el.closest("#greenwave-flow-card,#greenwave-driving-status"))continue;
+
+    const rect=el.getBoundingClientRect();
+    if(rect.height<35||rect.height>520||rect.width<180)continue;
+
     const text=(el.innerText||el.textContent||"").trim().toLowerCase();
     if(!text)continue;
 
-    const isRecent=text.includes("seneste destinationer")||text.includes("ny mårumvej")||text.includes("herstedøstervej")||text.includes("lupinvej");
-    const isFuel=text.includes("tankstationer langs ruten")||text.includes("stationer inden for")||text.includes("kilder: circlek")||text.includes("q8/f24:ok")||text.includes("uno-x:ok");
-    if(isRecent||isFuel){
-      const box=findDrivingModeHideBox(el);
-      if(box)box.classList.add("greenwave-hardhide-driving");
+    const isRecentSection=text.includes("seneste destinationer");
+    const isFuelSection=text.includes("tankstationer langs ruten")||text.includes("stationer inden for");
+    const isRecentItem=text.includes("ny mårumvej")||text.includes("herstedøstervej")||text.includes("lupinvej");
+
+    // Hide section/card only, never large layout containers.
+    if(isRecentSection||isFuelSection||isRecentItem){
+      el.classList.add("greenwave-safe-hidden");
     }
   }
-}
-function findDrivingModeHideBox(el){
-  let current=el;
-  for(let i=0;i<4&&current&&current!==document.body;i++,current=current.parentElement){
-    const rect=current.getBoundingClientRect();
-    if(rect.width>250&&rect.height>40)return current;
-  }
-  return el;
 }
 function setGreenWaveDrivingMode(active){
   document.body.classList.toggle("greenwave-driving-mode",!!active);
   state.greenwaveDrivingMode=!!active;
   renderGreenWaveDrivingStatus();
-  applyDrivingModeHardHide();
-  setTimeout(applyDrivingModeHardHide,250);
-  setTimeout(applyDrivingModeHardHide,1200);
+  applyDrivingModeSafeHide();
+  setTimeout(applyDrivingModeSafeHide,250);
+  setTimeout(applyDrivingModeSafeHide,1000);
 }
 function renderGreenWaveDrivingStatus(){
   const card=document.getElementById("greenwave-driving-status")||createGreenWaveDrivingStatus();
@@ -96,8 +95,8 @@ function ensureGreenWaveDrivingStyles(){
     ".greenwave-driving-status{margin:10px 0 12px;padding:12px 14px;border-radius:16px;border:1px solid rgba(116,255,165,.28);background:rgba(8,18,24,.9);box-shadow:0 8px 22px rgba(0,0,0,.22)}",
     ".driving-status-title{font-weight:900;color:#d7ffe3;margin-bottom:4px}",
     ".driving-status-main{font-weight:800}",
-    ".driving-status-meta{font-size:.82rem;opacity:.78;margin-top:4px}.greenwave-exit-driving{margin-top:8px;border:1px solid rgba(255,255,255,.18);border-radius:999px;background:rgba(255,255,255,.08);color:#d7ffe3;padding:6px 10px;font-weight:800}.greenwave-driving-mode .greenwave-hardhide-driving{display:none!important}",
-    "body.greenwave-driving-mode .recent-destinations,body.greenwave-driving-mode .recent,body.greenwave-driving-mode [data-panel='recent'],body.greenwave-driving-mode [data-section='recent'],body.greenwave-driving-mode .history,body.greenwave-driving-mode .destination-history,body.greenwave-driving-mode #fuel-panel,body.greenwave-driving-mode .fuel-panel,body.greenwave-driving-mode #fuel-list,body.greenwave-driving-mode .fuel-list,body.greenwave-driving-mode #fuel-summary,body.greenwave-driving-mode .fuel-summary,body.greenwave-driving-mode [data-panel='fuel'],body.greenwave-driving-mode [data-section='fuel'],body.greenwave-driving-mode .fuel-section-title,body.greenwave-driving-mode .fuel-item{display:none!important}",
+    ".driving-status-meta{font-size:.82rem;opacity:.78;margin-top:4px}.greenwave-exit-driving{margin-top:8px;border:1px solid rgba(255,255,255,.18);border-radius:999px;background:rgba(255,255,255,.08);color:#d7ffe3;padding:6px 10px;font-weight:800}.greenwave-driving-mode .greenwave-safe-hidden{display:none!important}",
+    "body.greenwave-driving-mode .greenwave-safe-hidden{display:none!important}",
     "body.greenwave-driving-mode .greenwave-version-badge{background:rgba(16,58,38,.94);border-color:rgba(116,255,165,.7)}",
     "body.greenwave-driving-mode #greenwave-flow-card,body.greenwave-driving-mode #greenwave-driving-status{position:relative;z-index:5}",
     "body.greenwave-driving-mode .fuel-section-title{margin-top:10px}",
@@ -118,7 +117,7 @@ function initGreenWaveDrivingMode(){
   ensureGreenWaveDrivingStyles();
   renderGreenWaveDrivingStatus();
   bindGreenWaveStartButtons();
-  setInterval(()=>{bindGreenWaveStartButtons();if(state.greenwaveDrivingMode){renderGreenWaveDrivingStatus();applyDrivingModeHardHide();}},3000);
+  setInterval(()=>{bindGreenWaveStartButtons();if(state.greenwaveDrivingMode){renderGreenWaveDrivingStatus();applyDrivingModeSafeHide();}},3000);
 }
 function greenWaveFlowAdvice(){
   const active=state.route&&Array.isArray(state.route.geometry)&&state.route.geometry.length>1;
@@ -131,7 +130,7 @@ function greenWaveFlowAdvice(){
   if(speedKmh!=null&&speedKmh>target+8){text=`Sænk roligt mod ca. ${target} km/t. Aktuel fart: ${Math.round(speedKmh)} km/t.`;level="warn";}
   else if(speedKmh!=null&&speedKmh<target-10&&speedKmh>5){text=`Øg roligt mod ca. ${target} km/t, hvis fartgrænsen tillader det. Aktuel fart: ${Math.round(speedKmh)} km/t.`;level="neutral";}
   if(remaining&&remaining<700){text="Ruten er næsten færdig. Kør roligt og følg normal navigation.";level="neutral";}
-  return{title:"GreenWave flow · v1.04-driving-hardhide",text,level,targetSpeed:target,remainingMeters:remaining||null,currentSpeedKmh:speedKmh};
+  return{title:"GreenWave flow · v1.05-driving-safe",text,level,targetSpeed:target,remainingMeters:remaining||null,currentSpeedKmh:speedKmh};
 }
 function estimateFlowTargetSpeedKmh(speedKmh,remainingMeters){
   const base=Number.isFinite(speedKmh)&&speedKmh>70?70:50;
