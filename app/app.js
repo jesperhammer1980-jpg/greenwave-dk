@@ -1,4 +1,4 @@
-const GREENWAVE_VERSION="v1.08-fuel-sort-detour";
+const GREENWAVE_VERSION="v1.09-clean-front";
 const SKEY="greenwave_dk_settings_v2",HKEY="greenwave_dk_history_v2";
 const state={map:null,userMarker:null,destinationMarker:null,routeLine:null,routeGlow:null,fuelMarkers:[],currentPosition:null,destination:null,route:null,selectedAutocomplete:null,autocompleteTimer:null,watchId:null,stations:[],history:[],settings:{fuelType:"benzin95",maxFuelDetourMeters:2000,fuelAlongMeters:50000,fuelSort:"cheapest",routeMode:"fast"}};
 const els={},ids=["map","destinationInput","goBtn","autocompleteResults","historySection","historyList","settingsBtn","settingsBackdrop","settingsModal","closeSettingsBtn","saveSettingsBtn","fuelTypeSelect","fuelDetourSelect","fuelAlongSelect","fuelSortSelect","routeModeSelect","statusText","recommendedSpeed","speedLimit","currentSpeed","reasonText","startBtn","stopBtn","recalcBtn","routeDistance","routeDuration","routeEta","fuelRefreshBtn","fuelSummary","fuelList"];
@@ -35,6 +35,39 @@ function ensureGreenWaveVersionStyles(){
 function initGreenWaveVersionBadge(){
   ensureGreenWaveVersionStyles();
   renderGreenWaveVersionBadge();
+}
+function initGreenWaveFrontCleanup(){
+  ensureGreenWaveFrontCleanupStyles();
+  cleanupGreenWaveFrontCards();
+  setInterval(cleanupGreenWaveFrontCards,2500);
+}
+function cleanupGreenWaveFrontCards(){
+  const nodes=[...document.querySelectorAll("section,article,div")];
+  for(const el of nodes){
+    if(!el||el===document.body||el===document.documentElement)continue;
+    if(el.closest("#greenwave-driving-dashboard"))continue;
+    if(el.id==="greenwave-flow-card"||el.id==="greenwave-driving-status"||el.id==="greenwave-version-badge")continue;
+
+    const rect=el.getBoundingClientRect();
+    if(rect.width<80||rect.width>330||rect.height<45||rect.height>170)continue;
+
+    const text=(el.innerText||el.textContent||"").trim().toLowerCase().replace(/\s+/g," ");
+    const isOldSpeedCard=
+      (text.includes("anbefalet")&&text.includes("km/t"))||
+      (text.includes("max")&&text.includes("km/t"))||
+      (text.includes("aktuel")&&text.includes("km/t"));
+
+    if(isOldSpeedCard){
+      el.classList.add("greenwave-front-hidden");
+    }
+  }
+}
+function ensureGreenWaveFrontCleanupStyles(){
+  if(document.getElementById("greenwave-front-cleanup-style"))return;
+  const style=document.createElement("style");
+  style.id="greenwave-front-cleanup-style";
+  style.textContent=".greenwave-front-hidden{display:none!important}";
+  document.head.appendChild(style);
 }
 function initGreenWaveDrivingDashboard(){
   ensureGreenWaveDrivingDashboardStyles();
@@ -173,7 +206,7 @@ function greenWaveFlowAdvice(){
   if(speedKmh!=null&&speedKmh>target+8){text=`Sænk roligt mod ca. ${target} km/t. Aktuel fart: ${Math.round(speedKmh)} km/t.`;level="warn";}
   else if(speedKmh!=null&&speedKmh<target-10&&speedKmh>5){text=`Øg roligt mod ca. ${target} km/t, hvis fartgrænsen tillader det. Aktuel fart: ${Math.round(speedKmh)} km/t.`;level="neutral";}
   if(remaining&&remaining<700){text="Ruten er næsten færdig. Kør roligt og følg normal navigation.";level="neutral";}
-  return{title:"GreenWave flow · v1.08-fuel-sort-detour",text,level,targetSpeed:target,remainingMeters:remaining||null,currentSpeedKmh:speedKmh};
+  return{title:"GreenWave flow · v1.09-clean-front",text,level,targetSpeed:target,remainingMeters:remaining||null,currentSpeedKmh:speedKmh};
 }
 function estimateFlowTargetSpeedKmh(speedKmh,remainingMeters){
   const base=Number.isFinite(speedKmh)&&speedKmh>70?70:50;
@@ -281,3 +314,5 @@ setTimeout(renderGreenWaveFlow,500);
 initGreenWaveVersionBadge();
 
 initGreenWaveDrivingDashboard();
+
+initGreenWaveFrontCleanup();
