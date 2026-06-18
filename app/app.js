@@ -1,4 +1,4 @@
-const GREENWAVE_VERSION="v1.05-driving-safe";
+const GREENWAVE_VERSION="v1.06-no-planning";
 const SKEY="greenwave_dk_settings_v2",HKEY="greenwave_dk_history_v2";
 const state={map:null,userMarker:null,destinationMarker:null,routeLine:null,routeGlow:null,fuelMarkers:[],currentPosition:null,destination:null,route:null,selectedAutocomplete:null,autocompleteTimer:null,watchId:null,stations:[],history:[],settings:{fuelType:"benzin95",maxFuelDetourMeters:2000,fuelAlongMeters:50000,fuelSort:"cheapest",routeMode:"fast"}};
 const els={},ids=["map","destinationInput","goBtn","autocompleteResults","historySection","historyList","settingsBtn","settingsBackdrop","settingsModal","closeSettingsBtn","saveSettingsBtn","fuelTypeSelect","fuelDetourSelect","fuelAlongSelect","fuelSortSelect","routeModeSelect","statusText","recommendedSpeed","speedLimit","currentSpeed","reasonText","startBtn","stopBtn","recalcBtn","routeDistance","routeDuration","routeEta","fuelRefreshBtn","fuelSummary","fuelList"];
@@ -53,12 +53,15 @@ function applyDrivingModeSafeHide(){
     const text=(el.innerText||el.textContent||"").trim().toLowerCase();
     if(!text)continue;
 
+    const hasInput=!!el.querySelector("input,textarea");
+    const hasGoButton=[...el.querySelectorAll("button,a")].some(btn=>/^go$/i.test((btn.textContent||"").trim()));
     const isRecentSection=text.includes("seneste destinationer");
     const isFuelSection=text.includes("tankstationer langs ruten")||text.includes("stationer inden for");
     const isRecentItem=text.includes("ny mårumvej")||text.includes("herstedøstervej")||text.includes("lupinvej");
+    const isDestinationSearch=hasInput&&(hasGoButton||text.includes("destination")||text.includes("mårumvej")||text.includes("herstedøstervej"));
 
-    // Hide section/card only, never large layout containers.
-    if(isRecentSection||isFuelSection||isRecentItem){
+    // Hide planning/search/fuel/recent cards only, never large layout containers.
+    if(isRecentSection||isFuelSection||isRecentItem||isDestinationSearch){
       el.classList.add("greenwave-safe-hidden");
     }
   }
@@ -76,7 +79,7 @@ function renderGreenWaveDrivingStatus(){
   const active=!!state.greenwaveDrivingMode;
   const hasRoute=state.route&&Array.isArray(state.route.geometry)&&state.route.geometry.length>1;
   const speed=state.position&&Number.isFinite(Number(state.position.speed))?Math.round(Number(state.position.speed)*3.6):null;
-  card.innerHTML=`<div class="driving-status-title">${active?"GreenWave kører":"GreenWave klar"}</div><div class="driving-status-main">${active?(hasRoute?"Fokusvisning aktiv. Kun rute, fart og GreenWave vises.":"Fokusvisning aktiv, men der mangler en rute."):"Tryk Start GreenWave for kørselsvisning."}</div><div class="driving-status-meta">${speed!=null?`Aktuel fart: ${speed} km/t · `:""}${GREENWAVE_VERSION}</div>${active?`<button type="button" id="greenwave-exit-driving" class="greenwave-exit-driving">Vis planlægning</button>`:""}`;const exit=card.querySelector("#greenwave-exit-driving");if(exit)exit.addEventListener("click",()=>setGreenWaveDrivingMode(false));
+  card.innerHTML=`<div class="driving-status-title">${active?"GreenWave kører":"GreenWave klar"}</div><div class="driving-status-main">${active?(hasRoute?"Fokusvisning aktiv. Planlægning, adresser og tankstationer er skjult.":"Fokusvisning aktiv, men der mangler en rute."):"Tryk Start GreenWave for kørselsvisning."}</div><div class="driving-status-meta">${speed!=null?`Aktuel fart: ${speed} km/t · `:""}${GREENWAVE_VERSION}</div>${active?`<button type="button" id="greenwave-exit-driving" class="greenwave-exit-driving">Vis planlægning</button>`:""}`;const exit=card.querySelector("#greenwave-exit-driving");if(exit)exit.addEventListener("click",()=>setGreenWaveDrivingMode(false));
 }
 function createGreenWaveDrivingStatus(){
   ensureGreenWaveDrivingStyles();
@@ -95,7 +98,7 @@ function ensureGreenWaveDrivingStyles(){
     ".greenwave-driving-status{margin:10px 0 12px;padding:12px 14px;border-radius:16px;border:1px solid rgba(116,255,165,.28);background:rgba(8,18,24,.9);box-shadow:0 8px 22px rgba(0,0,0,.22)}",
     ".driving-status-title{font-weight:900;color:#d7ffe3;margin-bottom:4px}",
     ".driving-status-main{font-weight:800}",
-    ".driving-status-meta{font-size:.82rem;opacity:.78;margin-top:4px}.greenwave-exit-driving{margin-top:8px;border:1px solid rgba(255,255,255,.18);border-radius:999px;background:rgba(255,255,255,.08);color:#d7ffe3;padding:6px 10px;font-weight:800}.greenwave-driving-mode .greenwave-safe-hidden{display:none!important}",
+    ".driving-status-meta{font-size:.82rem;opacity:.78;margin-top:4px}.greenwave-exit-driving{margin-top:8px;border:1px solid rgba(255,255,255,.18);border-radius:999px;background:rgba(255,255,255,.08);color:#d7ffe3;padding:6px 10px;font-weight:800}.greenwave-driving-mode .greenwave-safe-hidden{display:none!important}.greenwave-driving-mode .destination-panel,.greenwave-driving-mode .search-panel,.greenwave-driving-mode .planner-panel,.greenwave-driving-mode [data-panel='destination'],.greenwave-driving-mode [data-section='destination'],.greenwave-driving-mode [data-panel='search']{display:none!important}",
     "body.greenwave-driving-mode .greenwave-safe-hidden{display:none!important}",
     "body.greenwave-driving-mode .greenwave-version-badge{background:rgba(16,58,38,.94);border-color:rgba(116,255,165,.7)}",
     "body.greenwave-driving-mode #greenwave-flow-card,body.greenwave-driving-mode #greenwave-driving-status{position:relative;z-index:5}",
@@ -130,7 +133,7 @@ function greenWaveFlowAdvice(){
   if(speedKmh!=null&&speedKmh>target+8){text=`Sænk roligt mod ca. ${target} km/t. Aktuel fart: ${Math.round(speedKmh)} km/t.`;level="warn";}
   else if(speedKmh!=null&&speedKmh<target-10&&speedKmh>5){text=`Øg roligt mod ca. ${target} km/t, hvis fartgrænsen tillader det. Aktuel fart: ${Math.round(speedKmh)} km/t.`;level="neutral";}
   if(remaining&&remaining<700){text="Ruten er næsten færdig. Kør roligt og følg normal navigation.";level="neutral";}
-  return{title:"GreenWave flow · v1.05-driving-safe",text,level,targetSpeed:target,remainingMeters:remaining||null,currentSpeedKmh:speedKmh};
+  return{title:"GreenWave flow · v1.06-no-planning",text,level,targetSpeed:target,remainingMeters:remaining||null,currentSpeedKmh:speedKmh};
 }
 function estimateFlowTargetSpeedKmh(speedKmh,remainingMeters){
   const base=Number.isFinite(speedKmh)&&speedKmh>70?70:50;
