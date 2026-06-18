@@ -1,4 +1,4 @@
-const GREENWAVE_VERSION="v1.01-flow";
+const GREENWAVE_VERSION="v1.02-driving-mode";
 const SKEY="greenwave_dk_settings_v2",HKEY="greenwave_dk_history_v2";
 const state={map:null,userMarker:null,destinationMarker:null,routeLine:null,routeGlow:null,fuelMarkers:[],currentPosition:null,destination:null,route:null,selectedAutocomplete:null,autocompleteTimer:null,watchId:null,stations:[],history:[],settings:{fuelType:"benzin95",maxFuelDetourMeters:2000,fuelAlongMeters:50000,fuelSort:"cheapest",routeMode:"fast"}};
 const els={},ids=["map","destinationInput","goBtn","autocompleteResults","historySection","historyList","settingsBtn","settingsBackdrop","settingsModal","closeSettingsBtn","saveSettingsBtn","fuelTypeSelect","fuelDetourSelect","fuelAlongSelect","fuelSortSelect","routeModeSelect","statusText","recommendedSpeed","speedLimit","currentSpeed","reasonText","startBtn","stopBtn","recalcBtn","routeDistance","routeDuration","routeEta","fuelRefreshBtn","fuelSummary","fuelList"];
@@ -36,6 +36,59 @@ function initGreenWaveVersionBadge(){
   ensureGreenWaveVersionStyles();
   renderGreenWaveVersionBadge();
 }
+function setGreenWaveDrivingMode(active){
+  document.body.classList.toggle("greenwave-driving-mode",!!active);
+  state.greenwaveDrivingMode=!!active;
+  renderGreenWaveDrivingStatus();
+}
+function renderGreenWaveDrivingStatus(){
+  const card=document.getElementById("greenwave-driving-status")||createGreenWaveDrivingStatus();
+  const active=!!state.greenwaveDrivingMode;
+  const hasRoute=state.route&&Array.isArray(state.route.geometry)&&state.route.geometry.length>1;
+  const speed=state.position&&Number.isFinite(Number(state.position.speed))?Math.round(Number(state.position.speed)*3.6):null;
+  card.innerHTML=`<div class="driving-status-title">${active?"GreenWave kører":"GreenWave klar"}</div><div class="driving-status-main">${active?(hasRoute?"Fokusvisning aktiv. Følg rute, fart og tankstop.":"Fokusvisning aktiv, men der mangler en rute."):"Tryk Start GreenWave for kørselsvisning."}</div><div class="driving-status-meta">${speed!=null?`Aktuel fart: ${speed} km/t · `:""}${GREENWAVE_VERSION}</div>`;
+}
+function createGreenWaveDrivingStatus(){
+  ensureGreenWaveDrivingStyles();
+  const card=document.createElement("section");
+  card.id="greenwave-driving-status";
+  card.className="greenwave-driving-status";
+  const anchor=document.querySelector(".route-panel,.nav-panel,.fuel-panel,main,.app")||document.body;
+  anchor.prepend(card);
+  return card;
+}
+function ensureGreenWaveDrivingStyles(){
+  if(document.getElementById("greenwave-driving-mode-style"))return;
+  const style=document.createElement("style");
+  style.id="greenwave-driving-mode-style";
+  style.textContent=[
+    ".greenwave-driving-status{margin:10px 0 12px;padding:12px 14px;border-radius:16px;border:1px solid rgba(116,255,165,.28);background:rgba(8,18,24,.9);box-shadow:0 8px 22px rgba(0,0,0,.22)}",
+    ".driving-status-title{font-weight:900;color:#d7ffe3;margin-bottom:4px}",
+    ".driving-status-main{font-weight:800}",
+    ".driving-status-meta{font-size:.82rem;opacity:.78;margin-top:4px}",
+    "body.greenwave-driving-mode .recent-destinations,body.greenwave-driving-mode .recent,body.greenwave-driving-mode [data-panel='recent'],body.greenwave-driving-mode [data-section='recent'],body.greenwave-driving-mode .history,body.greenwave-driving-mode .destination-history{display:none!important}",
+    "body.greenwave-driving-mode .greenwave-version-badge{background:rgba(16,58,38,.94);border-color:rgba(116,255,165,.7)}",
+    "body.greenwave-driving-mode #greenwave-flow-card,body.greenwave-driving-mode #greenwave-driving-status{position:relative;z-index:5}",
+    "body.greenwave-driving-mode .fuel-section-title{margin-top:10px}",
+    "body.greenwave-driving-mode .fuel-item{font-size:.95rem}",
+    "body.greenwave-driving-mode input,body.greenwave-driving-mode textarea{font-size:16px}"
+  ].join("");
+  document.head.appendChild(style);
+}
+function bindGreenWaveStartButtons(){
+  const buttons=[...document.querySelectorAll("button,a")].filter(el=>/start\s*greenwave|greenwave/i.test((el.textContent||"").trim()));
+  for(const btn of buttons){
+    if(btn.dataset.greenwaveDrivingBound==="1")continue;
+    btn.dataset.greenwaveDrivingBound="1";
+    btn.addEventListener("click",()=>setGreenWaveDrivingMode(true));
+  }
+}
+function initGreenWaveDrivingMode(){
+  ensureGreenWaveDrivingStyles();
+  renderGreenWaveDrivingStatus();
+  bindGreenWaveStartButtons();
+  setInterval(()=>{bindGreenWaveStartButtons();if(state.greenwaveDrivingMode)renderGreenWaveDrivingStatus();},3000);
+}
 function greenWaveFlowAdvice(){
   const active=state.route&&Array.isArray(state.route.geometry)&&state.route.geometry.length>1;
   if(!active)return{title:"GreenWave",text:"Planlæg en rute for at få anbefalet jævn hastighed.",level:"neutral"};
@@ -47,7 +100,7 @@ function greenWaveFlowAdvice(){
   if(speedKmh!=null&&speedKmh>target+8){text=`Sænk roligt mod ca. ${target} km/t. Aktuel fart: ${Math.round(speedKmh)} km/t.`;level="warn";}
   else if(speedKmh!=null&&speedKmh<target-10&&speedKmh>5){text=`Øg roligt mod ca. ${target} km/t, hvis fartgrænsen tillader det. Aktuel fart: ${Math.round(speedKmh)} km/t.`;level="neutral";}
   if(remaining&&remaining<700){text="Ruten er næsten færdig. Kør roligt og følg normal navigation.";level="neutral";}
-  return{title:"GreenWave flow · v1.01-flow",text,level,targetSpeed:target,remainingMeters:remaining||null,currentSpeedKmh:speedKmh};
+  return{title:"GreenWave flow · v1.02-driving-mode",text,level,targetSpeed:target,remainingMeters:remaining||null,currentSpeedKmh:speedKmh};
 }
 function estimateFlowTargetSpeedKmh(speedKmh,remainingMeters){
   const base=Number.isFinite(speedKmh)&&speedKmh>70?70:50;
@@ -76,7 +129,7 @@ function renderGreenWaveFlow(){
   const box=document.getElementById("greenwave-flow-card")||createGreenWaveFlowCard();
   const advice=greenWaveFlowAdvice();
   box.dataset.level=advice.level;
-  box.innerHTML=`<div class="flow-title">${esc(advice.title)}</div><div class="flow-main">${esc(advice.text)}</div><div class="flow-meta">${advice.remainingMeters?`Ca. ${fmtDist(advice.remainingMeters)} tilbage · `:""}V1 bruger rute/GPS og er ikke live trafiklysdata.</div>`;
+  box.innerHTML=`<div class="flow-title">${esc(advice.title)}</div><div class="flow-main">${esc(advice.text)}</div><div class="flow-meta">${advice.remainingMeters?`Ca. ${fmtDist(advice.remainingMeters)} tilbage · `:""}V1 bruger rute/GPS og er ikke live trafiklysdata.</div>`;renderGreenWaveDrivingStatus();
 }
 function createGreenWaveFlowCard(){
   ensureGreenWaveFlowStyles();
@@ -117,3 +170,5 @@ setInterval(renderGreenWaveFlow,5000);
 setTimeout(renderGreenWaveFlow,500);
 
 initGreenWaveVersionBadge();
+
+initGreenWaveDrivingMode();
