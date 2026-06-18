@@ -1,4 +1,4 @@
-const GREENWAVE_VERSION="v1.07-driving-dashboard";
+const GREENWAVE_VERSION="v1.08-fuel-sort-detour";
 const SKEY="greenwave_dk_settings_v2",HKEY="greenwave_dk_history_v2";
 const state={map:null,userMarker:null,destinationMarker:null,routeLine:null,routeGlow:null,fuelMarkers:[],currentPosition:null,destination:null,route:null,selectedAutocomplete:null,autocompleteTimer:null,watchId:null,stations:[],history:[],settings:{fuelType:"benzin95",maxFuelDetourMeters:2000,fuelAlongMeters:50000,fuelSort:"cheapest",routeMode:"fast"}};
 const els={},ids=["map","destinationInput","goBtn","autocompleteResults","historySection","historyList","settingsBtn","settingsBackdrop","settingsModal","closeSettingsBtn","saveSettingsBtn","fuelTypeSelect","fuelDetourSelect","fuelAlongSelect","fuelSortSelect","routeModeSelect","statusText","recommendedSpeed","speedLimit","currentSpeed","reasonText","startBtn","stopBtn","recalcBtn","routeDistance","routeDuration","routeEta","fuelRefreshBtn","fuelSummary","fuelList"];
@@ -13,8 +13,8 @@ async function geocode(q){const r=await fetch(`/api/geocode?q=${encodeURICompone
 async function fetchRoute(from,to){const r=await fetch(`/api/route?fromLat=${from.lat}&fromLng=${from.lng}&toLat=${to.lat}&toLng=${to.lng}&mode=${encodeURIComponent(state.settings.routeMode)}`,{cache:"no-store"});const d=await r.json();if(!r.ok||!d.routes?.length)throw new Error(d.error||"Ingen rute fundet");const route=selectRoute(d.routes);return{geometry:normalizeGeometry(route.geometry?.coordinates||route.geometry),distance:Number(route.distance||0),duration:Number(route.duration||0)};}
 function selectRoute(routes){if(state.settings.routeMode!=="eco")return routes[0];return[...routes].sort((a,b)=>(a.distance+a.duration*4)-(b.distance+b.duration*4))[0];}
 function applyRoute(route){state.route=route;drawRoute(route.geometry);updateTrip(route);els.recommendedSpeed.textContent="--";els.speedLimit.textContent="?";els.reasonText.textContent="Maxhastighed ukendt på dette vejstykke.";}
-async function refreshFuel(){if(!state.route)return;els.fuelRefreshBtn.disabled=true;els.fuelSummary.textContent="Henter tankstationer og priser...";try{const r=await fetch("/api/fuel-route",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({geometry:state.route.geometry,fuelType:state.settings.fuelType,maxDetourMeters:state.settings.maxFuelDetourMeters,fuelAlongMeters:state.settings.fuelAlongMeters})});const d=await r.json();if(!r.ok||!d.ok)throw new Error(d.error||`fuel-route ${r.status}`);state.stations=(d.stations||[]).map(s=>({...s,price:isValidFuelPrice(s.price)?Number(s.price):null,matchStatus:s.matchStatus||null,matchReason:s.matchReason||null,sourceStatus:s.sourceStatus||null,dataQuality:s.dataQuality||null})).sort(sortStations);renderFuel(d);renderGreenWaveFlow();drawFuelMarkers();}catch(e){console.error(e);els.fuelSummary.textContent=`Kunne ikke hente tankstationer: ${e.message}`;}finally{els.fuelRefreshBtn.disabled=false;}}
-function renderFuel(d){const count=state.stations.length,priced=state.stations.filter(s=>isValidFuelPrice(s.price)).length;if(!count){const raw=fuelDebugValue(d,"rawElements");const norm=fuelDebugValue(d,"normalizedStations");const returned=d?.counts?.returned??d?.stations?.length??0;const api=d?.counts?.apiStations??d?.debug?.priceApi?.apiStations??"?";els.fuelSummary.textContent=`0 stationer. Debug: raw=${raw}, norm=${norm}, returned=${returned}, API=${api}, bbox=${JSON.stringify(d?.input?.routeBbox||d?.debug?.routeBox||d?.debug?.overpass?.bbox||{})}, errors=${(d?.debug?.errors||d?.debug?.overpass?.attempts?.map(a=>a.error||a.statusText||a.status).filter(Boolean)||[]).join(" | ")}`;els.fuelList.innerHTML="";return;}els.fuelSummary.textContent=`${count} stationer inden for ${fmtDist(state.settings.fuelAlongMeters)} langs ruten. ${priced} med kendt pris. Kilder: ${fuelSourceStatusSummary(d)}.`;els.fuelList.innerHTML=state.stations.slice(0,20).map(s=>{const hasPrice=isValidFuelPrice(s.price);const price=hasPrice?formatFuelPrice(s.price):"Pris ikke tilgængelig";const reason=stationPriceReason(s);const meta=[`${fmtDist(s.distanceAlongRoute)} langs ruten`,`${fmtDist(s.distanceToRoute)} fra ruten`,hasPrice&&s.priceProduct?s.priceProduct:"",hasPrice&&s.priceSource?`Pris fra ${s.priceSource}`:"",!hasPrice&&reason?reason:""].filter(Boolean).join(" · ");return `<article class="fuel-item"><div class="fuel-title"><span>${esc(s.name||"Tankstation")}</span><span class="fuel-price">${esc(price)}</span></div><div class="fuel-meta">${esc(meta)}</div><a target="_blank" href="https://www.google.com/maps/search/?api=1&query=${s.lat},${s.lng}">Åbn i Google Maps</a></article>`;}).join("");}
+async function refreshFuel(){if(!state.route)return;els.fuelRefreshBtn.disabled=true;els.fuelSummary.textContent="Henter tankstationer og priser...";try{const r=await fetch("/api/fuel-route",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({geometry:state.route.geometry,fuelType:state.settings.fuelType,maxDetourMeters:state.settings.maxFuelDetourMeters,fuelAlongMeters:state.settings.fuelAlongMeters})});const d=await r.json();if(!r.ok||!d.ok)throw new Error(d.error||`fuel-route ${r.status}`);state.stations=(d.stations||[]).map(s=>({...s,price:isValidFuelPrice(s.price)?Number(s.price):null,matchStatus:s.matchStatus||null,matchReason:s.matchReason||null,sourceStatus:s.sourceStatus||null,dataQuality:s.dataQuality||null})).sort(sortFuelStations);renderFuel(d);renderGreenWaveFlow();drawFuelMarkers();}catch(e){console.error(e);els.fuelSummary.textContent=`Kunne ikke hente tankstationer: ${e.message}`;}finally{els.fuelRefreshBtn.disabled=false;}}
+function renderFuel(d){const count=state.stations.length,priced=state.stations.filter(s=>isValidFuelPrice(s.price)).length;if(!count){const raw=fuelDebugValue(d,"rawElements");const norm=fuelDebugValue(d,"normalizedStations");const returned=d?.counts?.returned??d?.stations?.length??0;const api=d?.counts?.apiStations??d?.debug?.priceApi?.apiStations??"?";els.fuelSummary.textContent=`0 stationer. Debug: raw=${raw}, norm=${norm}, returned=${returned}, API=${api}, bbox=${JSON.stringify(d?.input?.routeBbox||d?.debug?.routeBox||d?.debug?.overpass?.bbox||{})}, errors=${(d?.debug?.errors||d?.debug?.overpass?.attempts?.map(a=>a.error||a.statusText||a.status).filter(Boolean)||[]).join(" | ")}`;els.fuelList.innerHTML="";return;}els.fuelSummary.textContent=`${count} stationer inden for ${fmtDist(state.settings.fuelAlongMeters)} langs ruten. ${priced} med kendt pris. Kilder: ${fuelSourceStatusSummary(d)}.`;els.fuelList.innerHTML=state.stations.slice(0,20).map(s=>{const hasPrice=isValidFuelPrice(s.price);const price=hasPrice?formatFuelPrice(s.price):"Pris ikke tilgængelig";const reason=stationPriceReason(s);const sortReason=stationSortReasonLabel(s);const meta=[hasPrice&&sortReason?sortReason:"",`${fmtDist(s.distanceAlongRoute)} langs ruten`,`${fmtDist(s.distanceToRoute)} fra ruten`,hasPrice&&s.priceProduct?s.priceProduct:"",hasPrice&&s.priceSource?`Pris fra ${s.priceSource}`:"",!hasPrice&&reason?reason:""].filter(Boolean).join(" · ");return `<article class="fuel-item"><div class="fuel-title"><span>${esc(s.name||"Tankstation")}</span><span class="fuel-price">${esc(price)}</span></div><div class="fuel-meta">${esc(meta)}</div><a target="_blank" href="https://www.google.com/maps/search/?api=1&query=${s.lat},${s.lng}">Åbn i Google Maps</a></article>`;}).join("");}
 function renderGreenWaveVersionBadge(){
   let badge=document.getElementById("greenwave-version-badge");
   if(!badge){
@@ -173,7 +173,7 @@ function greenWaveFlowAdvice(){
   if(speedKmh!=null&&speedKmh>target+8){text=`Sænk roligt mod ca. ${target} km/t. Aktuel fart: ${Math.round(speedKmh)} km/t.`;level="warn";}
   else if(speedKmh!=null&&speedKmh<target-10&&speedKmh>5){text=`Øg roligt mod ca. ${target} km/t, hvis fartgrænsen tillader det. Aktuel fart: ${Math.round(speedKmh)} km/t.`;level="neutral";}
   if(remaining&&remaining<700){text="Ruten er næsten færdig. Kør roligt og følg normal navigation.";level="neutral";}
-  return{title:"GreenWave flow · v1.07-driving-dashboard",text,level,targetSpeed:target,remainingMeters:remaining||null,currentSpeedKmh:speedKmh};
+  return{title:"GreenWave flow · v1.08-fuel-sort-detour",text,level,targetSpeed:target,remainingMeters:remaining||null,currentSpeedKmh:speedKmh};
 }
 function estimateFlowTargetSpeedKmh(speedKmh,remainingMeters){
   const base=Number.isFinite(speedKmh)&&speedKmh>70?70:50;
@@ -220,9 +220,45 @@ function ensureGreenWaveFlowStyles(){
   style.textContent=".greenwave-flow-card{margin:10px 0 12px;padding:12px 14px;border:1px solid rgba(116,255,165,.25);border-radius:16px;background:linear-gradient(135deg,rgba(24,78,54,.92),rgba(10,18,24,.92));box-shadow:0 8px 22px rgba(0,0,0,.22)}.greenwave-flow-card[data-level='warn']{border-color:rgba(255,194,102,.45);background:linear-gradient(135deg,rgba(92,62,18,.92),rgba(10,18,24,.92))}.flow-title{font-weight:900;color:#d7ffe3;margin-bottom:4px}.flow-main{font-size:1rem;font-weight:700}.flow-meta{font-size:.82rem;opacity:.78;margin-top:4px}";
   document.head.appendChild(style);
 }
+function stationSortReasonLabel(s){
+  if(!isValidFuelPrice(s.price))return"";
+  const m=Number(s.distanceToRoute||0);
+  if(m<=50)return"Næsten på ruten";
+  if(m<=250)return"Meget tæt på ruten";
+  if(m<=750)return"Acceptabel omvej";
+  if(m<=1500)return"Stor omvej";
+  return"Lang omvej";
+}
 function stationPriceReason(s){if(s.matchReason)return s.matchReason;if(s.sourceStatus==="source-error")return"Priskilden fejler lige nu";if(s.matchStatus==="unsupported")return"Kæden er ikke understøttet";if(s.matchStatus==="no-specific-match")return"Stationen kunne ikke matches sikkert";if(s.matchStatus==="product-missing")return"Produktet findes ikke sikkert";return"";}
 function fuelSourceStatusSummary(d){const src=d?.sources||[];if(!src.length)return fuelSourceLabel(d);return src.map(s=>`${sourceShortName(s.id)}:${s.ok?"OK":"FEJL"}`).join(" · ");}
 function sourceShortName(id){if(id==="circlek-api")return"CircleK/INGO";if(id==="ok-api")return"OK";if(id==="unox-api")return"Uno-X";if(id==="q8-f24-api")return"Q8/F24";if(id==="circlek-list")return"Liste";return id||"kilde";}
+function sortFuelStations(a,b){
+  const aPriced=isValidFuelPrice(a.price);
+  const bPriced=isValidFuelPrice(b.price);
+  if(aPriced&&!bPriced)return-1;
+  if(!aPriced&&bPriced)return 1;
+
+  if(aPriced&&bPriced){
+    const aScore=fuelStopSortScore(a);
+    const bScore=fuelStopSortScore(b);
+    return aScore-bScore||
+      Number(a.distanceToRoute||0)-Number(b.distanceToRoute||0)||
+      Number(a.price)-Number(b.price)||
+      Number(a.distanceAlongRoute||0)-Number(b.distanceAlongRoute||0);
+  }
+
+  return Number(a.distanceToRoute||0)-Number(b.distanceToRoute||0)||
+    Number(a.distanceAlongRoute||0)-Number(b.distanceAlongRoute||0);
+}
+function fuelStopSortScore(s){
+  const price=Number(s.price);
+  const detourKm=Math.max(0,Number(s.distanceToRoute||0))/1000;
+  const alongKm=Math.max(0,Number(s.distanceAlongRoute||0))/1000;
+  const qualityPenalty=s.dataQuality==="list-price"?0.08:0;
+  // Practical score: price matters, but detour matters a lot.
+  // 1 km off route counts roughly as +0.35 kr/l in practical inconvenience.
+  return price+(detourKm*0.35)+(alongKm*0.002)+qualityPenalty;
+}
 function sortStations(a,b){const m=state.settings.fuelSort;if(m==="detour")return a.distanceToRoute-b.distanceToRoute;if(m==="upcoming")return a.distanceAlongRoute-b.distanceAlongRoute;const ap=isValidFuelPrice(a.price),bp=isValidFuelPrice(b.price);if(ap&&bp)return Number(a.price)-Number(b.price);if(ap)return-1;if(bp)return 1;return a.distanceAlongRoute-b.distanceAlongRoute;}
 function drawRoute(g){if(!state.map||typeof L==="undefined")return;if(state.routeLine)state.map.removeLayer(state.routeLine);if(state.routeGlow)state.map.removeLayer(state.routeGlow);const ll=g.map(p=>[p[1],p[0]]);state.routeGlow=L.polyline(ll,{color:"#0a58ff",weight:12,opacity:.25}).addTo(state.map);state.routeLine=L.polyline(ll,{color:"#4aa3ff",weight:6,opacity:.95}).addTo(state.map);state.map.fitBounds(state.routeLine.getBounds(),{padding:[40,40]});}
 function drawFuelMarkers(){if(!state.map||typeof L==="undefined")return;state.fuelMarkers.forEach(m=>state.map.removeLayer(m));state.fuelMarkers=[];state.stations.slice(0,20).forEach(s=>{const label=isValidFuelPrice(s.price)?formatFuelPriceShort(s.price):(s.brand||s.name||"Fuel").slice(0,8);state.fuelMarkers.push(L.marker([s.lat,s.lng],{icon:L.divIcon({className:"fuel-marker",html:esc(label)})}).addTo(state.map));});}
