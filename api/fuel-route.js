@@ -145,6 +145,10 @@ export default async function handler(req, res) {
         price: isValidFuelPrice(station.price) ? Number(station.price) : null,
         priceProduct: station.priceProduct || null,
         priceSource: station.priceSource || null,
+        sourceStatus: station.sourceStatus || null,
+        matchStatus: station.matchStatus || null,
+        matchReason: station.matchReason || null,
+        dataQuality: station.dataQuality || null,
         matchDebug: station.matchDebug || null
       }))
     });
@@ -353,6 +357,7 @@ function attachPrice(station, prices, fuelType) {
   const product = match ? chooseProduct(match.prices || [], fuelType) : null;
   const truckStation = isTruckStation(station);
   const matchDebug = buildMatchDebug(station, priceStations, fuelType, match, product);
+  const baseStatus = buildStationStatus(station, prices, match, product, fuelType);
 
   if (product && isValidFuelPrice(product.price) && (!truckStation || isDieselFuelType(fuelType))) {
     return {
@@ -360,12 +365,24 @@ function attachPrice(station, prices, fuelType) {
       price: Number(product.price),
       priceProduct: product.productName || product.displayName || product.fuelType || fuelType,
       priceSource: match.source || "price API",
+      sourceStatus: baseStatus.sourceStatus,
+      matchStatus: "matched",
+      matchReason: "Specifik station og produkt matchet",
+      dataQuality: baseStatus.dataQuality,
       matchDebug: { ...matchDebug, matched: true }
     };
   }
 
   if (truckStation) {
-    return { ...station, price: null, matchDebug: { ...matchDebug, matched: false, reason: "truck station without safe diesel product" } };
+    return {
+      ...station,
+      price: null,
+      sourceStatus: baseStatus.sourceStatus,
+      matchStatus: "blocked",
+      matchReason: "Truck/diesel-station uden sikkert produkt til valgt brændstoftype",
+      dataQuality: "blocked",
+      matchDebug: { ...matchDebug, matched: false, reason: "truck station without safe diesel product" }
+    };
   }
 
   if (isCircleKOrIngoStation(station)) {
@@ -377,12 +394,94 @@ function attachPrice(station, prices, fuelType) {
         price: Number(listed.price),
         priceProduct: listed.productName || fuelType,
         priceSource: listed.source,
+        sourceStatus: baseStatus.sourceStatus,
+        matchStatus: "fallback-list",
+        matchReason: "Stationsspecifik match manglede; bruger officiel Circle K/INGO listepris",
+        dataQuality: "list-price",
         matchDebug: { ...matchDebug, matched: true, fallback: "circlek-list" }
       };
     }
   }
 
-  return { ...station, price: null, matchDebug: { ...matchDebug, matched: false, reason: match ? "candidate found but no safe product match" : "no safe station match" } };
+  const reason = buildMissingPriceReason(station, prices, match, product, baseStatus);
+  return {
+    ...station,
+    price: null,
+    sourceStatus: baseStatus.sourceStatus,
+    matchStatus: reason.status,
+    matchReason: reason.message,
+    dataQuality: reason.dataQuality,
+    matchDebug: { ...matchDebug, matched: false, reason: reason.code }
+  };
+}
+
+function buildStationStatus(station, prices, match, product, fuelType) {
+  const sources = Array.isArray(prices.sources) ? prices.sources : [];
+  const brand = stationBrandFamily(station);
+  const source = sourceForBrandFamily(brand, sources);
+  const sourceStatus = source ? (source.ok ? "source-ok" : "source-error") : "unsupported";
+  const dataQuality = match ? "specific-match" : "no-match";
+
+  return { brand, source, sourceStatus, dataQuality };
+}
+
+function buildMissingPriceReason(station, prices, match, product, status) {
+  if (status.sourceStatus === "unsupported") {
+    return {
+      status: "unsupported",
+      code: "unsupported-brand",
+      dataQuality: "unsupported",
+      message: "Kæden er ikke understøttet med stationsspecifik priskilde"
+    };
+  }
+
+  if (status.sourceStatus === "source-error") {
+    return {
+      status: "source-error",
+      code: "price-source-error",
+      dataQuality: "source-error",
+      message: "Priskilden fejler eller svarer ikke lige nu"
+    };
+  }
+
+  if (match && !product) {
+    return {
+      status: "product-missing",
+      code: "candidate found but no safe product match",
+      dataQuality: "product-missing",
+      message: "Stationen er matchet, men valgt brændstoftype findes ikke sikkert"
+    };
+  }
+
+  return {
+    status: "no-specific-match",
+    code: "no safe station match",
+    dataQuality: "no-specific-match",
+    message: "Stationen kunne ikke matches sikkert til en konkret prisstation"
+  };
+}
+
+function stationBrandFamily(station) {
+  if (isCircleKOrIngoStation(station)) return "circlek";
+  if (isOkStation(station)) return "ok";
+  if (isUnoXStation(station)) return "unox";
+  if (isQ8Station(station) || isF24Station(station)) return "q8f24";
+
+  const text = stationText(station);
+  if (/\b(shell|goon|go on|yx)\b/.test(text)) return "unsupported-known";
+  return "unsupported";
+}
+
+function sourceForBrandFamily(brand, sources) {
+  if (brand === "circlek") {
+    return sources.find(source => source.id === "circlek-api") ||
+      sources.find(source => source.id === "circlek-list");
+  }
+
+  if (brand === "ok") return sources.find(source => source.id === "ok-api");
+  if (brand === "unox") return sources.find(source => source.id === "unox-api");
+  if (brand === "q8f24") return sources.find(source => source.id === "q8-f24-api");
+  return null;
 }
 
 function buildMatchDebug(station, priceStations, fuelType, match, product) {
