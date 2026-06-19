@@ -1,6 +1,6 @@
-const GREENWAVE_VERSION="v1.11-gps-speed-real";
+const GREENWAVE_VERSION="v1.12-real-drive-metrics";
 const SKEY="greenwave_dk_settings_v2",HKEY="greenwave_dk_history_v2";
-const state={map:null,userMarker:null,destinationMarker:null,routeLine:null,routeGlow:null,fuelMarkers:[],currentPosition:null,destination:null,route:null,selectedAutocomplete:null,autocompleteTimer:null,watchId:null,previousGpsPosition:null,displayedSpeedKmh:null,position:null,stations:[],history:[],settings:{fuelType:"benzin95",maxFuelDetourMeters:2000,fuelAlongMeters:50000,fuelSort:"cheapest",routeMode:"fast"}};
+const state={map:null,userMarker:null,destinationMarker:null,routeLine:null,routeGlow:null,fuelMarkers:[],currentPosition:null,destination:null,route:null,selectedAutocomplete:null,autocompleteTimer:null,watchId:null,previousGpsPosition:null,displayedSpeedKmh:null,position:null,routeProgress:null,stations:[],history:[],settings:{fuelType:"benzin95",maxFuelDetourMeters:2000,fuelAlongMeters:50000,fuelSort:"cheapest",routeMode:"fast"}};
 const els={},ids=["map","destinationInput","goBtn","autocompleteResults","historySection","historyList","settingsBtn","settingsBackdrop","settingsModal","closeSettingsBtn","saveSettingsBtn","fuelTypeSelect","fuelDetourSelect","fuelAlongSelect","fuelSortSelect","routeModeSelect","statusText","recommendedSpeed","speedLimit","currentSpeed","reasonText","startBtn","stopBtn","recalcBtn","routeDistance","routeDuration","routeEta","fuelRefreshBtn","fuelSummary","fuelList"];
 document.addEventListener("DOMContentLoaded",()=>{ids.forEach(id=>els[id]=document.getElementById(id));bind();loadSettings();loadHistory();initMap();syncSettingsUi();renderHistory();setStatus("Klar");});
 function bind(){on(els.destinationInput,"input",()=>{state.selectedAutocomplete=null;clearTimeout(state.autocompleteTimer);state.autocompleteTimer=setTimeout(searchAutocomplete,250);});on(els.goBtn,"click",calculateRoute);on(els.startBtn,"click",startGreenWave);on(els.stopBtn,"click",stopGreenWave);on(els.recalcBtn,"click",calculateRoute);on(els.fuelRefreshBtn,"click",refreshFuel);on(els.settingsBtn,"click",openSettings);on(els.closeSettingsBtn,"click",closeSettings);on(els.settingsBackdrop,"click",closeSettings);on(els.saveSettingsBtn,"click",saveSettings);document.addEventListener("click",e=>{if(!e.target.closest(".search-card")&&!e.target.closest(".autocomplete"))hideAutocomplete();});}
@@ -12,7 +12,7 @@ async function calculateRoute(){const q=els.destinationInput.value.trim();if(!q)
 async function geocode(q){const r=await fetch(`/api/geocode?q=${encodeURIComponent(q)}&limit=1`,{cache:"no-store"});const d=await r.json();const it=Array.isArray(d)?d[0]:(d.result||d.results?.[0]);if(!r.ok||!it)throw new Error(d.message||d.error||"Adresse ikke fundet");const lat=Number(it.lat),lng=Number(it.lng??it.lon);if(!Number.isFinite(lat)||!Number.isFinite(lng))throw new Error("Adresse uden koordinater");const label=it.displayName||it.label||q;return{lat,lng,label:splitAddress(label).title,displayName:label};}
 async function fetchRoute(from,to){const r=await fetch(`/api/route?fromLat=${from.lat}&fromLng=${from.lng}&toLat=${to.lat}&toLng=${to.lng}&mode=${encodeURIComponent(state.settings.routeMode)}`,{cache:"no-store"});const d=await r.json();if(!r.ok||!d.routes?.length)throw new Error(d.error||"Ingen rute fundet");const route=selectRoute(d.routes);return{geometry:normalizeGeometry(route.geometry?.coordinates||route.geometry),distance:Number(route.distance||0),duration:Number(route.duration||0)};}
 function selectRoute(routes){if(state.settings.routeMode!=="eco")return routes[0];return[...routes].sort((a,b)=>(a.distance+a.duration*4)-(b.distance+b.duration*4))[0];}
-function applyRoute(route){state.route=route;drawRoute(route.geometry);updateTrip(route);els.recommendedSpeed.textContent="--";els.speedLimit.textContent="?";els.reasonText.textContent="Maxhastighed ukendt på dette vejstykke.";}
+function applyRoute(route){state.route=route;state.routeProgress=null;drawRoute(route.geometry);updateTrip(route);const target=estimateFlowTargetSpeedKmh(null,Number(route.distance||0));els.recommendedSpeed.textContent=String(target);els.speedLimit.textContent="est.";els.reasonText.textContent="Anbefalet fart er beregnet ud fra rute/GPS. Ikke live trafiklys eller skiltet hastighed.";renderGreenWaveFlow();}
 async function refreshFuel(){if(!state.route)return;els.fuelRefreshBtn.disabled=true;els.fuelSummary.textContent="Henter tankstationer og priser...";try{const r=await fetch("/api/fuel-route",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({geometry:state.route.geometry,fuelType:state.settings.fuelType,maxDetourMeters:state.settings.maxFuelDetourMeters,fuelAlongMeters:state.settings.fuelAlongMeters})});const d=await r.json();if(!r.ok||!d.ok)throw new Error(d.error||`fuel-route ${r.status}`);state.stations=(d.stations||[]).map(s=>({...s,price:isValidFuelPrice(s.price)?Number(s.price):null,matchStatus:s.matchStatus||null,matchReason:s.matchReason||null,sourceStatus:s.sourceStatus||null,dataQuality:s.dataQuality||null})).sort(sortFuelStations);renderFuel(d);renderGreenWaveFlow();drawFuelMarkers();}catch(e){console.error(e);els.fuelSummary.textContent=`Kunne ikke hente tankstationer: ${e.message}`;}finally{els.fuelRefreshBtn.disabled=false;}}
 function renderFuel(d){const count=state.stations.length,priced=state.stations.filter(s=>isValidFuelPrice(s.price)).length;if(!count){const raw=fuelDebugValue(d,"rawElements");const norm=fuelDebugValue(d,"normalizedStations");const returned=d?.counts?.returned??d?.stations?.length??0;const api=d?.counts?.apiStations??d?.debug?.priceApi?.apiStations??"?";els.fuelSummary.textContent=`0 stationer. Debug: raw=${raw}, norm=${norm}, returned=${returned}, API=${api}, bbox=${JSON.stringify(d?.input?.routeBbox||d?.debug?.routeBox||d?.debug?.overpass?.bbox||{})}, errors=${(d?.debug?.errors||d?.debug?.overpass?.attempts?.map(a=>a.error||a.statusText||a.status).filter(Boolean)||[]).join(" | ")}`;els.fuelList.innerHTML="";return;}els.fuelSummary.textContent=`${count} stationer inden for ${fmtDist(state.settings.fuelAlongMeters)} langs ruten. ${priced} med kendt pris. Kilder: ${fuelSourceStatusSummary(d)}.`;els.fuelList.innerHTML=state.stations.slice(0,20).map(s=>{const hasPrice=isValidFuelPrice(s.price);const price=hasPrice?formatFuelPrice(s.price):"Pris ikke tilgængelig";const reason=stationPriceReason(s);const sortReason=stationSortReasonLabel(s);const meta=[hasPrice&&sortReason?sortReason:"",`${fmtDist(s.distanceAlongRoute)} langs ruten`,`${fmtDist(s.distanceToRoute)} fra ruten`,hasPrice&&s.priceProduct?s.priceProduct:"",hasPrice&&s.priceSource?`Pris fra ${s.priceSource}`:"",!hasPrice&&reason?reason:""].filter(Boolean).join(" · ");return `<article class="fuel-item"><div class="fuel-title"><span>${esc(s.name||"Tankstation")}</span><span class="fuel-price">${esc(price)}</span></div><div class="fuel-meta">${esc(meta)}</div><a target="_blank" href="https://www.google.com/maps/search/?api=1&query=${s.lat},${s.lng}">Åbn i Google Maps</a></article>`;}).join("");}
 function renderGreenWaveVersionBadge(){
@@ -84,6 +84,8 @@ function bindGreenWaveDashboardButtons(){
 }
 function openGreenWaveDrivingDashboard(){
   state.greenwaveDrivingMode=true;
+  if(state.greenwaveDashboardTimer)clearInterval(state.greenwaveDashboardTimer);
+  state.greenwaveDashboardTimer=setInterval(()=>{if(state.greenwaveDrivingMode)renderGreenWaveDrivingDashboard();},1000);
   document.body.classList.add("greenwave-driving-dashboard-active");
   let dash=document.getElementById("greenwave-driving-dashboard");
   if(!dash){
@@ -96,6 +98,7 @@ function openGreenWaveDrivingDashboard(){
 }
 function closeGreenWaveDrivingDashboard(){
   state.greenwaveDrivingMode=false;
+  if(state.greenwaveDashboardTimer){clearInterval(state.greenwaveDashboardTimer);state.greenwaveDashboardTimer=null;}
   document.body.classList.remove("greenwave-driving-dashboard-active");
   const dash=document.getElementById("greenwave-driving-dashboard");
   if(dash)dash.remove();
@@ -107,9 +110,9 @@ function renderGreenWaveDrivingDashboard(){
   const advice=typeof greenWaveFlowAdvice==="function"?greenWaveFlowAdvice():{text:"GreenWave flow afventer rute/GPS.",level:"neutral"};
   const speedKmh=Number.isFinite(Number(state.displayedSpeedKmh))?Math.max(0,Number(state.displayedSpeedKmh)):null;
   const routeDistance=Number(state.route?.distance||0);
-  const routeDuration=Number(state.route?.duration||0);
   const remaining=typeof estimateRemainingRouteMeters==="function"?estimateRemainingRouteMeters():routeDistance;
-  const etaText=routeDuration?formatEtaFromNow(routeDuration):"--";
+  const etaSeconds=typeof estimateRemainingEtaSeconds==="function"?estimateRemainingEtaSeconds(remaining):0;
+  const etaText=etaSeconds?formatEtaFromNow(etaSeconds):"--";
   const target=advice.targetSpeed?Math.round(advice.targetSpeed):"--";
   const current=speedKmh==null?"--":Math.round(speedKmh);
   const distanceText=remaining?fmtDist(remaining):routeDistance?fmtDist(routeDistance):"--";
@@ -195,41 +198,112 @@ function ensureGreenWaveDrivingDashboardStyles(){
   `;
   document.head.appendChild(style);
 }
+function distanceMeters(lat1,lng1,lat2,lng2){
+  const R=6371000;
+  const toRad=v=>Number(v)*Math.PI/180;
+  const a1=toRad(lat1),a2=toRad(lat2);
+  const dLat=toRad(Number(lat2)-Number(lat1));
+  const dLng=toRad(Number(lng2)-Number(lng1));
+  const a=Math.sin(dLat/2)**2+Math.cos(a1)*Math.cos(a2)*Math.sin(dLng/2)**2;
+  return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+}
+function routePointLatLng(p){
+  return{lat:Number(p[1]),lng:Number(p[0])};
+}
+function computeRouteProgress(){
+  if(!state.route||!Array.isArray(state.route.geometry)||state.route.geometry.length<2)return null;
+  const pos=state.position;
+  if(!pos||!Number.isFinite(Number(pos.lat))||!Number.isFinite(Number(pos.lng))){
+    return{remainingMeters:Number(state.route.distance||0)||null,nearestDistance:null,progressRatio:0};
+  }
+
+  let total=0;
+  const segs=[];
+  for(let i=0;i<state.route.geometry.length-1;i++){
+    const a=routePointLatLng(state.route.geometry[i]);
+    const b=routePointLatLng(state.route.geometry[i+1]);
+    const len=distanceMeters(a.lat,a.lng,b.lat,b.lng);
+    segs.push({a,b,len,start:total});
+    total+=len;
+  }
+  if(!total)total=Number(state.route.distance||0)||0;
+
+  let best={distance:Infinity,along:0};
+  for(const seg of segs){
+    const projected=projectPointToSegmentMeters(Number(pos.lat),Number(pos.lng),seg.a.lat,seg.a.lng,seg.b.lat,seg.b.lng);
+    const d=projected.crossTrackMeters;
+    const along=seg.start+Math.max(0,Math.min(seg.len,projected.alongMeters));
+    if(d<best.distance)best={distance:d,along};
+  }
+
+  const remaining=Math.max(0,total-best.along);
+  const progressRatio=total?Math.max(0,Math.min(1,best.along/total)):0;
+  state.routeProgress={remainingMeters:remaining,nearestDistance:best.distance,progressRatio,totalMeters:total};
+  return state.routeProgress;
+}
+function projectPointToSegmentMeters(lat,lng,lat1,lng1,lat2,lng2){
+  const meanLat=((lat1+lat2+lat)/3)*Math.PI/180;
+  const mPerDegLat=111320;
+  const mPerDegLng=111320*Math.cos(meanLat);
+  const ax=lng1*mPerDegLng,ay=lat1*mPerDegLat;
+  const bx=lng2*mPerDegLng,by=lat2*mPerDegLat;
+  const px=lng*mPerDegLng,py=lat*mPerDegLat;
+  const vx=bx-ax,vy=by-ay;
+  const wx=px-ax,wy=py-ay;
+  const len2=vx*vx+vy*vy;
+  const t=len2?Math.max(0,Math.min(1,(wx*vx+wy*vy)/len2)):0;
+  const qx=ax+t*vx,qy=ay+t*vy;
+  const dx=px-qx,dy=py-qy;
+  return{alongMeters:Math.sqrt(len2)*t,crossTrackMeters:Math.sqrt(dx*dx+dy*dy)};
+}
+function estimateRemainingEtaSeconds(remainingMeters){
+  const routeDistance=Number(state.route?.distance||0);
+  const routeDuration=Number(state.route?.duration||0);
+  if(!remainingMeters||remainingMeters<=0)return 0;
+  if(routeDistance>0&&routeDuration>0){
+    const ratio=Math.max(0,Math.min(1,remainingMeters/routeDistance));
+    return Math.max(30,routeDuration*ratio);
+  }
+  const speedKmh=Number(state.displayedSpeedKmh);
+  const fallbackKmh=Number.isFinite(speedKmh)&&speedKmh>5?speedKmh:50;
+  return remainingMeters/(fallbackKmh/3.6);
+}
+function estimateFlowTargetSpeedKmh(speedKmh,remainingMeters){
+  const routeDistance=Number(state.route?.distance||0);
+  const routeDuration=Number(state.route?.duration||0);
+  const avgKmh=routeDistance>0&&routeDuration>0?(routeDistance/routeDuration)*3.6:null;
+  let target=50;
+  if(Number.isFinite(avgKmh)){
+    if(avgKmh<32)target=30;
+    else if(avgKmh<43)target=40;
+    else if(avgKmh<55)target=50;
+    else if(avgKmh<67)target=60;
+    else if(avgKmh<82)target=70;
+    else if(avgKmh<97)target=80;
+    else target=90;
+  }
+  if(Number.isFinite(speedKmh)&&speedKmh>target+20)target=Math.min(90,Math.round(speedKmh/10)*10-10);
+  if(remainingMeters&&remainingMeters<1200)target=Math.min(target,40);
+  if(remainingMeters&&remainingMeters<400)target=Math.min(target,30);
+  return target;
+}
 function greenWaveFlowAdvice(){
   const active=state.route&&Array.isArray(state.route.geometry)&&state.route.geometry.length>1;
   if(!active)return{title:"GreenWave",text:"Planlæg en rute for at få anbefalet jævn hastighed.",level:"neutral"};
   const speedKmh=Number.isFinite(Number(state.displayedSpeedKmh))?Math.max(0,Number(state.displayedSpeedKmh)):null;
-  const remaining=estimateRemainingRouteMeters();
+  const progress=computeRouteProgress();
+  const remaining=(progress?.remainingMeters??Number(state.route.distance||0))||null;
   const target=estimateFlowTargetSpeedKmh(speedKmh,remaining);
   let text=`Hold ca. ${target} km/t for jævn kørsel. Aktuel fart: ${speedKmh==null?"GPS-fart afventer":Math.round(speedKmh)+" km/t"}.`;
   let level="good";
   if(speedKmh!=null&&speedKmh>target+8){text=`Sænk roligt mod ca. ${target} km/t. Aktuel fart: ${Math.round(speedKmh)} km/t.`;level="warn";}
   else if(speedKmh!=null&&speedKmh<target-10&&speedKmh>5){text=`Øg roligt mod ca. ${target} km/t, hvis fartgrænsen tillader det. Aktuel fart: ${Math.round(speedKmh)} km/t.`;level="neutral";}
-  if(remaining&&remaining<700){text="Ruten er næsten færdig. Kør roligt og følg normal navigation.";level="neutral";}
-  return{title:"GreenWave flow · v1.11-gps-speed-real",text,level,targetSpeed:target,remainingMeters:remaining||null,currentSpeedKmh:speedKmh};
-}
-function estimateFlowTargetSpeedKmh(speedKmh,remainingMeters){
-  const base=Number.isFinite(speedKmh)&&speedKmh>70?70:50;
-  if(remainingMeters&&remainingMeters<1500)return Math.min(base,45);
-  if(Number.isFinite(speedKmh)&&speedKmh<35)return 40;
-  return base;
+  if(remaining&&remaining<500){text="Ruten er næsten færdig. Kør roligt og følg normal navigation.";level="neutral";}
+  return{title:"GreenWave flow · v1.12-real-drive-metrics",text,level,targetSpeed:target,remainingMeters:remaining||null,currentSpeedKmh:speedKmh,etaSeconds:estimateRemainingEtaSeconds(remaining)};
 }
 function estimateRemainingRouteMeters(){
-  if(!state.route||!Array.isArray(state.route.geometry)||!state.route.geometry.length)return null;
-  const pos=state.position;
-  if(!pos||!Number.isFinite(Number(pos.lat))||!Number.isFinite(Number(pos.lng)))return Number(state.route.distance||0)||null;
-  let nearestIndex=0,nearestDistance=Infinity;
-  for(let i=0;i<state.route.geometry.length;i++){
-    const p=state.route.geometry[i];
-    const d=distanceMeters(pos.lat,pos.lng,p[0],p[1]);
-    if(d<nearestDistance){nearestDistance=d;nearestIndex=i;}
-  }
-  let remaining=0;
-  for(let i=nearestIndex;i<state.route.geometry.length-1;i++){
-    const a=state.route.geometry[i],b=state.route.geometry[i+1];
-    remaining+=distanceMeters(a[0],a[1],b[0],b[1]);
-  }
-  return remaining;
+  const progress=computeRouteProgress();
+  return (progress?.remainingMeters??Number(state.route?.distance||0))||null;
 }
 function renderGreenWaveFlow(){
   const box=document.getElementById("greenwave-flow-card")||createGreenWaveFlowCard();
@@ -320,6 +394,15 @@ function handleGpsPosition(p,center){
   state.currentPosition=state.position;
   updateCurrentMarker({lat:current.lat,lng:current.lng},!!center);
 
+  if(state.route){
+    const remaining=estimateRemainingRouteMeters();
+    const etaSeconds=estimateRemainingEtaSeconds(remaining);
+    if(els.routeDistance)els.routeDistance.textContent=remaining?fmtDist(remaining):"--";
+    if(els.routeDuration)els.routeDuration.textContent=etaSeconds?fmtDur(etaSeconds):"--";
+    if(els.routeEta)els.routeEta.textContent=etaSeconds?formatEtaFromNow(etaSeconds):"--";
+    const target=estimateFlowTargetSpeedKmh(state.displayedSpeedKmh,remaining);
+    if(els.recommendedSpeed)els.recommendedSpeed.textContent=String(target);
+  }
   if(typeof renderGreenWaveDrivingDashboard==="function"&&state.greenwaveDrivingMode)renderGreenWaveDrivingDashboard();
   if(typeof renderGreenWaveFlow==="function")renderGreenWaveFlow();
 
