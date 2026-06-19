@@ -1,6 +1,6 @@
-const GREENWAVE_VERSION="v1.10-gps-speed";
+const GREENWAVE_VERSION="v1.11-gps-speed-real";
 const SKEY="greenwave_dk_settings_v2",HKEY="greenwave_dk_history_v2";
-const state={map:null,userMarker:null,destinationMarker:null,routeLine:null,routeGlow:null,fuelMarkers:[],currentPosition:null,destination:null,route:null,selectedAutocomplete:null,autocompleteTimer:null,watchId:null,stations:[],history:[],settings:{fuelType:"benzin95",maxFuelDetourMeters:2000,fuelAlongMeters:50000,fuelSort:"cheapest",routeMode:"fast"}};
+const state={map:null,userMarker:null,destinationMarker:null,routeLine:null,routeGlow:null,fuelMarkers:[],currentPosition:null,destination:null,route:null,selectedAutocomplete:null,autocompleteTimer:null,watchId:null,previousGpsPosition:null,displayedSpeedKmh:null,position:null,stations:[],history:[],settings:{fuelType:"benzin95",maxFuelDetourMeters:2000,fuelAlongMeters:50000,fuelSort:"cheapest",routeMode:"fast"}};
 const els={},ids=["map","destinationInput","goBtn","autocompleteResults","historySection","historyList","settingsBtn","settingsBackdrop","settingsModal","closeSettingsBtn","saveSettingsBtn","fuelTypeSelect","fuelDetourSelect","fuelAlongSelect","fuelSortSelect","routeModeSelect","statusText","recommendedSpeed","speedLimit","currentSpeed","reasonText","startBtn","stopBtn","recalcBtn","routeDistance","routeDuration","routeEta","fuelRefreshBtn","fuelSummary","fuelList"];
 document.addEventListener("DOMContentLoaded",()=>{ids.forEach(id=>els[id]=document.getElementById(id));bind();loadSettings();loadHistory();initMap();syncSettingsUi();renderHistory();setStatus("Klar");});
 function bind(){on(els.destinationInput,"input",()=>{state.selectedAutocomplete=null;clearTimeout(state.autocompleteTimer);state.autocompleteTimer=setTimeout(searchAutocomplete,250);});on(els.goBtn,"click",calculateRoute);on(els.startBtn,"click",startGreenWave);on(els.stopBtn,"click",stopGreenWave);on(els.recalcBtn,"click",calculateRoute);on(els.fuelRefreshBtn,"click",refreshFuel);on(els.settingsBtn,"click",openSettings);on(els.closeSettingsBtn,"click",closeSettings);on(els.settingsBackdrop,"click",closeSettings);on(els.saveSettingsBtn,"click",saveSettings);document.addEventListener("click",e=>{if(!e.target.closest(".search-card")&&!e.target.closest(".autocomplete"))hideAutocomplete();});}
@@ -105,7 +105,7 @@ function renderGreenWaveDrivingDashboard(){
   if(!dash)return;
 
   const advice=typeof greenWaveFlowAdvice==="function"?greenWaveFlowAdvice():{text:"GreenWave flow afventer rute/GPS.",level:"neutral"};
-  const speedKmh=state.position&&Number.isFinite(Number(state.position.speed))?Math.max(0,Number(state.position.speed)*3.6):null;
+  const speedKmh=Number.isFinite(Number(state.displayedSpeedKmh))?Math.max(0,Number(state.displayedSpeedKmh)):null;
   const routeDistance=Number(state.route?.distance||0);
   const routeDuration=Number(state.route?.duration||0);
   const remaining=typeof estimateRemainingRouteMeters==="function"?estimateRemainingRouteMeters():routeDistance;
@@ -198,7 +198,7 @@ function ensureGreenWaveDrivingDashboardStyles(){
 function greenWaveFlowAdvice(){
   const active=state.route&&Array.isArray(state.route.geometry)&&state.route.geometry.length>1;
   if(!active)return{title:"GreenWave",text:"Planlæg en rute for at få anbefalet jævn hastighed.",level:"neutral"};
-  const speedKmh=state.position&&Number.isFinite(Number(state.position.speed))?Math.max(0,Number(state.position.speed)*3.6):null;
+  const speedKmh=Number.isFinite(Number(state.displayedSpeedKmh))?Math.max(0,Number(state.displayedSpeedKmh)):null;
   const remaining=estimateRemainingRouteMeters();
   const target=estimateFlowTargetSpeedKmh(speedKmh,remaining);
   let text=`Hold ca. ${target} km/t for jævn kørsel. Aktuel fart: ${speedKmh==null?"GPS-fart afventer":Math.round(speedKmh)+" km/t"}.`;
@@ -206,7 +206,7 @@ function greenWaveFlowAdvice(){
   if(speedKmh!=null&&speedKmh>target+8){text=`Sænk roligt mod ca. ${target} km/t. Aktuel fart: ${Math.round(speedKmh)} km/t.`;level="warn";}
   else if(speedKmh!=null&&speedKmh<target-10&&speedKmh>5){text=`Øg roligt mod ca. ${target} km/t, hvis fartgrænsen tillader det. Aktuel fart: ${Math.round(speedKmh)} km/t.`;level="neutral";}
   if(remaining&&remaining<700){text="Ruten er næsten færdig. Kør roligt og følg normal navigation.";level="neutral";}
-  return{title:"GreenWave flow · v1.10-gps-speed",text,level,targetSpeed:target,remainingMeters:remaining||null,currentSpeedKmh:speedKmh};
+  return{title:"GreenWave flow · v1.11-gps-speed-real",text,level,targetSpeed:target,remainingMeters:remaining||null,currentSpeedKmh:speedKmh};
 }
 function estimateFlowTargetSpeedKmh(speedKmh,remainingMeters){
   const base=Number.isFinite(speedKmh)&&speedKmh>70?70:50;
@@ -297,9 +297,46 @@ function drawRoute(g){if(!state.map||typeof L==="undefined")return;if(state.rout
 function drawFuelMarkers(){if(!state.map||typeof L==="undefined")return;state.fuelMarkers.forEach(m=>state.map.removeLayer(m));state.fuelMarkers=[];state.stations.slice(0,20).forEach(s=>{const label=isValidFuelPrice(s.price)?formatFuelPriceShort(s.price):(s.brand||s.name||"Fuel").slice(0,8);state.fuelMarkers.push(L.marker([s.lat,s.lng],{icon:L.divIcon({className:"fuel-marker",html:esc(label)})}).addTo(state.map));});}
 function updateCurrentMarker(p,center){if(!state.map||typeof L==="undefined")return;if(!state.userMarker)state.userMarker=L.circleMarker([p.lat,p.lng],{radius:9,color:"#8fb7ff",fillColor:"#2e78ff",fillOpacity:.9}).addTo(state.map);else state.userMarker.setLatLng([p.lat,p.lng]);if(center)state.map.setView([p.lat,p.lng],14);}
 function updateDestinationMarker(d){if(!state.map||typeof L==="undefined")return;if(state.destinationMarker)state.map.removeLayer(state.destinationMarker);state.destinationMarker=L.marker([d.lat,d.lng]).addTo(state.map);}
-function getCurrentPosition(){return new Promise((res,rej)=>{if(!navigator.geolocation)return rej(new Error("GPS ikke tilgængelig"));navigator.geolocation.getCurrentPosition(p=>res({lat:p.coords.latitude,lng:p.coords.longitude,speed:p.coords.speed||0}),e=>rej(new Error(e.message||"GPS-fejl")),{enableHighAccuracy:true,timeout:12000,maximumAge:3000});});}
-function startGreenWave(){if(!navigator.geolocation)return;els.startBtn.disabled=true;els.stopBtn.disabled=false;state.watchId=navigator.geolocation.watchPosition(p=>{els.currentSpeed.textContent=Math.round(Math.max(0,(p.coords.speed||0)*3.6));updateCurrentMarker({lat:p.coords.latitude,lng:p.coords.longitude},false);},console.warn,{enableHighAccuracy:true,maximumAge:1000,timeout:10000});}
-function stopGreenWave(){if(state.watchId)navigator.geolocation.clearWatch(state.watchId);state.watchId=null;els.startBtn.disabled=false;els.stopBtn.disabled=true;}
+function handleGpsPosition(p,center){
+  const current={lat:p.coords.latitude,lng:p.coords.longitude,timestamp:p.timestamp||Date.now()};
+  const nativeSpeedKmh=Number.isFinite(Number(p.coords.speed))&&Number(p.coords.speed)>=0?Number(p.coords.speed)*3.6:null;
+  const fallbackSpeedKmh=calculateFallbackSpeedKmh(current,state.previousGpsPosition);
+  let measuredSpeedKmh=nativeSpeedKmh;
+  if(!Number.isFinite(measuredSpeedKmh)&&Number.isFinite(fallbackSpeedKmh))measuredSpeedKmh=fallbackSpeedKmh;
+  if(Number.isFinite(measuredSpeedKmh)&&measuredSpeedKmh>180)measuredSpeedKmh=null;
+
+  if(Number.isFinite(measuredSpeedKmh)){
+    const previous=Number.isFinite(Number(state.displayedSpeedKmh))?Number(state.displayedSpeedKmh):measuredSpeedKmh;
+    state.displayedSpeedKmh=(previous*0.65)+(measuredSpeedKmh*0.35);
+    if(els.currentSpeed)els.currentSpeed.textContent=Math.round(state.displayedSpeedKmh);
+    if(els.statusText)els.statusText.textContent=`GPS-fart ${Math.round(state.displayedSpeedKmh)} km/t`;
+  }else{
+    if(els.currentSpeed)els.currentSpeed.textContent="--";
+    if(els.statusText)els.statusText.textContent="GPS-fart afventer";
+  }
+
+  state.previousGpsPosition=current;
+  state.position={lat:current.lat,lng:current.lng,speed:Number.isFinite(Number(state.displayedSpeedKmh))?Number(state.displayedSpeedKmh)/3.6:null,timestamp:current.timestamp};
+  state.currentPosition=state.position;
+  updateCurrentMarker({lat:current.lat,lng:current.lng},!!center);
+
+  if(typeof renderGreenWaveDrivingDashboard==="function"&&state.greenwaveDrivingMode)renderGreenWaveDrivingDashboard();
+  if(typeof renderGreenWaveFlow==="function")renderGreenWaveFlow();
+
+  console.log("GPS speed",{raw:p.coords.speed,calculatedFallback:fallbackSpeedKmh,displayed:state.displayedSpeedKmh});
+}
+function calculateFallbackSpeedKmh(current,previous){
+  if(!current||!previous)return null;
+  const seconds=(Number(current.timestamp)-Number(previous.timestamp))/1000;
+  if(!Number.isFinite(seconds)||seconds<1||seconds>30)return null;
+  const meters=distanceMeters(previous.lat,previous.lng,current.lat,current.lng);
+  const kmh=(meters/seconds)*3.6;
+  if(!Number.isFinite(kmh)||kmh<0||kmh>180)return null;
+  return kmh;
+}
+function getCurrentPosition(){return new Promise((res,rej)=>{if(!navigator.geolocation)return rej(new Error("GPS ikke tilgængelig"));navigator.geolocation.getCurrentPosition(p=>{handleGpsPosition(p,true);res({lat:p.coords.latitude,lng:p.coords.longitude,speed:Number.isFinite(Number(state.displayedSpeedKmh))?Number(state.displayedSpeedKmh)/3.6:0});},e=>rej(new Error(e.message||"GPS-fejl")),{enableHighAccuracy:true,timeout:12000,maximumAge:3000});});}
+function startGreenWave(){if(!navigator.geolocation){setStatus("GPS ikke tilgængelig");return;}els.startBtn.disabled=true;els.stopBtn.disabled=false;state.previousGpsPosition=null;state.displayedSpeedKmh=null;if(els.currentSpeed)els.currentSpeed.textContent="--";if(els.statusText)els.statusText.textContent="GPS-fart afventer";state.watchId=navigator.geolocation.watchPosition(p=>handleGpsPosition(p,false),e=>{console.warn(e);if(els.statusText)els.statusText.textContent=e.message||"GPS-fejl";},{enableHighAccuracy:true,maximumAge:1000,timeout:10000});}
+function stopGreenWave(){if(state.watchId)navigator.geolocation.clearWatch(state.watchId);state.watchId=null;els.startBtn.disabled=false;els.stopBtn.disabled=true;state.previousGpsPosition=null;}
 function updateTrip(r){els.routeDistance.textContent=fmtDist(r.distance);els.routeDuration.textContent=fmtDur(r.duration);els.routeEta.textContent=new Date(Date.now()+r.duration*1000).toLocaleTimeString("da-DK",{hour:"2-digit",minute:"2-digit"});}
 function loadSettings(){try{state.settings={...state.settings,...JSON.parse(localStorage.getItem(SKEY)||"{}")};}catch{}}
 function saveSettings(){state.settings.fuelType=els.fuelTypeSelect.value;state.settings.maxFuelDetourMeters=Number(els.fuelDetourSelect.value);state.settings.fuelAlongMeters=Number(els.fuelAlongSelect.value);state.settings.fuelSort=els.fuelSortSelect.value;state.settings.routeMode=els.routeModeSelect.value;localStorage.setItem(SKEY,JSON.stringify(state.settings));closeSettings();if(state.route)refreshFuel();}
