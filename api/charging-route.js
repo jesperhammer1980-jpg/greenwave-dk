@@ -6,6 +6,7 @@ const OVERPASS_ENDPOINTS = [
 
 const Q8_F24_CHARGING_PRICES_URL_ENV = "Q8_F24_CHARGING_PRICES_URL";
 const CHARGING_PRICE_MATCH_MAX_METERS = 300;
+const NO_ACTIVE_CHARGING_PRICE_MESSAGE = "Ladepunkter fundet via OSM. Ingen aktiv priskilde til kr/kWh.";
 
 export default async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store");
@@ -37,6 +38,7 @@ export default async function handler(req, res) {
     const priceData = priceResult.status === "fulfilled"
       ? priceResult.value
       : { sources: [sourceError("q8-f24-charging-api", "Q8/F24 charging price API", priceResult.reason)], stations: [], operatorGuidance: [] };
+    const pricing = pricingMetadata(priceData);
 
     if (osmResult.status !== "fulfilled" || !osmResult.value.ok) {
       const debug = osmResult.status === "fulfilled"
@@ -49,6 +51,9 @@ export default async function handler(req, res) {
         input: { maxDetourMeters, fuelAlongMeters, geometryPoints: geometry.length, routeBbox: routeBbox(geometry, 0) },
         counts: { rawElements: 0, normalizedChargingPoints: 0, returned: 0 },
         sources: priceData.sources || [],
+        pricingSources: pricing.pricingSources,
+        pricingStatus: pricing.pricingStatus,
+        pricingMessage: pricing.pricingMessage,
         debug: { overpass: debug },
         chargingPoints: []
       });
@@ -58,7 +63,7 @@ export default async function handler(req, res) {
     const filtered = attached
       .filter(point => point.distanceToRoute <= maxDetourMeters)
       .filter(point => point.distanceAlongRoute <= fuelAlongMeters)
-      .map(point => attachChargingPrice(point, priceData))
+      .map(point => attachChargingPrice(point, priceData, pricing))
       .sort(sortChargingPoints);
 
     return res.status(200).json({
@@ -75,6 +80,9 @@ export default async function handler(req, res) {
         { id: "osm-overpass", name: "OSM Overpass charging stations", ok: true, stations: osmResult.value.chargingPoints.length },
         ...(priceData.sources || [])
       ],
+      pricingSources: pricing.pricingSources,
+      pricingStatus: pricing.pricingStatus,
+      pricingMessage: pricing.pricingMessage,
       debug: { overpass: osmResult.value.debug },
       chargingPoints: filtered.slice(0, 120).map(point => ({
         id: point.id,
@@ -200,6 +208,33 @@ async function fetchChargingPrices() {
   };
 }
 
+function pricingMetadata(priceData) {
+  const sources = Array.isArray(priceData?.sources) ? priceData.sources : [];
+  const active = sources
+    .filter(source => source.id !== "osm-overpass")
+    .filter(source => source.ok && source.configured !== false)
+    .map(source => ({
+      id: source.id,
+      name: source.name,
+      stations: Number(source.stations || 0),
+      operatorGuidance: Number(source.operatorGuidance || 0)
+    }));
+
+  if (!active.length) {
+    return {
+      pricingSources: [],
+      pricingStatus: "no-active-price-source",
+      pricingMessage: NO_ACTIVE_CHARGING_PRICE_MESSAGE
+    };
+  }
+
+  return {
+    pricingSources: active,
+    pricingStatus: "active-price-source",
+    pricingMessage: `Aktive ladepriskilder: ${active.map(source => source.name || source.id).join(", ")}.`
+  };
+}
+
 async function fetchQ8F24ChargingPrices() {
   const url = process.env[Q8_F24_CHARGING_PRICES_URL_ENV];
   if (!url) {
@@ -313,7 +348,7 @@ function normalizeQ8F24ChargingStation(item) {
   };
 }
 
-function attachChargingPrice(point, prices) {
+function attachChargingPrice(point, prices, pricing) {
   const match = findNearestChargingPrice(point, prices.stations || []);
   if (match) {
     return {
@@ -343,8 +378,8 @@ function attachChargingPrice(point, prices) {
     priceKwh: null,
     priceSource: null,
     priceQuality: "unknown",
-    matchStatus: "no-price",
-    matchReason: "Pris ikke tilgængelig fra dokumenteret kilde"
+    matchStatus: pricing?.pricingStatus === "no-active-price-source" ? "no-active-price-source" : "no-price",
+    matchReason: pricing?.pricingStatus === "no-active-price-source" ? "Ingen aktiv priskilde" : "Pris ikke tilgængelig fra dokumenteret kilde"
   };
 }
 
