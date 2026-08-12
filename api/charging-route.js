@@ -98,6 +98,7 @@ export default async function handler(req, res) {
         powerKw: point.powerKw || null,
         connectorType: point.connectorType || null,
         ...chargingPriceFields(point),
+        ...chargingAvailabilityFields(point),
         matchStatus: point.matchStatus || null,
         matchReason: point.matchReason || null
       }))
@@ -342,7 +343,8 @@ function normalizeQ8F24ChargingStation(item) {
     priceKwh: price.priceKwh,
     priceSource: "Q8/F24 API",
     priceQuality: "station-specific",
-    productName: price.productName || null
+    productName: price.productName || null,
+    ...extractChargingAvailability(item, "Q8/F24 charging price API")
   };
 }
 
@@ -355,6 +357,7 @@ function attachChargingPrice(point, prices, pricing) {
       priceSource: match.priceSource,
       priceSourceUrl: match.priceSourceUrl || null,
       priceUpdatedAt: match.priceUpdatedAt || null,
+      ...chargingAvailabilityFields(match),
       priceQuality: "station-specific",
       matchStatus: "matched",
       matchReason: "Stationsspecifik ladepris matchet via koordinater"
@@ -447,6 +450,42 @@ function chargingPriceFields(point) {
   };
 }
 
+function chargingAvailabilityFields(point) {
+  const available = validConnectorCount(point.availableConnectors);
+  const occupied = validConnectorCount(point.occupiedConnectors);
+  const total = validConnectorCount(point.totalConnectors);
+  const unknown = validConnectorCount(point.unknownConnectors);
+  const live = point.availabilityIsLive === true;
+  const status = String(point.availabilityStatus || "unknown").trim() || "unknown";
+  const hasLiveCounts = [available, occupied, unknown].some(value => value !== null);
+
+  if (live && (hasLiveCounts || status !== "unknown")) {
+    return {
+      availabilityStatus: status,
+      availableConnectors: available,
+      occupiedConnectors: occupied,
+      totalConnectors: total,
+      unknownConnectors: unknown,
+      availabilityUpdatedAt: point.availabilityUpdatedAt || null,
+      availabilitySource: point.availabilitySource || point.source || "documented charging source",
+      availabilityIsLive: true,
+      availabilityLabel: point.availabilityLabel || "Live ledighed fra dokumenteret kilde"
+    };
+  }
+
+  return {
+    availabilityStatus: "unknown",
+    availableConnectors: null,
+    occupiedConnectors: null,
+    totalConnectors: null,
+    unknownConnectors: null,
+    availabilityUpdatedAt: null,
+    availabilitySource: "OSM",
+    availabilityIsLive: false,
+    availabilityLabel: "Ledighed ikke tilgængelig"
+  };
+}
+
 function findNearestChargingPrice(point, stations) {
   if (!hasCoordinate(Number(point.lat), Number(point.lng)) || point.providerKey === "unknown") return null;
   let best = null;
@@ -491,6 +530,30 @@ function extractOperatorGuidance(data, providerKey) {
       };
     })
     .filter(Boolean);
+}
+
+function extractChargingAvailability(item, source) {
+  const available = validConnectorCount(item.availableConnectors ?? item.available_connectors ?? item.available ?? item.freeConnectors ?? item.free_connectors ?? item.free ?? item.availableSpots);
+  const occupied = validConnectorCount(item.occupiedConnectors ?? item.occupied_connectors ?? item.occupied ?? item.busyConnectors ?? item.busy_connectors ?? item.busy);
+  const total = validConnectorCount(item.totalConnectors ?? item.total_connectors ?? item.total ?? item.connectorCount ?? item.connectorsCount ?? item.numberOfConnectors);
+  const unknown = validConnectorCount(item.unknownConnectors ?? item.unknown_connectors ?? item.unknown);
+  const status = String(item.availabilityStatus ?? item.availability_status ?? item.status ?? item.connectorStatus ?? "").trim();
+  const updatedAt = item.availabilityUpdatedAt ?? item.availability_updated_at ?? item.lastUpdated ?? item.updatedAt ?? item.last_updated ?? null;
+  const hasLiveAvailability = [available, occupied, unknown].some(value => value !== null) || Boolean(status);
+
+  if (!hasLiveAvailability) return {};
+
+  return {
+    availabilityStatus: status || "unknown",
+    availableConnectors: available,
+    occupiedConnectors: occupied,
+    totalConnectors: total,
+    unknownConnectors: unknown,
+    availabilityUpdatedAt: updatedAt,
+    availabilitySource: source,
+    availabilityIsLive: true,
+    availabilityLabel: "Live ledighed fra dokumenteret kilde"
+  };
 }
 
 function extractChargePrice(item) {
@@ -730,6 +793,11 @@ function coordPair(a, b, source) {
 
 function hasCoordinate(lat, lng) {
   return Number.isFinite(lat) && Number.isFinite(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
+}
+
+function validConnectorCount(value) {
+  const count = Number(value);
+  return Number.isFinite(count) && count >= 0 ? Math.round(count) : null;
 }
 
 function isValidChargePrice(value) {
