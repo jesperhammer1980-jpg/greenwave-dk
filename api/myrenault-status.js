@@ -4,7 +4,7 @@ const CONNECTED_MESSAGE = "Batteristatus fra MyRenault";
 const DEFAULT_GIGYA_BASE_URL = "https://accounts.eu1.gigya.com";
 const DEFAULT_KAMEREON_BASE_URL = "https://api-wired-prod-1-euw1.wrd-aws.com";
 const DEFAULT_TIMEOUT_MS = 15000;
-const DEFAULT_STALE_MINUTES = 180;
+const DEFAULT_STALE_MINUTES = 2880;
 
 export default async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store");
