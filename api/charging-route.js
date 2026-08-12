@@ -97,9 +97,7 @@ export default async function handler(req, res) {
         distanceAlongRoute: Math.round(point.distanceAlongRoute),
         powerKw: point.powerKw || null,
         connectorType: point.connectorType || null,
-        priceKwh: isValidChargePrice(point.priceKwh) ? Number(point.priceKwh) : null,
-        priceSource: point.priceSource || null,
-        priceQuality: point.priceQuality || "unknown",
+        ...chargingPriceFields(point),
         matchStatus: point.matchStatus || null,
         matchReason: point.matchReason || null
       }))
@@ -355,6 +353,8 @@ function attachChargingPrice(point, prices, pricing) {
       ...point,
       priceKwh: Number(match.priceKwh),
       priceSource: match.priceSource,
+      priceSourceUrl: match.priceSourceUrl || null,
+      priceUpdatedAt: match.priceUpdatedAt || null,
       priceQuality: "station-specific",
       matchStatus: "matched",
       matchReason: "Stationsspecifik ladepris matchet via koordinater"
@@ -367,6 +367,8 @@ function attachChargingPrice(point, prices, pricing) {
       ...point,
       priceKwh: Number(guidance.priceKwh),
       priceSource: guidance.priceSource,
+      priceSourceUrl: guidance.priceSourceUrl || null,
+      priceUpdatedAt: guidance.priceUpdatedAt || null,
       priceQuality: "operator-guidance",
       matchStatus: "operator-guidance",
       matchReason: "Vejledende operatørpris, ikke stationsspecifik"
@@ -376,10 +378,72 @@ function attachChargingPrice(point, prices, pricing) {
   return {
     ...point,
     priceKwh: null,
+    priceMinKwh: null,
+    priceMaxKwh: null,
+    priceCurrency: "DKK",
+    priceLabel: "Pris ikke tilgængelig",
     priceSource: null,
+    priceSourceUrl: null,
+    priceUpdatedAt: null,
+    priceIsLive: false,
+    priceIsStationSpecific: false,
+    priceConfidence: "none",
     priceQuality: "unknown",
     matchStatus: pricing?.pricingStatus === "no-active-price-source" ? "no-active-price-source" : "no-price",
     matchReason: pricing?.pricingStatus === "no-active-price-source" ? "Ingen aktiv priskilde" : "Pris ikke tilgængelig fra dokumenteret kilde"
+  };
+}
+
+function chargingPriceFields(point) {
+  const price = isValidChargePrice(point.priceKwh) ? Number(point.priceKwh) : null;
+  const min = isValidChargePrice(point.priceMinKwh) ? Number(point.priceMinKwh) : null;
+  const max = isValidChargePrice(point.priceMaxKwh) ? Number(point.priceMaxKwh) : null;
+  const quality = String(point.priceQuality || "unknown");
+  const base = {
+    priceKwh: price,
+    priceMinKwh: min,
+    priceMaxKwh: max,
+    priceCurrency: point.priceCurrency || "DKK",
+    priceSource: point.priceSource || "none",
+    priceSourceUrl: point.priceSourceUrl || null,
+    priceUpdatedAt: point.priceUpdatedAt || null
+  };
+
+  if (quality === "station-specific" && price !== null) {
+    return {
+      ...base,
+      priceLabel: point.priceLabel || "Stationsspecifik ladepris",
+      priceIsLive: point.priceIsLive !== false,
+      priceIsStationSpecific: true,
+      priceConfidence: point.priceConfidence || "high",
+      priceQuality: "station-specific"
+    };
+  }
+
+  if (quality === "operator-guidance" && (price !== null || min !== null || max !== null)) {
+    return {
+      ...base,
+      priceLabel: point.priceLabel || "Vejledende operatørpris",
+      priceIsLive: false,
+      priceIsStationSpecific: false,
+      priceConfidence: point.priceConfidence || "low",
+      priceQuality: "operator-guidance"
+    };
+  }
+
+  return {
+    priceKwh: null,
+    priceMinKwh: null,
+    priceMaxKwh: null,
+    priceCurrency: "DKK",
+    priceLabel: "Pris ikke tilgængelig",
+    priceSource: "none",
+    priceSourceUrl: null,
+    priceUpdatedAt: null,
+    priceIsLive: false,
+    priceIsStationSpecific: false,
+    priceConfidence: "none",
+    priceQuality: "unknown"
   };
 }
 
