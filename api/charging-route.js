@@ -596,13 +596,32 @@ function haversine(lat1, lng1, lat2, lng2) {
 }
 
 function dedupe(items) {
-  const seen = new Set();
-  return items.filter(item => {
-    const key = item.id || `${Math.round(item.lat * 10000)}:${Math.round(item.lng * 10000)}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+  const kept = [];
+  for (const item of items) {
+    const provider = norm(item.providerKey || item.provider || "unknown");
+    const name = norm(item.name || "");
+    const nearDuplicate = kept.find(existing => {
+      if (norm(existing.providerKey || existing.provider || "unknown") !== provider) return false;
+      if (norm(existing.name || "") !== name) return false;
+      return haversine(Number(item.lat), Number(item.lng), Number(existing.lat), Number(existing.lng)) <= 50;
+    });
+
+    if (!nearDuplicate) {
+      kept.push(item);
+      continue;
+    }
+
+    if (chargingPointDataScore(item) > chargingPointDataScore(nearDuplicate)) {
+      kept[kept.indexOf(nearDuplicate)] = item;
+    }
+  }
+  return kept;
+}
+
+function chargingPointDataScore(item) {
+  return (Number(item.powerKw) || 0) +
+    (item.connectorType ? 10 : 0) +
+    (item.tags && Object.keys(item.tags).length ? 1 : 0);
 }
 
 function parseBody(body) {
