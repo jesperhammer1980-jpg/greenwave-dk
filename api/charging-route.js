@@ -20,7 +20,7 @@ export default async function handler(req, res) {
     const body = parseBody(req.body);
     const geometry = normalizeGeometry(body.geometry || body.coordinates || body.route?.geometry?.coordinates);
     const maxDetourMeters = clamp(Number(body.maxDetourMeters ?? body.maxDetour ?? 2000), 0, 20000);
-    const fuelAlongMeters = clamp(Number(body.fuelAlongMeters ?? body.fuelAlong ?? 50000), 0, 250000);
+    const fuelAlongMeters = clamp(Number(body.fuelAlongMeters ?? body.fuelAlong ?? 50000), 0, 500000);
 
     if (geometry.length < 2) {
       return res.status(400).json({
@@ -84,7 +84,7 @@ export default async function handler(req, res) {
       pricingStatus: pricing.pricingStatus,
       pricingMessage: pricing.pricingMessage,
       debug: { overpass: osmResult.value.debug },
-      chargingPoints: filtered.slice(0, 120).map(point => ({
+      chargingPoints: filtered.slice(0, 500).map(point => ({
         id: point.id,
         osmType: point.osmType,
         osmId: point.osmId,
